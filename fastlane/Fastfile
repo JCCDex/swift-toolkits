@@ -4,6 +4,39 @@
 # The lanes below orchestrate test execution and coverage generation
 # for both macOS and iOS Simulator targets.
 
+# ─── Simulator helpers ───────────────────────────────────────────────────────
+
+def latest_available_ios_runtime
+  sh("xcrun", "simctl", "list", "runtimes", "--json")
+    .then { |json| JSON.parse(json) }
+    .fetch("runtimes")
+    .select { |rt| rt["isAvailable"] == true && rt["name"] =~ /\AiOS /i && !rt["identifier"].downcase.include?("beta") }
+    .max_by { |rt| Gem::Version.new(rt["version"]) }
+end
+
+def compatible_iphone_device_type(preferred_name: nil, runtime:)
+  device_types = sh("xcrun", "simctl", "list", "devicetypes", "--json")
+                 .then { |json| JSON.parse(json) }
+                 .fetch("deviceTypes")
+
+  compatible_iphones = device_types.select do |dt|
+    next false unless dt["productFamily"] == "iPhone"
+
+    min_runtime = dt["minRuntimeVersion"]
+    max_runtime = dt["maxRuntimeVersion"]
+    runtime_version = runtime["version"]
+
+    min_supported = min_runtime.nil? || Gem::Version.new(dt["minRuntimeVersionString"]) <= Gem::Version.new(runtime_version)
+    max_supported = max_runtime.nil? || max_runtime == 4_294_967_295 || Gem::Version.new(dt["maxRuntimeVersionString"]) >= Gem::Version.new(runtime_version)
+
+    min_supported && max_supported
+  end
+
+  return compatible_iphones.find { |dt| dt["name"] == preferred_name } if preferred_name
+
+  compatible_iphones.max_by { |dt| Gem::Version.new(dt["minRuntimeVersionString"]) }
+end
+
 # ─── Coverage helpers ────────────────────────────────────────────────────────
 
 # Collect LLVM coverage data after an xcodebuild test run and produce both
@@ -129,40 +162,35 @@ platform :ios do
     coverage_dir = options[:output_dir] || "coverage"
     FileUtils.mkdir_p(coverage_dir)
 
+    runtime = latest_available_ios_runtime
+    if runtime.nil?
+      UI.user_error!("No available iOS runtime found")
+    end
+
+    device_type = compatible_iphone_device_type(preferred_name: device_name, runtime: runtime) ||
+                  compatible_iphone_device_type(runtime: runtime)
+
+    if device_type.nil?
+      UI.user_error!("No compatible iPhone simulator device type found for #{runtime["name"]}")
+    end
+
+    resolved_device_name = device_type["name"]
+
     # Resolve destination
     device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
                 .then { |json| JSON.parse(json) }
                 .then { |d| d["devices"] }
                 .values.flatten
-                .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
+                .find { |dev| dev["name"] == resolved_device_name && dev["isAvailable"] == true }
                 &.fetch("udid")
 
     if device_id.nil?
       # Create a new simulator
-      runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
-                .then { |json| JSON.parse(json) }
-                .then { |r| r["runtimes"] }
-                .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
-
-      if runtime.nil?
-        UI.user_error!("No available iOS runtime found")
-      end
-
-      device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
-                       .then { |json| JSON.parse(json) }
-                       .then { |d| d["deviceTypes"] }
-                       .find { |dt| dt["name"] =~ /iPhone 16/ }
-                       &.fetch("identifier")
-
-      if device_type_id.nil?
-        UI.user_error!("iPhone 16 device type not found")
-      end
-
-      device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
-      UI.message("Created simulator '#{device_name}' (#{device_id})")
+      device_id = sh("xcrun", "simctl", "create", resolved_device_name, device_type.fetch("identifier"), runtime.fetch("identifier")).strip
+      UI.message("Created simulator '#{resolved_device_name}' (#{device_id})")
     end
 
-    UI.message("Running tests on simulator #{device_id}")
+    UI.message("Running tests on simulator #{resolved_device_name} (#{device_id})")
 
     # Generate a unique DerivedData path for this run
     derived_data = "#{Dir.pwd}/.build/DerivedData/ios-coverage"
