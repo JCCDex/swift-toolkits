@@ -76,7 +76,11 @@ platform :ios do
     # Locate profdata and the test binary
     profdata = Dir.glob(".build/**/default.profdata").first
     if profdata.nil?
-      UI.user_error!("default.profdata not found — did swift test succeed?")
+      # Fallback: grab the most recent .profdata
+      profdata = Dir.glob(".build/**/*.profdata").max_by { |f| File.mtime(f) }
+    end
+    if profdata.nil?
+      UI.user_error!("No .profdata file found under .build/ — did swift test succeed?")
     end
 
     # SPM test binary name varies; find the package tests executable
@@ -130,7 +134,7 @@ platform :ios do
 
       device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
                        .then { |json| JSON.parse(json) }
-                       .then { |d| d["deviceTypes"] }
+                       .then { |d| d["devicetypes"] }
                        .find { |dt| dt["name"] =~ /iPhone 16/ }
                        &.fetch("identifier")
 
