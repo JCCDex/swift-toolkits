@@ -94,9 +94,14 @@ platform :ios do
       profdata = profdata_path
     end
 
-    # SPM test binary name varies; find the package tests executable
+    # SPM test binary name varies; find the package tests executable.
+    # On macOS the SPM-native build produces a flat binary directly under
+    # .build/<config>/ (no .xctest bundle), while xcodebuild wraps it in a
+    # .xctest bundle.  Try all known locations.
     test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
-                  Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first
+                  Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first ||
+                  Dir.glob(".build/debug/swift-toolkitsPackageTests").first ||
+                  Dir.glob(".build/release/swift-toolkitsPackageTests").first
 
     if test_binary.nil?
       UI.user_error!("Test binary not found under .build/")
