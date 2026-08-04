@@ -11,14 +11,14 @@ final class ProtobufVaultStoreDriver: VaultStoreDriver {
     }
 
     func load() throws -> VaultStoreSnapshot {
-        guard fileManager.fileExists(atPath: storageURL.path) else {
+        guard self.fileManager.fileExists(atPath: self.storageURL.path) else {
             return VaultStoreSnapshot()
         }
 
         let data = try Data(contentsOf: storageURL)
         let vault = try Vault(serializedBytes: data)
         return VaultStoreSnapshot(
-            password: mapPassword(vault.password),
+            password: self.mapPassword(vault.password),
             keys: vault.keys.map {
                 VaultEncryptedRecord(
                     address: $0.address,
@@ -48,7 +48,7 @@ final class ProtobufVaultStoreDriver: VaultStoreDriver {
     func save(_ snapshot: VaultStoreSnapshot) throws {
         var vault = Vault()
         if let password = snapshot.password {
-            vault.password = mapPassword(password)
+            vault.password = self.mapPassword(password)
         }
         vault.keys = snapshot.keys.map {
             var entry = PrivateKeyEntry()
@@ -80,9 +80,9 @@ final class ProtobufVaultStoreDriver: VaultStoreDriver {
             vault.biometric = entry
         }
 
-        let directoryURL = storageURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        try vault.serializedData().write(to: storageURL, options: .atomic)
+        let directoryURL = self.storageURL.deletingLastPathComponent()
+        try self.fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try vault.serializedData().write(to: self.storageURL, options: .atomic)
     }
 
     private func mapPassword(_ entry: PasswordEntry) -> PasswordEnvelope? {
@@ -112,5 +112,4 @@ final class ProtobufVaultStoreDriver: VaultStoreDriver {
         entry.keyByteCount = Int32(envelope.keyByteCount)
         return entry
     }
-
 }

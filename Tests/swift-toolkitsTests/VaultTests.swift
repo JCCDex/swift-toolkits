@@ -1,28 +1,28 @@
 import Foundation
-import Testing
 @testable import SwiftVault
+import Testing
 
-@Test func vaultRepositorySingletonIsCached() {
+@Test func `vault repository singleton is cached`() {
     let first = VaultRepository.get()
     let second = VaultRepository.get()
 
     #expect(first === second)
 }
 
-@Test func initializeAndVerifyPassword() async throws {
+@Test func `initialize and verify password`() async throws {
     let repo = makeRepository()
     let password = Data("123456789ab@][".utf8)
     let newPassword = Data("1234".utf8)
 
-    #expect(!(try await repo.verifyPassword(password)))
+    #expect(try await !(repo.verifyPassword(password)))
     #expect(try await repo.initializePassword(password))
     #expect(try await repo.verifyPassword(password))
-    #expect(!(try await repo.initializePassword(newPassword)))
+    #expect(try await !(repo.initializePassword(newPassword)))
     #expect(try await repo.verifyPassword(password))
-    #expect(!(try await repo.verifyPassword(newPassword)))
+    #expect(try await !(repo.verifyPassword(newPassword)))
 }
 
-@Test func importMnemonicDuplicateAddressDoesNothing() async throws {
+@Test func `import mnemonic duplicate address does nothing`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let originalMnemonic = Data("evolve paddle gun glance swap clarify shoe youth sweet air change chunk".utf8)
@@ -43,7 +43,7 @@ import Testing
     #expect(try await repo.getPrivateKey(address: address, password: password) == originalPrivateKey)
 }
 
-@Test func importMnemonicDuplicateAddressCaseInsensitive() async throws {
+@Test func `import mnemonic duplicate address case insensitive`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let mnemonic = Data("evolve paddle gun glance swap clarify shoe youth sweet air change chunk".utf8)
@@ -58,7 +58,7 @@ import Testing
     #expect(try await repo.getMnemonic(address: address, password: password) == mnemonic)
 }
 
-@Test func importSecretDuplicateAddressDoesNothing() async throws {
+@Test func `import secret duplicate address does nothing`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let originalPrivateKey = Data("c626df52d7e76721aaae04cf5ce188e53f73369afc8767b1889e2b0cbd599766".utf8)
@@ -79,7 +79,7 @@ import Testing
     #expect(try await repo.getPrivateKey(address: address, password: password) == originalPrivateKey)
 }
 
-@Test func importSecretDuplicateAddressCaseInsensitive() async throws {
+@Test func `import secret duplicate address case insensitive`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let privateKey = Data("c626df52d7e76721aaae04cf5ce188e53f73369afc8767b1889e2b0cbd599766".utf8)
@@ -94,7 +94,7 @@ import Testing
     #expect(try await repo.getSecret(address: address, password: password) == secret)
 }
 
-@Test func importMnemonicAndReadBack() async throws {
+@Test func `import mnemonic and read back`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let mnemonic = Data("evolve paddle gun glance swap clarify shoe youth sweet air change chunk".utf8)
@@ -119,7 +119,7 @@ import Testing
     }
 }
 
-@Test func importChineseMnemonicAndPreserveLanguage() async throws {
+@Test func `import chinese mnemonic and preserve language`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let mnemonic = Data("贯 致 拌 龄 片 题 桑 耗 及 同 巨 级".utf8)
@@ -147,7 +147,7 @@ import Testing
     #expect(try await repo.getMnemonic(address: address.lowercased(), password: password) == mnemonic)
 }
 
-@Test func importChineseMnemonicSubAccount() async throws {
+@Test func `import chinese mnemonic sub account`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let mnemonic = Data("贯 致 拌 龄 片 题 桑 耗 及 同 巨 级".utf8)
@@ -167,7 +167,7 @@ import Testing
     #expect(try await repo.getMnemonic(address: address, password: password) == mnemonic)
 }
 
-@Test func importPrivateKeyAndBatchImportDeduplicates() async throws {
+@Test func `import private key and batch import deduplicates`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let privateKey = Data("000E92D1F81827F19D1D1EF46AE4608DD5F5AD658ED973BABE631D279BFC4B0FF3".utf8)
@@ -201,7 +201,7 @@ import Testing
     #expect(try await repo.getPrivateKey(address: address2, password: password) == privateKey2)
 }
 
-@Test func importSecretAndReadBack() async throws {
+@Test func `import secret and read back`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let privateKey = Data("c626df52d7e76721aaae04cf5ce188e53f73369afc8767b1889e2b0cbd599766".utf8)
@@ -221,7 +221,7 @@ import Testing
     }
 }
 
-@Test func changePasswordMigratesAllEntries() async throws {
+@Test func `change password migrates all entries`() async throws {
     let repo = makeRepository()
     let oldPassword = Data("123456789ab@][".utf8)
     let newPassword = Data("1234".utf8)
@@ -257,7 +257,7 @@ import Testing
     }
 }
 
-@Test func removeAddressRemovesAllAssociatedRecords() async throws {
+@Test func `remove address removes all associated records`() async throws {
     let repo = try await populatedRepositoryForRemovalTests()
     let password = Data("1234".utf8)
     let address = "0X6DB849ED4CE8FE95044BFFBFE4D291AF34B4445D"
@@ -270,13 +270,13 @@ import Testing
     #expect(Set(wallets) == Set([address, chineseAddress, chineseAddress1, address1, address2]))
 
     try await repo.removeAddress(address: address.lowercased(), password: password)
-    #expect(Set(try await repo.listAccounts()) == Set([chineseAddress, chineseAddress1, address1, address2]))
+    #expect(try await Set(repo.listAccounts()) == Set([chineseAddress, chineseAddress1, address1, address2]))
 
     try await repo.removeAddress(address: chineseAddress.lowercased(), password: password)
     try await repo.removeAddress(address: chineseAddress1.lowercased(), password: password)
     try await repo.removeAddress(address: address1.lowercased(), password: password)
     try await repo.removeAddress(address: address2.lowercased(), password: password)
-    #expect((try await repo.listAccounts()).isEmpty)
+    #expect(try await (repo.listAccounts()).isEmpty)
 
     await #expect(throws: VaultError.mnemonicNotFound) { try await repo.getMnemonic(address: address, password: password) }
     await #expect(throws: VaultError.privateKeyNotFound) { try await repo.getPrivateKey(address: address, password: password) }
@@ -285,7 +285,7 @@ import Testing
     await #expect(throws: VaultError.wrongPassword) { try await repo.removeAddress(address: address1.lowercased(), password: Data("1".utf8)) }
 }
 
-@Test func listAccountsAndHasPassword() async throws {
+@Test func `list accounts and has password`() async throws {
     let repo = makeRepository()
     let password = Data("vault-pass".utf8)
     let address = "0XABC123"
@@ -295,13 +295,13 @@ import Testing
     try await repo.importPrivateKey(address: address, privateKey: privateKey)
 
     #expect(try await repo.hasPassword())
-    #expect((try await repo.listAccounts()).contains(address))
+    #expect(try await (repo.listAccounts()).contains(address))
 }
 
-@Test func biometricLifecycle() async throws {
+@Test func `biometric lifecycle`() async throws {
     let repo = makeRepository()
 
-    #expect(!(try await repo.hasBiometric()))
+    #expect(try await !(repo.hasBiometric()))
     await #expect(throws: VaultError.biometricNotFound) { try await repo.getBiometric() }
 
     let iv = Data("bio-iv".utf8)
@@ -314,11 +314,11 @@ import Testing
     #expect(biometric.ciphertext == ciphertext)
 
     try await repo.clearBiometric()
-    #expect(!(try await repo.hasBiometric()))
+    #expect(try await !(repo.hasBiometric()))
     await #expect(throws: VaultError.biometricNotFound) { try await repo.getBiometric() }
 }
 
-@Test func isUnlockedAfterInitLockUnlockCycle() async throws {
+@Test func `is unlocked after init lock unlock cycle`() async throws {
     let repo = makeRepository()
     let password = Data("123456789ab@][".utf8)
 
@@ -326,15 +326,15 @@ import Testing
     _ = try await repo.initializePassword(password)
     #expect(await repo.isUnlocked)
     await repo.lock()
-    #expect(!(await repo.isUnlocked))
+    #expect(await !(repo.isUnlocked))
     #expect(try await repo.unlock(password))
     #expect(await repo.isUnlocked)
     await repo.lock()
-    #expect(!(await repo.isUnlocked))
-    #expect(!(try await repo.unlock(Data("wrong".utf8))))
+    #expect(await !(repo.isUnlocked))
+    #expect(try await !(repo.unlock(Data("wrong".utf8))))
 }
 
-@Test func lockUnlockCycleAllowsInternalReadAgain() async throws {
+@Test func `lock unlock cycle allows internal read again`() async throws {
     let repo = makeRepository()
     let password = Data("123456789ab@][".utf8)
     let key = Data("48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".utf8)
@@ -345,12 +345,12 @@ import Testing
     try await repo.importPrivateKey(address: address, privateKey: key)
     await repo.lock()
 
-    #expect(!(await repo.isUnlocked))
+    #expect(await !(repo.isUnlocked))
     #expect(try await repo.unlock(password))
     #expect(try await repo.getPrivateKeyInternal(address: address) == key)
 }
 
-@Test func hmacProofVerificationAndPasswordMigration() async throws {
+@Test func `hmac proof verification and password migration`() async throws {
     let repo = makeRepository()
     let oldPassword = Data("oldPassword123".utf8)
     let newPassword = Data("newPassword456".utf8)
@@ -358,31 +358,31 @@ import Testing
     try await repo.clearAllData()
     _ = try await repo.initializePassword(oldPassword)
     #expect(try await repo.verifyPassword(oldPassword))
-    #expect(!(try await repo.verifyPassword(Data("wrong".utf8))))
+    #expect(try await !(repo.verifyPassword(Data("wrong".utf8))))
     #expect(try await repo.unlock(oldPassword))
     #expect(await repo.isUnlocked)
 
     try await repo.changePassword(oldPassword: oldPassword, newPassword: newPassword)
     #expect(try await repo.verifyPassword(newPassword))
-    #expect(!(try await repo.verifyPassword(oldPassword)))
+    #expect(try await !(repo.verifyPassword(oldPassword)))
 }
 
-@Test func clearAllDataPasswordGate() async throws {
+@Test func `clear all data password gate`() async throws {
     let repo = makeRepository()
     let password = Data("testPassword".utf8)
 
     try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     try await repo.clearAllData(password: password)
-    #expect(!(try await repo.hasPassword()))
+    #expect(try await !(repo.hasPassword()))
 
     _ = try await repo.initializePassword(password)
     await #expect(throws: VaultError.wrongPassword) { try await repo.clearAllData(password: Data("wrong".utf8)) }
     try await repo.clearAllData()
-    #expect(!(try await repo.hasPassword()))
+    #expect(try await !(repo.hasPassword()))
 }
 
-@Test func internalReadRequiresUnlock() async throws {
+@Test func `internal read requires unlock`() async throws {
     let repo = makeRepository()
     let password = Data("testPassword123".utf8)
     let privateKey = Data("48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".utf8)
@@ -398,19 +398,19 @@ import Testing
     #expect(try await repo.getPrivateKeyInternal(address: address) == privateKey)
 }
 
-@Test func unlockWorksWithoutPersistedDerivedKey() async throws {
+@Test func `unlock works without persisted derived key`() async throws {
     let repo = makeRepository()
     let password = Data("testPassword123".utf8)
 
     try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     await repo.lock()
-    #expect(!(await repo.isUnlocked))
+    #expect(await !(repo.isUnlocked))
     #expect(try await repo.unlock(password))
     #expect(await repo.isUnlocked)
 }
 
-@Test func vaultPrivateKeyImportValueSemantics() {
+@Test func `vault private key import value semantics`() {
     let left = VaultPrivateKeyImport(address: "0xabc", privateKey: Data([1, 2, 3]))
     let right = VaultPrivateKeyImport(address: "0xabc", privateKey: Data([1, 2, 3]))
     let differentAddress = VaultPrivateKeyImport(address: "0xdef", privateKey: Data([1, 2, 3]))
@@ -422,7 +422,7 @@ import Testing
     #expect(left != differentKey)
 }
 
-@Test func wipeClearsByteAndCharacterArrays() {
+@Test func `wipe clears byte and character arrays`() {
     var bytes: [UInt8] = [1, 2, 3]
     var chars: [Character] = ["a", "b"]
 
@@ -433,13 +433,13 @@ import Testing
     #expect(chars == [Character(UnicodeScalar(0)), Character(UnicodeScalar(0))])
 }
 
-@Test func dataWipeClearsBytes() {
+@Test func `data wipe clears bytes`() {
     var data = Data([0xAB, 0xCD, 0xEF])
     data.wipe()
     #expect(data == Data([0, 0, 0]))
 }
 
-@Test func wipeOnEmptyArraysIsNoOp() {
+@Test func `wipe on empty arrays is no op`() {
     var bytes: [UInt8] = []
     var chars: [Character] = []
     var data = Data()
@@ -453,7 +453,7 @@ import Testing
     #expect(data.isEmpty)
 }
 
-@Test func argon2ChooserReturnsPositiveParameters() {
+@Test func `argon 2 chooser returns positive parameters`() {
     let params = Argon2ParamChooser.choose(physicalMemoryBytes: 512 * 1024 * 1024)
     let largeHeapParams = Argon2ParamChooser.choose(preferLargeHeap: true, physicalMemoryBytes: 2 * 1024 * 1024 * 1024)
 
@@ -464,13 +464,13 @@ import Testing
     #expect(largeHeapParams.parallelism == 1)
 }
 
-@Test func protobufSerializerDefaultAndRoundTripEmptyVault() throws {
+@Test func `protobuf serializer default and round trip empty vault`() throws {
     let empty = Vault()
     let restored = try Vault(serializedBytes: empty.serializedData())
     #expect(restored == empty)
 }
 
-@Test func protobufStoreDriverMissingFileLoadsEmptySnapshot() throws {
+@Test func `protobuf store driver missing file loads empty snapshot`() throws {
     let driver = ProtobufVaultStoreDriver(storageURL: makeTemporaryVaultURL())
     let snapshot = try driver.load()
     #expect(snapshot.password == nil)
@@ -481,64 +481,64 @@ import Testing
 }
 
 #if canImport(Tink)
-@Test func tinkCipherUsesOpaqueCiphertextPayload() throws {
-    let cipher = TinkVaultCipher(
-        keysetName: "com.swifttoolkits.tests.\(UUID().uuidString)",
-        persistKeysetInKeychain: false
-    )
-    let plaintext = Data("tink-roundtrip".utf8)
-    let aad = Data("address:0xtink".utf8)
-
-    let payload = try cipher.encrypt(plaintext, key: Data(), aad: aad)
-
-    #expect(payload.iv.isEmpty)
-    #expect(!payload.ciphertext.isEmpty)
-    #expect(try cipher.decrypt(payload, key: Data(), aad: aad) == plaintext)
-}
-
-#if os(iOS)
-@Test func tinkProtobufPersistenceUsesOpaqueCiphertextOnIOS() async throws {
-    let vaultURL = makeTemporaryVaultURL()
-    let repo = VaultRepository(
-        storageURL: vaultURL,
-        cipher: TinkVaultCipher(
-            keysetName: "com.swifttoolkits.tests.pb.\(UUID().uuidString)",
+    @Test func `tink cipher uses opaque ciphertext payload`() throws {
+        let cipher = TinkVaultCipher(
+            keysetName: "com.swifttoolkits.tests.\(UUID().uuidString)",
             persistKeysetInKeychain: false
         )
-    )
-    let password = Data("tink-protobuf".utf8)
-    let privateKey = Data("0xopaque".utf8)
+        let plaintext = Data("tink-roundtrip".utf8)
+        let aad = Data("address:0xtink".utf8)
 
-    _ = try await repo.initializePassword(password)
-    try await repo.importPrivateKey(address: "0xTINKPB", privateKey: privateKey)
+        let payload = try cipher.encrypt(plaintext, key: Data(), aad: aad)
 
-    let storedData = try Data(contentsOf: vaultURL)
-    let vault = try Vault(serializedBytes: storedData)
+        #expect(payload.iv.isEmpty)
+        #expect(!payload.ciphertext.isEmpty)
+        #expect(try cipher.decrypt(payload, key: Data(), aad: aad) == plaintext)
+    }
 
-    #expect(vault.keys.count == 1)
-    #expect(vault.keys[0].iv.isEmpty)
-    #expect(!vault.keys[0].ciphertext.isEmpty)
-}
+    #if os(iOS)
+        @Test func `tink protobuf persistence uses opaque ciphertext on IOS`() async throws {
+            let vaultURL = makeTemporaryVaultURL()
+            let repo = VaultRepository(
+                storageURL: vaultURL,
+                cipher: TinkVaultCipher(
+                    keysetName: "com.swifttoolkits.tests.pb.\(UUID().uuidString)",
+                    persistKeysetInKeychain: false
+                )
+            )
+            let password = Data("tink-protobuf".utf8)
+            let privateKey = Data("0xopaque".utf8)
 
-@Test func tinkRepositoryRoundTripOnIOS() async throws {
-    let keysetName = "com.swifttoolkits.tests.repo.\(UUID().uuidString)"
-    let repo = VaultRepository(
-        storageURL: makeTemporaryVaultURL(),
-        cipher: TinkVaultCipher(keysetName: keysetName, persistKeysetInKeychain: false)
-    )
-    let password = Data("tink-password".utf8)
-    let privateKey = Data("0xtinkprivate".utf8)
-    let secret = Data("tink-secret".utf8)
+            _ = try await repo.initializePassword(password)
+            try await repo.importPrivateKey(address: "0xTINKPB", privateKey: privateKey)
 
-    #expect(try await repo.initializePassword(password))
-    try await repo.importSecret(address: "0xTINK", privateKey: privateKey, secret: secret)
-    await repo.lock()
+            let storedData = try Data(contentsOf: vaultURL)
+            let vault = try Vault(serializedBytes: storedData)
 
-    #expect(try await repo.unlock(password))
-    #expect(try await repo.getPrivateKey(address: "0xtink", password: password) == privateKey)
-    #expect(try await repo.getSecret(address: "0xTINK", password: password) == secret)
-}
-#endif
+            #expect(vault.keys.count == 1)
+            #expect(vault.keys[0].iv.isEmpty)
+            #expect(!vault.keys[0].ciphertext.isEmpty)
+        }
+
+        @Test func `tink repository round trip on IOS`() async throws {
+            let keysetName = "com.swifttoolkits.tests.repo.\(UUID().uuidString)"
+            let repo = VaultRepository(
+                storageURL: makeTemporaryVaultURL(),
+                cipher: TinkVaultCipher(keysetName: keysetName, persistKeysetInKeychain: false)
+            )
+            let password = Data("tink-password".utf8)
+            let privateKey = Data("0xtinkprivate".utf8)
+            let secret = Data("tink-secret".utf8)
+
+            #expect(try await repo.initializePassword(password))
+            try await repo.importSecret(address: "0xTINK", privateKey: privateKey, secret: secret)
+            await repo.lock()
+
+            #expect(try await repo.unlock(password))
+            #expect(try await repo.getPrivateKey(address: "0xtink", password: password) == privateKey)
+            #expect(try await repo.getSecret(address: "0xTINK", password: password) == secret)
+        }
+    #endif
 #endif
 
 private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository {
@@ -547,18 +547,18 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
 
 // ── Additional branch coverage tests ─────────────────────────────────────────
 
-@Test func unlockReturnsFalseWhenNoPasswordSet() async throws {
+@Test func `unlock returns false when no password set`() async throws {
     let repo = makeRepository()
-    #expect(!(try await repo.unlock(Data("any".utf8))))
+    #expect(try await !(repo.unlock(Data("any".utf8))))
 }
 
-@Test func importPrivateKeysEmptyArrayDoesNothing() async throws {
+@Test func `import private keys empty array does nothing`() async throws {
     let repo = try await seededRepository()
     try await repo.importPrivateKeys([])
-    #expect((try await repo.listAccounts()).isEmpty)
+    #expect(try await (repo.listAccounts()).isEmpty)
 }
 
-@Test func getMnemonicLanguageThrowsForAddressWithoutMnemonic() async throws {
+@Test func `get mnemonic language throws for address without mnemonic`() async throws {
     let repo = try await seededRepository()
     let password = Data("123456789ab@][".utf8)
     let privateKey = Data("key".utf8)
@@ -570,7 +570,7 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
     }
 }
 
-@Test func getSecretWithWrongPasswordWhenLockedThrowsWrongPassword() async throws {
+@Test func `get secret with wrong password when locked throws wrong password`() async throws {
     let repo = try await seededRepository()
     let secretKey = Data("c626df52d7e76721aaae04cf5ce188e53f73369afc8767b1889e2b0cbd599766".utf8)
     let secret = Data("my-secret".utf8)
@@ -578,14 +578,14 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
 
     try await repo.importSecret(address: address, privateKey: secretKey, secret: secret)
     await repo.lock()
-    #expect(!(await repo.isUnlocked))
+    #expect(await !(repo.isUnlocked))
 
     await #expect(throws: VaultError.wrongPassword) {
         try await repo.getSecret(address: address, password: Data("wrong".utf8))
     }
 }
 
-@Test func getPrivateKeyWithWrongPasswordWhenLockedThrowsWrongPassword() async throws {
+@Test func `get private key with wrong password when locked throws wrong password`() async throws {
     let repo = try await seededRepository()
     let privateKey = Data("test-key".utf8)
     let address = "0XLOCKEDTEST"
@@ -598,7 +598,7 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
     }
 }
 
-@Test func getMnemonicWithWrongPasswordWhenLockedThrowsWrongPassword() async throws {
+@Test func `get mnemonic with wrong password when locked throws wrong password`() async throws {
     let repo = try await seededRepository()
     let mnemonic = Data("test mnemonic phrase twelve words".utf8)
     let privateKey = Data("test-key".utf8)
@@ -612,7 +612,7 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
     }
 }
 
-@Test func removeAddressWithWrongPasswordWhenLockedThrowsWrongPassword() async throws {
+@Test func `remove address with wrong password when locked throws wrong password`() async throws {
     let repo = try await seededRepository()
     let privateKey = Data("test-key".utf8)
     let address = "0XREMOVE_TEST"
@@ -625,7 +625,7 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
     }
 }
 
-@Test func changePasswordWithWrongOldPasswordWhenLockedThrowsWrongPassword() async throws {
+@Test func `change password with wrong old password when locked throws wrong password`() async throws {
     let repo = try await seededRepository()
     await repo.lock()
 
@@ -635,20 +635,20 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
 }
 
 #if canImport(CryptoKit)
-@Test func cryptoKitCipherThrowsOnTruncatedCiphertext() throws {
-    let cipher = CryptoKitVaultCipher()
-    let key = Data("test-key-32-bytes-long!!".utf8)
-    let aad = Data("test-aad".utf8)
+    @Test func `crypto kit cipher throws on truncated ciphertext`() throws {
+        let cipher = CryptoKitVaultCipher()
+        let key = Data("test-key-32-bytes-long!!".utf8)
+        let aad = Data("test-aad".utf8)
 
-    let payload = VaultSealedPayload(
-        iv: Data(repeating: 0, count: 12),
-        ciphertext: Data([1, 2, 3]) // too short (< 16 bytes tag)
-    )
+        let payload = VaultSealedPayload(
+            iv: Data(repeating: 0, count: 12),
+            ciphertext: Data([1, 2, 3]) // too short (< 16 bytes tag)
+        )
 
-    #expect(throws: CocoaError.self) {
-        try cipher.decrypt(payload, key: key, aad: aad)
+        #expect(throws: CocoaError.self) {
+            try cipher.decrypt(payload, key: key, aad: aad)
+        }
     }
-}
 #endif
 
 private func seededRepository() async throws -> VaultRepository {

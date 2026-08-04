@@ -59,7 +59,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.38.0"),
-        .package(url: "https://github.com/tmthecoder/Argon2Swift.git", branch: "main")
+        .package(url: "https://github.com/tmthecoder/Argon2Swift.git", branch: "main"),
+        .package(url: "https://github.com/nicklockwood/SwiftFormat.git", from: "0.56.0")
     ],
     targets: targets
 )

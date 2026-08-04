@@ -1,6 +1,6 @@
 import Foundation
 
-public extension Array where Element == UInt8 {
+public extension [UInt8] {
     mutating func wipe() {
         for index in indices {
             self[index] = 0
@@ -8,7 +8,7 @@ public extension Array where Element == UInt8 {
     }
 }
 
-public extension Array where Element == Character {
+public extension [Character] {
     mutating func wipe() {
         let nul = Character(UnicodeScalar(0))
         for index in indices {
