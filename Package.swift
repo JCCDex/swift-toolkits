@@ -20,7 +20,7 @@ var targets: [Target] = [
     .target(
         name: "SwiftVault",
         dependencies: swiftVaultDependencies,
-        path: "Sources/swift-toolkits",
+        path: "Sources/SwiftVault",
         resources: [
             .copy("swift-protobuf-config.json")
         ],
@@ -31,8 +31,8 @@ var targets: [Target] = [
     .testTarget(
         name: "SwiftVaultTests",
         dependencies: ["SwiftVault"],
-        path: "Tests/swift-toolkitsTests"
-    ),
+        path: "Tests/SwiftVaultTests"
+    )
 ]
 
 if hasVendoredTink {
@@ -55,7 +55,7 @@ let package = Package(
         .library(
             name: "SwiftVault",
             targets: ["SwiftVault"]
-        ),
+        )
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.38.0"),
