@@ -71,12 +71,27 @@ platform :ios do
     coverage_dir = "coverage"
     FileUtils.mkdir_p(coverage_dir)
 
-    sh("swift", "test", "--enable-code-coverage")
+    # Direct the LLVM profiling runtime to a writable temp directory.
+    # On macOS runners the default profraw destination can be non-writable
+    # (Hardened Runtime / sandbox), causing "Operation not permitted" errors
+    # that silently drop all coverage data.
+    profraw_dir = "/tmp/swift-toolkits-coverage"
+    FileUtils.mkdir_p(profraw_dir)
+    profdata_path = "#{profraw_dir}/default.profdata"
 
-    # Locate profdata and the test binary
-    profdata = Dir.glob(".build/**/default.profdata").first
-    if profdata.nil?
-      UI.user_error!("default.profdata not found — did swift test succeed?")
+    sh(
+      "LLVM_PROFILE_FILE=#{profraw_dir}/default%p.profraw swift test --enable-code-coverage"
+    )
+
+    # Merge all per-process .profraw files into a single .profdata file.
+    profraw_files = Dir.glob("#{profraw_dir}/*.profraw")
+    if profraw_files.empty?
+      # Fallback: SPM may have written profdata directly under .build/
+      profdata = Dir.glob(".build/**/default.profdata").first
+      UI.user_error!("No .profraw or .profdata coverage files found — did swift test succeed?") if profdata.nil?
+    else
+      sh("xcrun", "llvm-profdata", "merge", "-sparse", *profraw_files, "-o", profdata_path)
+      profdata = profdata_path
     end
 
     # SPM test binary name varies; find the package tests executable
@@ -87,10 +102,10 @@ platform :ios do
       UI.user_error!("Test binary not found under .build/")
     end
 
-    sh("xcrun", "llvm-cov", "report", test_binary,
-       "--instr-profile", profdata,
-       "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-       ">", "#{coverage_dir}/summary.txt")
+    summary = sh("xcrun", "llvm-cov", "report", test_binary,
+                 "--instr-profile", profdata,
+                 "--ignore-filename-regex", ".*Tests\\.swift|.build/")
+    File.write("#{coverage_dir}/summary.txt", summary)
 
     sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
        "--instr-profile", profdata,
