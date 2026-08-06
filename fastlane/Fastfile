@@ -1,0 +1,213 @@
+# This file contains the fastlane configuration for swift-toolkits.
+#
+# This is a Swift Package Manager project (no Xcode project/workspace).
+# The lanes below orchestrate test execution and coverage generation
+# for both macOS and iOS Simulator targets.
+
+# ─── Coverage helpers ────────────────────────────────────────────────────────
+
+# Collect LLVM coverage data after an xcodebuild test run and produce both
+# a human-readable summary and an lcov.info file.
+#
+# Parameters:
+#   derived_data_path – the DerivedData path used by xcodebuild
+#   scheme            – the SPM scheme name (default: "swift-toolkits")
+#   output_dir        – directory to write reports (default: "coverage")
+def collect_xcodebuild_coverage(derived_data_path:, scheme:, output_dir: "coverage")
+  # Find the .profraw files produced by the test run
+  profraw = Dir.glob("#{derived_data_path}/**/*.profraw").find { |f| File.basename(f) =~ /^#{Regexp.escape(scheme)}/ }
+  if profraw.nil?
+    # Fallback: grab the most recent .profraw
+    profraw = Dir.glob("#{derived_data_path}/**/*.profraw").max_by { |f| File.mtime(f) }
+  end
+
+  if profraw.nil?
+    UI.user_error!("No .profraw file found in #{derived_data_path}")
+  end
+
+  UI.message("Using profraw: #{profraw}")
+
+  profdata = "#{output_dir}/default.profdata"
+
+  # Convert .profraw → .profdata
+  sh("xcrun", "llvm-profdata", "merge", "-sparse", profraw, "-o", profdata)
+
+  # Locate the test binary from the build products
+  build_products = "#{derived_data_path}/Build/Products"
+  test_binary = Dir.glob("#{build_products}/**/*Tests.xctest/*Tests").max_by { |f| File.mtime(f) }
+
+  if test_binary.nil?
+    UI.user_error!("No test binary found under #{build_products}")
+  end
+
+  UI.message("Using test binary: #{test_binary}")
+
+  # Generate lcov.info
+  sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
+     "--instr-profile", profdata,
+     "--ignore-filename-regex", ".*Tests\\.swift|.build/",
+     "-o", "#{output_dir}/lcov.info")
+
+  # Generate human-readable summary
+  summary = sh("xcrun", "llvm-cov", "report", test_binary,
+               "--instr-profile", profdata,
+               "--ignore-filename-regex", ".*Tests\\.swift|.build/")
+  File.write("#{output_dir}/summary.txt", summary)
+
+  UI.success("Coverage report written to #{output_dir}/")
+end
+
+# ─── Lanes ────────────────────────────────────────────────────────────────────
+
+default_platform(:ios)
+
+platform :ios do
+
+  # ── Lane: run macOS tests with code coverage ────────────────────────────
+  # Uses `swift test --enable-code-coverage` (SPM native).
+  # Produces coverage/summary.txt and coverage/lcov.info.
+  desc "Run macOS tests with code coverage"
+  lane :macos_test do
+    coverage_dir = "coverage"
+    FileUtils.mkdir_p(coverage_dir)
+
+    sh("swift", "test", "--enable-code-coverage")
+
+    # Locate profdata and the test binary
+    profdata = Dir.glob(".build/**/default.profdata").first
+    if profdata.nil?
+      UI.user_error!("default.profdata not found — did swift test succeed?")
+    end
+
+    # SPM test binary name varies; find the package tests executable
+    test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
+                  Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first
+
+    if test_binary.nil?
+      UI.user_error!("Test binary not found under .build/")
+    end
+
+    sh("xcrun", "llvm-cov", "report", test_binary,
+       "--instr-profile", profdata,
+       "--ignore-filename-regex", ".*Tests\\.swift|.build/",
+       ">", "#{coverage_dir}/summary.txt")
+
+    sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
+       "--instr-profile", profdata,
+       "--ignore-filename-regex", ".*Tests\\.swift|.build/",
+       "-o", "#{coverage_dir}/lcov.info")
+
+    UI.success("macOS coverage report written to #{coverage_dir}/")
+  end
+
+  # ── Lane: run iOS Simulator tests with code coverage ────────────────────
+  # Uses `xcodebuild test -enableCodeCoverage YES` with an SPM scheme.
+  desc "Run iOS Simulator tests with code coverage"
+  lane :ios_test do |options|
+    scheme       = options[:scheme] || "swift-toolkits"
+    device_name  = options[:device_name] || "iPhone 16"
+    coverage_dir = options[:output_dir] || "coverage"
+    FileUtils.mkdir_p(coverage_dir)
+
+    # Resolve destination
+    device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
+                .then { |json| JSON.parse(json) }
+                .then { |d| d["devices"] }
+                .values.flatten
+                .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
+                &.fetch("udid")
+
+    if device_id.nil?
+      # Create a new simulator
+      runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
+                .then { |json| JSON.parse(json) }
+                .then { |r| r["runtimes"] }
+                .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
+
+      if runtime.nil?
+        UI.user_error!("No available iOS runtime found")
+      end
+
+      device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
+                       .then { |json| JSON.parse(json) }
+                       .then { |d| d["deviceTypes"] }
+                       .find { |dt| dt["name"] =~ /iPhone 16/ }
+                       &.fetch("identifier")
+
+      if device_type_id.nil?
+        UI.user_error!("iPhone 16 device type not found")
+      end
+
+      device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
+      UI.message("Created simulator '#{device_name}' (#{device_id})")
+    end
+
+    UI.message("Running tests on simulator #{device_id}")
+
+    # Generate a unique DerivedData path for this run
+    derived_data = "#{Dir.pwd}/.build/DerivedData/ios-coverage"
+    FileUtils.mkdir_p(derived_data)
+
+    sh("xcodebuild", "test",
+       "-skipPackagePluginValidation",
+       "-scheme", scheme,
+       "-destination", "id=#{device_id}",
+       "-enableCodeCoverage", "YES",
+       "-derivedDataPath", derived_data,
+       "-quiet")
+
+    collect_xcodebuild_coverage(
+      derived_data_path: derived_data,
+      scheme: scheme,
+      output_dir: coverage_dir
+    )
+  end
+
+  # ── Lane: run all tests (macOS + iOS) with coverage ─────────────────────
+  desc "Run all tests (macOS + iOS Simulator) with coverage"
+  lane :all_tests do |options|
+    coverage_dir = options[:output_dir] || "coverage"
+
+    UI.header("Running macOS tests")
+    macos_test(output_dir: "#{coverage_dir}/macos")
+
+    UI.header("Running iOS Simulator tests")
+    ios_test(output_dir: "#{coverage_dir}/ios")
+
+    UI.success("All tests completed. Coverage in #{coverage_dir}/")
+  end
+
+  # ── Lane: generate HTML coverage report ───────────────────────────────────
+  desc "Generate an HTML coverage report (line-by-line, color-coded)"
+  lane :coverage_report do |options|
+    lcov_file = options[:lcov_file]
+    output    = options[:output] || "coverage/html"
+
+    if lcov_file && File.exist?(lcov_file) && command_exists?("genhtml")
+      FileUtils.mkdir_p(output)
+      sh("genhtml", lcov_file, "--output-directory", output, "--branch-coverage", "--legend")
+      UI.success("HTML report (genhtml) at #{output}/index.html")
+    else
+      # Fallback: use the standalone script (llvm-cov --format=html, zero deps)
+      sh("bash", "Scripts/generate_html_coverage.sh")
+    end
+  end
+
+  # ── Lane: only run iOS tests (no coverage, fast path) ───────────────────
+  desc "Run iOS Simulator tests only (no coverage)"
+  lane :ios_test_only do |options|
+    scheme      = options[:scheme] || "swift-toolkits"
+    device_name = options[:device_name] || "iPhone 16"
+
+    sh("bash", "Scripts/test_ios_simulator.sh",
+       "SCHEME" => scheme,
+       "DEVICE_NAME" => device_name)
+  end
+
+end
+
+# ─── Helper ───────────────────────────────────────────────────────────────────
+
+def command_exists?(cmd)
+  system("which #{cmd} > /dev/null 2>&1")
+end

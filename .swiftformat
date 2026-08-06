@@ -1,0 +1,12 @@
+# SwiftFormat configuration
+
+--swiftversion 6.2
+--self insert
+--indent 4
+--semicolons never
+--ranges spaced
+--empty void
+--stripunusedargs always
+--trailingcommas never
+--header strip
+--disable blankLinesAtStartOfScope,wrapMultilineStatementBraces

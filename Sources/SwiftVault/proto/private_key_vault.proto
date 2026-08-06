@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+message PrivateKeyEntry {
+  string address = 1;
+  bytes iv = 2;
+  bytes ciphertext = 3;
+}
+
+message SecretEntry {
+  string address = 1;
+  bytes iv = 2;
+  bytes ciphertext = 3;
+}
+
+message MnemonicEntry {
+  string address = 1;
+  bytes iv = 2;
+  bytes ciphertext = 3;
+  string lang = 4;
+  string hint = 5;
+  string derivation_path = 6;
+}
+
+message PasswordEntry {
+  bytes salt = 1;
+  int32 iterations = 2;
+  int32 memory_kib = 3;
+  int32 parallelism = 4;
+  bytes aad = 5;
+  bytes proof_iv = 6;
+  bytes proof_ct = 7;
+  bool has_biometric_cache = 8;
+  int32 key_byte_count = 9;
+}
+
+message BiometricEntry {
+  bytes iv = 1;
+  bytes ciphertext = 2;
+}
+
+message Vault {
+  repeated PrivateKeyEntry keys = 1;
+  repeated MnemonicEntry mnemonics = 2;
+  PasswordEntry password = 3;
+  repeated SecretEntry secrets = 5;
+  BiometricEntry biometric = 6;
+}

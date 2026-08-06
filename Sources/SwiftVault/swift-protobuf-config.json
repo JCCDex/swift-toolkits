@@ -1,0 +1,10 @@
+{
+  "invocations": [
+    {
+      "protoPath": "proto",
+      "protoFiles": ["private_key_vault.proto"],
+      "visibility": "Internal",
+      "fileNaming": "DropPath"
+    }
+  ]
+}
