@@ -1,7 +1,7 @@
 # swift-toolkits
 
-[![CI](https://github.com/GinMu/swift-toolkits/actions/workflows/ci.yml/badge.svg)](https://github.com/GinMu/swift-toolkits/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/GinMu/swift-toolkits/branch/main/graph/badge.svg)](https://codecov.io/gh/GinMu/swift-toolkits)
+[![CI](https://github.com/JCCDex/swift-toolkits/actions/workflows/ci.yml/badge.svg)](https://github.com/JCCDex/swift-toolkits/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/JCCDex/swift-toolkits/branch/main/graph/badge.svg)](https://codecov.io/gh/JCCDex/swift-toolkits)
 
 Swift toolkits for iOS. The first module in this repository is a Swift vault SDK that mirrors the core behavior of the Kotlin `vault` module from `kotlin-toolkits`.
 

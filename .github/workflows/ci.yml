@@ -34,10 +34,15 @@ jobs:
           echo "XCRESULT_PATH=$XCRESULT_PATH" >> "$GITHUB_ENV"
           echo "Found $XCRESULT_PATH"
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Convert .xcresult to lcov
+        uses: stanfordbdhg/xccov2lcov@main
         with:
-          xcode_archive_path: ${{ env.XCRESULT_PATH }}
+          xcresult: ${{ env.XCRESULT_PATH }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: info.lcov
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
