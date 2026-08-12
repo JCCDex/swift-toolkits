@@ -20,8 +20,10 @@ jobs:
       - name: Make scripts executable
         run: chmod +x Scripts/*.sh
 
-      - name: Build vendored Tink xcframework
-        run: ./Scripts/build_tink_xcframework.sh
+      - name: Build vendored Tink xcframework (skip if already vendored)
+        # Tink.xcframework 已提交到仓库，checkout 后直接复用；
+        # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
+        run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
       - name: Run macOS tests with coverage (fastlane)
         run: bundle exec fastlane macos_test
@@ -46,8 +48,10 @@ jobs:
       - name: Make scripts executable
         run: chmod +x Scripts/*.sh
 
-      - name: Build vendored Tink xcframework
-        run: ./Scripts/build_tink_xcframework.sh
+      - name: Build vendored Tink xcframework (skip if already vendored)
+        # Tink.xcframework 已提交到仓库，checkout 后直接复用；
+        # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
+        run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
       - name: Run iOS simulator tests with coverage (fastlane)
         run: bundle exec fastlane ios_test

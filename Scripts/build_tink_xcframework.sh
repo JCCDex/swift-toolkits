@@ -9,6 +9,13 @@ TINK_REPO_URL="${TINK_REPO_URL:-https://github.com/tink-crypto/tink-objc.git}"
 TINK_REF="${TINK_REF:-main}"
 OUTPUT_DIR="${1:-$ROOT_DIR/Vendor/Tink}"
 
+# 若仓库已内置 Tink.xcframework（CI 正常走这个路径），设置
+# SKIP_IF_EXISTS=1 可跳过耗时的 Bazel 重建，直接复用现有产物。
+if [[ "${SKIP_IF_EXISTS:-0}" == "1" && -d "$OUTPUT_DIR/Tink.xcframework" ]]; then
+  echo "Tink.xcframework already exists at $OUTPUT_DIR/Tink.xcframework; skipping build"
+  exit 0
+fi
+
 mkdir -p "$OUTPUT_DIR"
 rm -rf "$WORK_DIR"
 
