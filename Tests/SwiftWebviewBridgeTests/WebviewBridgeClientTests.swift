@@ -58,10 +58,7 @@ final class WebviewBridgeClientTests: XCTestCase {
     }
 
     func test_start_throwsWhenBridgeResourceMissing() {
-        let client = WebviewBridgeClient(
-            gateway: PromiseGateway(),
-            runtimeFactory: { FakeRuntime() }
-        )
+        let client = WebviewBridgeClient()
         client.initialize(config: WebviewBridgeConfig(bridgeFileName: "missing.html"))
 
         XCTAssertThrowsError(try client.start()) { error in
