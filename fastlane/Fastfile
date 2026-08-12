@@ -61,116 +61,134 @@ end
 
 default_platform(:ios)
 
+# fastlane 会把工作目录切到 Fastfile 所在目录（fastlane/），
+# 而 SwiftPM / xcodebuild 需要在包根目录运行。此方法向上查找 Package.swift。
+def package_root
+  dir = Dir.pwd
+  until File.exist?(File.join(dir, "Package.swift"))
+    parent = File.dirname(dir)
+    UI.user_error!("Package.swift not found above #{dir}") if parent == dir
+    dir = parent
+  end
+  dir
+end
+
 platform :ios do
 
   # ── Lane: run macOS tests with code coverage ────────────────────────────
   # Uses `swift test --enable-code-coverage` (SPM native).
   # Produces coverage/summary.txt and coverage/lcov.info.
   desc "Run macOS tests with code coverage"
-  lane :macos_test do
-    coverage_dir = "coverage"
-    FileUtils.mkdir_p(coverage_dir)
+  lane :macos_test do |options|
+    root         = package_root
+    coverage_dir = options[:output_dir] || "#{root}/coverage"
 
-    # GitHub Actions macOS runner 上 SPM 默认的 profraw 写入路径可能被拒绝
-    # （"LLVM Profile Error: Failed to write file default.profraw: Operation not permitted"），
-    # 导致 --enable-code-coverage 跑完也没有 coverage 数据。
-    # 显式指定可写的 profraw 路径，跑完手动合并。
-    ENV["LLVM_PROFILE_FILE"] = File.expand_path("#{coverage_dir}/default-%p.profraw")
-    sh("swift", "test", "--enable-code-coverage")
-    ENV.delete("LLVM_PROFILE_FILE")
+    Dir.chdir(root) do
+      FileUtils.mkdir_p(coverage_dir)
 
-    # Locate profraw and merge into profdata
-    profraws = Dir.glob("#{coverage_dir}/default-*.profraw")
-    profraws += Dir.glob(".build/**/codecov/default-*.profraw") if profraws.empty?
-    if profraws.empty?
-      UI.user_error!("No .profraw files found — did swift test succeed?")
+      # 必须在包根目录运行：fastlane 的 CWD 是 fastlane/，而 SPM 的 coverage
+      # 产物在 <root>/.build/.../codecov 下，相对路径会查错目录。
+      sh("swift", "test", "--enable-code-coverage")
+
+      profdata = Dir.glob(".build/**/default.profdata").first
+      if profdata.nil?
+        # 兜底：SPM 未产出合并后的 profdata 时，手动合并 profraw
+        profraws = Dir.glob(".build/**/codecov/default-*.profraw")
+        if profraws.empty?
+          UI.user_error!("default.profdata not found — did swift test succeed?")
+        end
+        sh("xcrun", "llvm-profdata", "merge", "-sparse", *profraws, "-o", "#{coverage_dir}/default.profdata")
+        profdata = "#{coverage_dir}/default.profdata"
+      end
+
+      # SPM test binary name varies; find the package tests executable
+      test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
+                    Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first
+
+      if test_binary.nil?
+        UI.user_error!("Test binary not found under .build/")
+      end
+
+      sh("xcrun", "llvm-cov", "report", test_binary,
+         "--instr-profile", profdata,
+         "--ignore-filename-regex", ".*Tests\\.swift|.build/",
+         ">", "#{coverage_dir}/summary.txt")
+
+      sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
+         "--instr-profile", profdata,
+         "--ignore-filename-regex", ".*Tests\\.swift|.build/",
+         "-o", "#{coverage_dir}/lcov.info")
+
+      UI.success("macOS coverage report written to #{coverage_dir}/")
     end
-
-    profdata = "#{coverage_dir}/default.profdata"
-    sh("xcrun", "llvm-profdata", "merge", "-sparse", *profraws, "-o", profdata)
-
-    # SPM test binary name varies; find the package tests executable
-    test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
-                  Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first
-
-    if test_binary.nil?
-      UI.user_error!("Test binary not found under .build/")
-    end
-
-    sh("xcrun", "llvm-cov", "report", test_binary,
-       "--instr-profile", profdata,
-       "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-       ">", "#{coverage_dir}/summary.txt")
-
-    sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
-       "--instr-profile", profdata,
-       "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-       "-o", "#{coverage_dir}/lcov.info")
-
-    UI.success("macOS coverage report written to #{coverage_dir}/")
   end
 
   # ── Lane: run iOS Simulator tests with code coverage ────────────────────
   # Uses `xcodebuild test -enableCodeCoverage YES` with an SPM scheme.
   desc "Run iOS Simulator tests with code coverage"
   lane :ios_test do |options|
+    root         = package_root
     scheme       = options[:scheme] || "swift-toolkits"
     device_name  = options[:device_name] || "iPhone 16"
-    coverage_dir = options[:output_dir] || "coverage"
-    FileUtils.mkdir_p(coverage_dir)
+    coverage_dir = options[:output_dir] || "#{root}/coverage"
 
-    # Resolve destination
-    device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
-                .then { |json| JSON.parse(json) }
-                .then { |d| d["devices"] }
-                .values.flatten
-                .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
-                &.fetch("udid")
+    Dir.chdir(root) do
+      FileUtils.mkdir_p(coverage_dir)
 
-    if device_id.nil?
-      # Create a new simulator
-      runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
-                .then { |json| JSON.parse(json) }
-                .then { |r| r["runtimes"] }
-                .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
+      # Resolve destination
+      device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
+                  .then { |json| JSON.parse(json) }
+                  .then { |d| d["devices"] }
+                  .values.flatten
+                  .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
+                  &.fetch("udid")
 
-      if runtime.nil?
-        UI.user_error!("No available iOS runtime found")
+      if device_id.nil?
+        # Create a new simulator
+        runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
+                  .then { |json| JSON.parse(json) }
+                  .then { |r| r["runtimes"] }
+                  .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
+
+        if runtime.nil?
+          UI.user_error!("No available iOS runtime found")
+        end
+
+        device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
+                         .then { |json| JSON.parse(json) }
+                         .then { |d| d["devicetypes"] || d["deviceTypes"] || [] }
+                         .find { |dt| dt["name"] =~ /iPhone 16/ }
+                         &.fetch("identifier")
+
+        if device_type_id.nil?
+          UI.user_error!("iPhone 16 device type not found")
+        end
+
+        device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
+        UI.message("Created simulator '#{device_name}' (#{device_id})")
       end
 
-      device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
-                       .then { |json| JSON.parse(json) }
-                       .then { |d| d["devicetypes"] || d["deviceTypes"] || [] }
-                       .find { |dt| dt["name"] =~ /iPhone 16/ }
-                       &.fetch("identifier")
+      UI.message("Running tests on simulator #{device_id}")
 
-      if device_type_id.nil?
-        UI.user_error!("iPhone 16 device type not found")
-      end
+      # Generate a unique DerivedData path for this run
+      derived_data = "#{root}/.build/DerivedData/ios-coverage"
+      FileUtils.mkdir_p(derived_data)
 
-      device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
-      UI.message("Created simulator '#{device_name}' (#{device_id})")
+      # xcodebuild 必须在包根目录运行（CWD 需包含 Package.swift）
+      sh("xcodebuild", "test",
+         "-skipPackagePluginValidation",
+         "-scheme", scheme,
+         "-destination", "id=#{device_id}",
+         "-enableCodeCoverage", "YES",
+         "-derivedDataPath", derived_data,
+         "-quiet")
+
+      collect_xcodebuild_coverage(
+        derived_data_path: derived_data,
+        scheme: scheme,
+        output_dir: coverage_dir
+      )
     end
-
-    UI.message("Running tests on simulator #{device_id}")
-
-    # Generate a unique DerivedData path for this run
-    derived_data = "#{Dir.pwd}/.build/DerivedData/ios-coverage"
-    FileUtils.mkdir_p(derived_data)
-
-    sh("xcodebuild", "test",
-       "-skipPackagePluginValidation",
-       "-scheme", scheme,
-       "-destination", "id=#{device_id}",
-       "-enableCodeCoverage", "YES",
-       "-derivedDataPath", derived_data,
-       "-quiet")
-
-    collect_xcodebuild_coverage(
-      derived_data_path: derived_data,
-      scheme: scheme,
-      output_dir: coverage_dir
-    )
   end
 
   # ── Lane: run all tests (macOS + iOS) with coverage ─────────────────────
