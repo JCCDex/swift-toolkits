@@ -158,6 +158,6 @@ Validated iOS simulator command for the vendored Tink path:
 ```bash
 xcodebuild test \
     -skipPackagePluginValidation \
-    -scheme swift-toolkits \
+    -scheme swift-toolkits-Package \
     -destination 'id={id}'
 ```

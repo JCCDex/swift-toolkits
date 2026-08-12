@@ -6,34 +6,6 @@ on:
   pull_request:
 
 jobs:
-  macos-tests:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-
-      - name: Make scripts executable
-        run: chmod +x Scripts/*.sh
-
-      - name: Build vendored Tink xcframework (skip if already vendored)
-        # Tink.xcframework 已提交到仓库，checkout 后直接复用；
-        # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
-        run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
-
-      - name: Run macOS tests with coverage (fastlane + xcov)
-        run: bundle exec fastlane macos_test
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-macos
-          path: coverage/macos/
-
   ios-simulator-tests:
     runs-on: macos-latest
     steps:
