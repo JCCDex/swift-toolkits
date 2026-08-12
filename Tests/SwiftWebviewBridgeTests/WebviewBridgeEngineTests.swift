@@ -2,10 +2,22 @@
 import XCTest
 
 /// 引擎层测试：同样走真实 WKWebView（不注入 FakeRuntime）。
+/// 与客户端行为测试一样，普通往返用例共享一个 engine，只付一次冷启动；
+/// 销毁/重建用例使用独立 engine。
 @MainActor
 final class WebviewBridgeEngineTests: XCTestCase {
 
-    private func makeEngine() -> WebviewBridgeEngine {
+    private static let readyWaitMs: TimeInterval = 60000
+    private static let timeoutMs: TimeInterval = 90000
+
+    /// 共享 engine：整个测试类只冷启动一次。
+    private static let sharedEngine: WebviewBridgeEngine = {
+        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
+        engine.initialize(config: .bridge(named: "wallet-bridge"))
+        return engine
+    }()
+
+    private func makeStandaloneEngine() -> WebviewBridgeEngine {
         let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
         engine.initialize(config: .bridge(named: "wallet-bridge"))
         return engine
@@ -21,7 +33,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_start_and_destroy_areSafe_afterInitialize() throws {
-        let engine = self.makeEngine()
+        let engine = self.makeStandaloneEngine()
 
         try engine.start()
         engine.destroy()
@@ -38,14 +50,13 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callMethods_roundTripThroughRealWebView() async throws {
-        let engine = self.makeEngine()
-        defer { engine.destroy() }
+        let engine = Self.sharedEngine
 
         let raw = try await engine.callJsMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
-            timeoutMs: 15000,
-            readyWaitMs: 10000
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
         XCTAssertEqual(raw, "true")
 
@@ -53,22 +64,22 @@ final class WebviewBridgeEngineTests: XCTestCase {
             method: "generateMnemonic",
             params: ["length": 128],
             as: MnemonicResult.self,
-            timeoutMs: 15000,
-            readyWaitMs: 10000
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
         XCTAssertEqual(typed.language, "english")
         XCTAssertEqual(typed.value.split(separator: " ").count, 12)
     }
 
     func test_callJsMethod_afterDestroy_recreatesRuntimeAndResolves() async throws {
-        let engine = self.makeEngine()
+        let engine = self.makeStandaloneEngine()
         defer { engine.destroy() }
 
         let first = try await engine.callJsMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
-            timeoutMs: 15000,
-            readyWaitMs: 10000
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
         XCTAssertEqual(first, "true")
 
@@ -77,8 +88,8 @@ final class WebviewBridgeEngineTests: XCTestCase {
         let second = try await engine.callJsMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
-            timeoutMs: 15000,
-            readyWaitMs: 10000
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
         XCTAssertEqual(second, "true")
     }
