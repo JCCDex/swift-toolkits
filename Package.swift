@@ -13,7 +13,9 @@ var swiftVaultDependencies: [Target.Dependency] = [
 ]
 
 if hasVendoredTink {
-    swiftVaultDependencies.append("Tink")
+    swiftVaultDependencies.append(
+        .target(name: "Tink", condition: .when(platforms: [.iOS]))
+    )
 }
 
 var targets: [Target] = [
