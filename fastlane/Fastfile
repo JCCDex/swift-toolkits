@@ -47,23 +47,36 @@ def generate_xcov_report(xcresult:, output_dir:)
 end
 
 # 解析（或创建）一个可用的 iOS 模拟器，返回其 UDID。
-def resolve_or_create_simulator(device_name)
+# runtime_os 传入主版本号（如 "18"）时，只在该 iOS 主版本的运行时里查找/创建。
+def resolve_or_create_simulator(device_name, runtime_os: nil)
+  runtimes = sh("xcrun", "simctl", "list", "runtimes", "--json")
+             .then { |json| JSON.parse(json) }
+             .then { |r| r["runtimes"] }
+
+  matching_runtimes = runtimes.select do |rt|
+    next false unless rt["isAvailable"] == true
+    next false if rt["identifier"].to_s.include?("beta") || rt["name"].to_s.downcase.include?("beta")
+    next true if runtime_os.nil?
+    rt["identifier"].to_s.include?("iOS-#{runtime_os}-")
+  end
+
+  # 同一主版本内选最新的运行时（如 18.6 优先于 18.5）
+  runtime = matching_runtimes.max_by { |rt| rt["version"].to_s }
+
   device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
               .then { |json| JSON.parse(json) }
               .then { |d| d["devices"] }
-              .values.flatten
+              .select { |runtime_id, _| runtime_os.nil? || runtime_id.include?("iOS-#{runtime_os}-") }
+              .values
+              .flatten
               .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
               &.fetch("udid")
 
   if device_id.nil?
-    # Create a new simulator
-    runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
-              .then { |json| JSON.parse(json) }
-              .then { |r| r["runtimes"] }
-              .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
-
+    # Create a new simulator on the newest matching runtime
     if runtime.nil?
-      UI.user_error!("No available iOS runtime found")
+      label = runtime_os ? "iOS #{runtime_os} runtime" : "iOS runtime"
+      UI.user_error!("No available #{label} found")
     end
 
     device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
@@ -121,14 +134,15 @@ platform :ios do
     root         = package_root
     scheme       = options[:scheme] || "swift-toolkits-Package"
     device_name  = options[:device_name] || "iPhone 16"
+    device_os    = options[:device_os].to_s.empty? ? nil : options[:device_os].to_s
     coverage_dir = options[:output_dir] || "#{root}/coverage/ios"
     derived_data = "#{root}/.build/DerivedData/ios-coverage"
 
     Dir.chdir(root) do
       # Resolve destination
-      device_id = resolve_or_create_simulator(device_name)
+      device_id = resolve_or_create_simulator(device_name, runtime_os: device_os)
 
-      UI.message("Running tests on simulator #{device_id}")
+      UI.message("Running tests on simulator #{device_id}#{device_os ? " (iOS #{device_os})" : ""}")
       FileUtils.mkdir_p(derived_data)
 
       # xcodebuild 必须在包根目录运行（CWD 需包含 Package.swift）
@@ -169,7 +183,8 @@ platform :ios do
 
     sh("bash", "Scripts/test_ios_simulator.sh",
        "SCHEME" => scheme,
-       "DEVICE_NAME" => device_name)
+       "DEVICE_NAME" => device_name,
+       "DEVICE_OS" => options[:device_os].to_s)
   end
 
 end

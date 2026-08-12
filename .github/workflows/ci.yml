@@ -7,9 +7,36 @@ on:
 
 jobs:
   ios-simulator-tests:
-    runs-on: macos-latest
+    name: iOS ${{ matrix.ios }} simulator tests
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 主流 iOS 版本：当前版本 iOS 26 + 上一代主力 iOS 18
+          - ios: '18'
+            runner: macos-15
+            device: iPhone 16
+          - ios: '26'
+            runner: macos-26
+            device: iPhone 16e
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 (Swift 6.2) on macos-15
+        # macos-15 默认 Xcode 16.4 只带 Swift 6.1，而 Package.swift 要求 6.2；
+        # 镜像上同时装有 Xcode 26.x（Swift 6.2）和 iOS 18.x 模拟器运行时，
+        # 切到 Xcode 26 后即可在 iOS 18 模拟器上正常测试。
+        if: matrix.ios == '18'
+        run: |
+          XCODE_PATH="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | tail -n 1)"
+          if [[ -z "$XCODE_PATH" ]]; then
+            echo "::error::Xcode 26 not found on runner; Package.swift requires Swift tools 6.2"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          echo "DEVELOPER_DIR=$XCODE_PATH/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -25,8 +52,8 @@ jobs:
         # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
         run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
-      - name: Run iOS simulator tests with coverage (fastlane + xcov)
-        run: bundle exec fastlane ios_test
+      - name: Run iOS ${{ matrix.ios }} simulator tests with coverage (fastlane + xcov)
+        run: bundle exec fastlane ios_test "device_name:${{ matrix.device }}" device_os:${{ matrix.ios }}
 
       - name: Locate .xcresult for Codecov
         run: |
@@ -34,10 +61,16 @@ jobs:
           echo "XCRESULT_PATH=$XCRESULT_PATH" >> "$GITHUB_ENV"
           echo "Found $XCRESULT_PATH"
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Convert .xcresult to lcov
+        uses: stanfordbdhg/xccov2lcov@main
         with:
-          xcode_archive_path: ${{ env.XCRESULT_PATH }}
+          xcresult: ${{ env.XCRESULT_PATH }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: info.lcov
+          flags: ios${{ matrix.ios }}
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -45,5 +78,5 @@ jobs:
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-ios
+          name: coverage-ios-${{ matrix.ios }}
           path: coverage/ios/
