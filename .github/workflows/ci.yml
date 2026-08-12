@@ -7,7 +7,19 @@ on:
 
 jobs:
   ios-simulator-tests:
-    runs-on: macos-latest
+    name: iOS ${{ matrix.ios }} simulator tests
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 主流 iOS 版本：当前版本 iOS 26 + 上一代主力 iOS 18
+          - ios: '18'
+            runner: macos-15
+            device: iPhone 16
+          - ios: '26'
+            runner: macos-26
+            device: iPhone 16e
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +37,8 @@ jobs:
         # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
         run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
-      - name: Run iOS simulator tests with coverage (fastlane + xcov)
-        run: bundle exec fastlane ios_test
+      - name: Run iOS ${{ matrix.ios }} simulator tests with coverage (fastlane + xcov)
+        run: bundle exec fastlane ios_test "device_name:${{ matrix.device }}" device_os:${{ matrix.ios }}
 
       - name: Locate .xcresult for Codecov
         run: |
@@ -43,6 +55,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: info.lcov
+          flags: ios${{ matrix.ios }}
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -50,5 +63,5 @@ jobs:
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-ios
+          name: coverage-ios-${{ matrix.ios }}
           path: coverage/ios/

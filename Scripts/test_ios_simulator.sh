@@ -11,6 +11,7 @@
 #   SCHEME        — SPM scheme name (default: swift-toolkits)
 #   DEVICE_NAME   — Simulator device name (default: SwiftVaultTinkTest)
 #   DEVICE_TYPE   — Simulator device type identifier
+#   DEVICE_OS     — iOS major version to run on (e.g. "18"); empty = newest available
 #   COVERAGE      — Set to "1" to enable coverage collection
 #   COVERAGE_DIR  — Directory for coverage output (default: coverage)
 
@@ -19,10 +20,15 @@ set -euo pipefail
 SCHEME="${SCHEME:-swift-toolkits}"
 DEVICE_NAME="${DEVICE_NAME:-SwiftVaultTinkTest}"
 DEVICE_TYPE="${DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-16}"
+DEVICE_OS="${DEVICE_OS:-}"
 COVERAGE="${COVERAGE:-0}"
 COVERAGE_DIR="${COVERAGE_DIR:-coverage}"
 
-RUNTIME_ID="${RUNTIME_ID:-$(xcrun simctl list runtimes | awk -F ' - ' '/iOS/ && $0 !~ /unavailable/ { runtime=$NF } END { print runtime }')}"
+if [[ -n "$DEVICE_OS" ]]; then
+  RUNTIME_ID="${RUNTIME_ID:-$(xcrun simctl list runtimes | awk -F ' - ' -v os="$DEVICE_OS" '/iOS/ && $0 !~ /unavailable/ && $0 !~ /beta/ && $0 ~ "iOS " os "\\." { runtime=$NF } END { print runtime }')}"
+else
+  RUNTIME_ID="${RUNTIME_ID:-$(xcrun simctl list runtimes | awk -F ' - ' '/iOS/ && $0 !~ /unavailable/ && $0 !~ /beta/ { runtime=$NF } END { print runtime }')}"
+fi
 
 if [[ -z "$RUNTIME_ID" ]]; then
   echo "Unable to find an available iOS simulator runtime" >&2
