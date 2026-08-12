@@ -1,0 +1,7 @@
+# xcov ignore list — paths are relative to the package root (source_directory)
+
+- .build
+
+- Tests
+
+- Vendor

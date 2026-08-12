@@ -25,14 +25,14 @@ jobs:
         # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
         run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
-      - name: Run macOS tests with coverage (fastlane)
+      - name: Run macOS tests with coverage (fastlane + xcov)
         run: bundle exec fastlane macos_test
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-macos
-          path: coverage/
+          path: coverage/macos/
 
   ios-simulator-tests:
     runs-on: macos-latest
@@ -53,57 +53,11 @@ jobs:
         # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
         run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
-      - name: Run iOS simulator tests with coverage (fastlane)
+      - name: Run iOS simulator tests with coverage (fastlane + xcov)
         run: bundle exec fastlane ios_test
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-ios
-          path: coverage/
-
-  merge-coverage:
-    needs: [macos-tests, ios-simulator-tests]
-    runs-on: macos-latest
-    if: ${{ always() }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download macOS coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-macos
-          path: coverage/macos
-
-      - name: Download iOS coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-ios
-          path: coverage/ios
-
-      - name: Merge coverage reports
-        run: |
-          mkdir -p coverage/merged
-
-          if [[ -f coverage/macos/lcov.info && -f coverage/ios/lcov.info ]]; then
-            lcov \
-              --add-tracefile coverage/macos/lcov.info \
-              --add-tracefile coverage/ios/lcov.info \
-              --output-file coverage/merged/lcov.info
-            echo "Merged coverage report created."
-          elif [[ -f coverage/macos/lcov.info ]]; then
-            cp coverage/macos/lcov.info coverage/merged/lcov.info
-            echo "Only macOS coverage available."
-          elif [[ -f coverage/ios/lcov.info ]]; then
-            cp coverage/ios/lcov.info coverage/merged/lcov.info
-            echo "Only iOS coverage available."
-          else
-            echo "No coverage files found."
-            exit 1
-          fi
-
-      - name: Upload merged coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-merged
-          path: coverage/merged/
+          path: coverage/ios/

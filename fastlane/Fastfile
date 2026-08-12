@@ -1,63 +1,9 @@
 # This file contains the fastlane configuration for swift-toolkits.
 #
 # This is a Swift Package Manager project (no Xcode project/workspace).
-# The lanes below orchestrate test execution and coverage generation
-# for both macOS and iOS Simulator targets.
-
-# ─── Coverage helpers ────────────────────────────────────────────────────────
-
-# Collect LLVM coverage data after an xcodebuild test run and produce both
-# a human-readable summary and an lcov.info file.
-#
-# Parameters:
-#   derived_data_path – the DerivedData path used by xcodebuild
-#   scheme            – the SPM scheme name (default: "swift-toolkits")
-#   output_dir        – directory to write reports (default: "coverage")
-def collect_xcodebuild_coverage(derived_data_path:, scheme:, output_dir: "coverage")
-  # Find the .profraw files produced by the test run
-  profraw = Dir.glob("#{derived_data_path}/**/*.profraw").find { |f| File.basename(f) =~ /^#{Regexp.escape(scheme)}/ }
-  if profraw.nil?
-    # Fallback: grab the most recent .profraw
-    profraw = Dir.glob("#{derived_data_path}/**/*.profraw").max_by { |f| File.mtime(f) }
-  end
-
-  if profraw.nil?
-    UI.user_error!("No .profraw file found in #{derived_data_path}")
-  end
-
-  UI.message("Using profraw: #{profraw}")
-
-  profdata = "#{output_dir}/default.profdata"
-
-  # Convert .profraw → .profdata
-  sh("xcrun", "llvm-profdata", "merge", "-sparse", profraw, "-o", profdata)
-
-  # Locate the test binary from the build products
-  build_products = "#{derived_data_path}/Build/Products"
-  test_binary = Dir.glob("#{build_products}/**/*Tests.xctest/*Tests").max_by { |f| File.mtime(f) }
-
-  if test_binary.nil?
-    UI.user_error!("No test binary found under #{build_products}")
-  end
-
-  UI.message("Using test binary: #{test_binary}")
-
-  # Generate lcov.info
-  sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
-     "--instr-profile", profdata,
-     "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-     "-o", "#{output_dir}/lcov.info")
-
-  # Generate human-readable summary
-  summary = sh("xcrun", "llvm-cov", "report", test_binary,
-               "--instr-profile", profdata,
-               "--ignore-filename-regex", ".*Tests\\.swift|.build/")
-  File.write("#{output_dir}/summary.txt", summary)
-
-  UI.success("Coverage report written to #{output_dir}/")
-end
-
-# ─── Lanes ────────────────────────────────────────────────────────────────────
+# The lanes run tests via `xcodebuild` against the generated SPM scheme and
+# then produce HTML / JSON / Markdown coverage reports with `xcov`
+# (`is_swift_package` mode, fed with the `.xcresult` bundle directly).
 
 default_platform(:ios)
 
@@ -73,68 +19,75 @@ def package_root
   dir
 end
 
+# 返回 DerivedData 中最近一次 xcodebuild test 产生的 .xcresult 包。
+def latest_xcresult(derived_data)
+  xcresults = Dir.glob("#{derived_data}/Logs/Test/*.xcresult")
+  if xcresults.empty?
+    UI.user_error!("No .xcresult found under #{derived_data}/Logs/Test")
+  end
+  xcresults.max_by { |path| File.mtime(path) }
+end
+
+# 用 xcov 从 .xcresult 生成覆盖率报告（HTML + JSON + Markdown）。
+def generate_xcov_report(xcresult:, output_dir:)
+  FileUtils.mkdir_p(output_dir)
+  xcov(
+    is_swift_package: true,
+    xccov_file_direct_path: [xcresult],
+    output_directory: output_dir,
+    source_directory: Dir.pwd,
+    html_report: true,
+    markdown_report: true,
+    json_report: true,
+    include_test_targets: false,
+    include_zero_targets: true,
+    ignore_file_path: File.join(Dir.pwd, ".xcovignore")
+  )
+  UI.success("xcov report written to #{output_dir}/ (index.html, report.json, report.md)")
+end
+
 platform :ios do
 
   # ── Lane: run macOS tests with code coverage ────────────────────────────
-  # Uses `swift test --enable-code-coverage` (SPM native).
-  # Produces coverage/summary.txt and coverage/lcov.info.
-  desc "Run macOS tests with code coverage"
+  # Uses `xcodebuild test` with the SPM scheme so Xcode produces an .xcresult
+  # bundle, which xcov can parse for the coverage report.
+  desc "Run macOS tests with coverage (xcodebuild + xcov)"
   lane :macos_test do |options|
     root         = package_root
-    coverage_dir = options[:output_dir] || "#{root}/coverage"
+    scheme       = options[:scheme] || "swift-toolkits-Package"
+    coverage_dir = options[:output_dir] || "#{root}/coverage/macos"
+    derived_data = "#{root}/.build/DerivedData/macos-coverage"
 
     Dir.chdir(root) do
-      FileUtils.mkdir_p(coverage_dir)
+      FileUtils.mkdir_p(derived_data)
 
-      # 必须在包根目录运行：fastlane 的 CWD 是 fastlane/，而 SPM 的 coverage
-      # 产物在 <root>/.build/.../codecov 下，相对路径会查错目录。
-      sh("swift", "test", "--enable-code-coverage")
+      sh("xcodebuild", "test",
+         "-skipPackagePluginValidation",
+         "-scheme", scheme,
+         "-destination", "platform=macOS",
+         "-enableCodeCoverage", "YES",
+         "-derivedDataPath", derived_data,
+         "-quiet")
 
-      profdata = Dir.glob(".build/**/default.profdata").first
-      if profdata.nil?
-        # 兜底：SPM 未产出合并后的 profdata 时，手动合并 profraw
-        profraws = Dir.glob(".build/**/codecov/default-*.profraw")
-        if profraws.empty?
-          UI.user_error!("default.profdata not found — did swift test succeed?")
-        end
-        sh("xcrun", "llvm-profdata", "merge", "-sparse", *profraws, "-o", "#{coverage_dir}/default.profdata")
-        profdata = "#{coverage_dir}/default.profdata"
-      end
-
-      # SPM test binary name varies; find the package tests executable
-      test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
-                    Dir.glob(".build/**/swift_toolkitsPackageTests.xctest/**/swift_toolkitsPackageTests").first
-
-      if test_binary.nil?
-        UI.user_error!("Test binary not found under .build/")
-      end
-
-      sh("xcrun", "llvm-cov", "report", test_binary,
-         "--instr-profile", profdata,
-         "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-         ">", "#{coverage_dir}/summary.txt")
-
-      sh("xcrun", "llvm-cov", "export", "-format=lcov", test_binary,
-         "--instr-profile", profdata,
-         "--ignore-filename-regex", ".*Tests\\.swift|.build/",
-         "-o", "#{coverage_dir}/lcov.info")
-
-      UI.success("macOS coverage report written to #{coverage_dir}/")
+      generate_xcov_report(
+        xcresult: latest_xcresult(derived_data),
+        output_dir: coverage_dir
+      )
     end
   end
 
   # ── Lane: run iOS Simulator tests with code coverage ────────────────────
-  # Uses `xcodebuild test -enableCodeCoverage YES` with an SPM scheme.
-  desc "Run iOS Simulator tests with code coverage"
+  # Resolves (or creates) an iPhone simulator, runs the SPM scheme with code
+  # coverage, then feeds the resulting .xcresult to xcov.
+  desc "Run iOS Simulator tests with coverage (xcodebuild + xcov)"
   lane :ios_test do |options|
     root         = package_root
-    scheme       = options[:scheme] || "swift-toolkits"
+    scheme       = options[:scheme] || "swift-toolkits-Package"
     device_name  = options[:device_name] || "iPhone 16"
-    coverage_dir = options[:output_dir] || "#{root}/coverage"
+    coverage_dir = options[:output_dir] || "#{root}/coverage/ios"
+    derived_data = "#{root}/.build/DerivedData/ios-coverage"
 
     Dir.chdir(root) do
-      FileUtils.mkdir_p(coverage_dir)
-
       # Resolve destination
       device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
                   .then { |json| JSON.parse(json) }
@@ -169,9 +122,6 @@ platform :ios do
       end
 
       UI.message("Running tests on simulator #{device_id}")
-
-      # Generate a unique DerivedData path for this run
-      derived_data = "#{root}/.build/DerivedData/ios-coverage"
       FileUtils.mkdir_p(derived_data)
 
       # xcodebuild 必须在包根目录运行（CWD 需包含 Package.swift）
@@ -183,9 +133,8 @@ platform :ios do
          "-derivedDataPath", derived_data,
          "-quiet")
 
-      collect_xcodebuild_coverage(
-        derived_data_path: derived_data,
-        scheme: scheme,
+      generate_xcov_report(
+        xcresult: latest_xcresult(derived_data),
         output_dir: coverage_dir
       )
     end
@@ -205,26 +154,10 @@ platform :ios do
     UI.success("All tests completed. Coverage in #{coverage_dir}/")
   end
 
-  # ── Lane: generate HTML coverage report ───────────────────────────────────
-  desc "Generate an HTML coverage report (line-by-line, color-coded)"
-  lane :coverage_report do |options|
-    lcov_file = options[:lcov_file]
-    output    = options[:output] || "coverage/html"
-
-    if lcov_file && File.exist?(lcov_file) && command_exists?("genhtml")
-      FileUtils.mkdir_p(output)
-      sh("genhtml", lcov_file, "--output-directory", output, "--branch-coverage", "--legend")
-      UI.success("HTML report (genhtml) at #{output}/index.html")
-    else
-      # Fallback: use the standalone script (llvm-cov --format=html, zero deps)
-      sh("bash", "Scripts/generate_html_coverage.sh")
-    end
-  end
-
   # ── Lane: only run iOS tests (no coverage, fast path) ───────────────────
   desc "Run iOS Simulator tests only (no coverage)"
   lane :ios_test_only do |options|
-    scheme      = options[:scheme] || "swift-toolkits"
+    scheme      = options[:scheme] || "swift-toolkits-Package"
     device_name = options[:device_name] || "iPhone 16"
 
     sh("bash", "Scripts/test_ios_simulator.sh",
@@ -232,10 +165,4 @@ platform :ios do
        "DEVICE_NAME" => device_name)
   end
 
-end
-
-# ─── Helper ───────────────────────────────────────────────────────────────────
-
-def command_exists?(cmd)
-  system("which #{cmd} > /dev/null 2>&1")
 end
