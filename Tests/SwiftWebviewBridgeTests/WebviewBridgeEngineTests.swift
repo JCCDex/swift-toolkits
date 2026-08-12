@@ -2,22 +2,14 @@
 import XCTest
 
 /// 引擎层测试：同样走真实 WKWebView（不注入 FakeRuntime）。
-/// 与客户端行为测试一样，普通往返用例共享一个 engine，只付一次冷启动；
-/// 销毁/重建用例使用独立 engine。
+/// 每个用例独立 engine，超时给足余量（冷启动 + CI 环境）。
 @MainActor
 final class WebviewBridgeEngineTests: XCTestCase {
 
-    private static let readyWaitMs: TimeInterval = 60000
-    private static let timeoutMs: TimeInterval = 90000
+    private static let readyWaitMs: TimeInterval = 120_000
+    private static let timeoutMs: TimeInterval = 180_000
 
-    /// 共享 engine：整个测试类只冷启动一次。
-    private static let sharedEngine: WebviewBridgeEngine = {
-        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
-        engine.initialize(config: .bridge(named: "wallet-bridge"))
-        return engine
-    }()
-
-    private func makeStandaloneEngine() -> WebviewBridgeEngine {
+    private func makeEngine() -> WebviewBridgeEngine {
         let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
         engine.initialize(config: .bridge(named: "wallet-bridge"))
         return engine
@@ -33,7 +25,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_start_and_destroy_areSafe_afterInitialize() throws {
-        let engine = self.makeStandaloneEngine()
+        let engine = self.makeEngine()
 
         try engine.start()
         engine.destroy()
@@ -50,7 +42,8 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callMethods_roundTripThroughRealWebView() async throws {
-        let engine = Self.sharedEngine
+        let engine = self.makeEngine()
+        defer { engine.destroy() }
 
         let raw = try await engine.callJsMethod(
             method: "validateMnemonic",
@@ -72,7 +65,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callJsMethod_afterDestroy_recreatesRuntimeAndResolves() async throws {
-        let engine = self.makeStandaloneEngine()
+        let engine = self.makeEngine()
         defer { engine.destroy() }
 
         let first = try await engine.callJsMethod(
