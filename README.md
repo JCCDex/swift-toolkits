@@ -141,6 +141,12 @@ Minimal third-party integration walkthrough:
 
 [Examples/MinimalIntegration/README.md](/Users/musheng/ios/swift-toolkits/Examples/MinimalIntegration/README.md)
 
+## Webview Bridge（Swift 设计稿）
+
+`webview-bridge` 模块的 Swift 移植设计，对齐 Kotlin 版「隐藏 WebView 运行时 + JS Promise 通信」能力（`WKWebView` + `WKScriptMessageHandler`），包含架构解析、完整 Swift 代码草案、通信协议与测试策略：
+
+[Docs/WebviewBridge-Swift/README.md](Docs/WebviewBridge-Swift/README.md)
+
 ## Validation
 
 ```bash

@@ -560,7 +560,6 @@ private func makeRepository(cipher: (any VaultCipher)? = nil) -> VaultRepository
 
 @Test func `get mnemonic language throws for address without mnemonic`() async throws {
     let repo = try await seededRepository()
-    let password = Data("123456789ab@][".utf8)
     let privateKey = Data("key".utf8)
 
     try await repo.importPrivateKey(address: "0xKEYONLY", privateKey: privateKey)
