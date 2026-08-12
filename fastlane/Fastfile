@@ -46,6 +46,43 @@ def generate_xcov_report(xcresult:, output_dir:)
   UI.success("xcov report written to #{output_dir}/ (index.html, report.json, report.md)")
 end
 
+# 解析（或创建）一个可用的 iOS 模拟器，返回其 UDID。
+def resolve_or_create_simulator(device_name)
+  device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
+              .then { |json| JSON.parse(json) }
+              .then { |d| d["devices"] }
+              .values.flatten
+              .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
+              &.fetch("udid")
+
+  if device_id.nil?
+    # Create a new simulator
+    runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
+              .then { |json| JSON.parse(json) }
+              .then { |r| r["runtimes"] }
+              .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
+
+    if runtime.nil?
+      UI.user_error!("No available iOS runtime found")
+    end
+
+    device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
+                     .then { |json| JSON.parse(json) }
+                     .then { |d| d["devicetypes"] || d["deviceTypes"] || [] }
+                     .find { |dt| dt["name"] =~ /iPhone 16/ }
+                     &.fetch("identifier")
+
+    if device_type_id.nil?
+      UI.user_error!("iPhone 16 device type not found")
+    end
+
+    device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
+    UI.message("Created simulator '#{device_name}' (#{device_id})")
+  end
+
+  device_id
+end
+
 platform :ios do
 
   # ── Lane: run macOS tests with code coverage ────────────────────────────
@@ -89,37 +126,7 @@ platform :ios do
 
     Dir.chdir(root) do
       # Resolve destination
-      device_id = sh("xcrun", "simctl", "list", "devices", "available", "--json")
-                  .then { |json| JSON.parse(json) }
-                  .then { |d| d["devices"] }
-                  .values.flatten
-                  .find { |dev| dev["name"] == device_name && dev["isAvailable"] == true }
-                  &.fetch("udid")
-
-      if device_id.nil?
-        # Create a new simulator
-        runtime = sh("xcrun", "simctl", "list", "runtimes", "--json")
-                  .then { |json| JSON.parse(json) }
-                  .then { |r| r["runtimes"] }
-                  .find { |rt| rt["name"] =~ /iOS/ && rt["isAvailable"] == true && !rt["identifier"].include?("beta") }
-
-        if runtime.nil?
-          UI.user_error!("No available iOS runtime found")
-        end
-
-        device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
-                         .then { |json| JSON.parse(json) }
-                         .then { |d| d["devicetypes"] || d["deviceTypes"] || [] }
-                         .find { |dt| dt["name"] =~ /iPhone 16/ }
-                         &.fetch("identifier")
-
-        if device_type_id.nil?
-          UI.user_error!("iPhone 16 device type not found")
-        end
-
-        device_id = sh("xcrun", "simctl", "create", device_name, device_type_id, runtime["identifier"]).strip
-        UI.message("Created simulator '#{device_name}' (#{device_id})")
-      end
+      device_id = resolve_or_create_simulator(device_name)
 
       UI.message("Running tests on simulator #{device_id}")
       FileUtils.mkdir_p(derived_data)
@@ -137,6 +144,28 @@ platform :ios do
         xcresult: latest_xcresult(derived_data),
         output_dir: coverage_dir
       )
+    end
+  end
+
+  # ── Lane: run SwiftWebviewBridge tests on iOS Simulator ─────────────────
+  # Fast path for the WebviewBridge module: runs only SwiftWebviewBridgeTests
+  # on the simulator, without coverage collection.
+  desc "Run SwiftWebviewBridge tests on iOS Simulator (no coverage)"
+  lane :webview_bridge_test do |options|
+    root        = package_root
+    scheme      = options[:scheme] || "swift-toolkits-Package"
+    device_name = options[:device_name] || "iPhone 16"
+
+    Dir.chdir(root) do
+      device_id = resolve_or_create_simulator(device_name)
+      UI.message("Running SwiftWebviewBridge tests on simulator #{device_id}")
+
+      sh("xcodebuild", "test",
+         "-skipPackagePluginValidation",
+         "-scheme", scheme,
+         "-only-testing:SwiftWebviewBridgeTests",
+         "-destination", "id=#{device_id}",
+         "-quiet")
     end
   end
 

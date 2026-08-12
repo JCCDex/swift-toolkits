@@ -28,8 +28,39 @@ jobs:
       - name: Run iOS simulator tests with coverage (fastlane + xcov)
         run: bundle exec fastlane ios_test
 
+      - name: Locate .xcresult for Codecov
+        run: |
+          XCRESULT_PATH="$(ls -d .build/DerivedData/ios-coverage/Logs/Test/*.xcresult | head -n 1)"
+          echo "XCRESULT_PATH=$XCRESULT_PATH" >> "$GITHUB_ENV"
+          echo "Found $XCRESULT_PATH"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          xcode_archive_path: ${{ env.XCRESULT_PATH }}
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-ios
           path: coverage/ios/
+
+  swift-webview-bridge-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Make scripts executable
+        run: chmod +x Scripts/*.sh
+
+      - name: Run SwiftWebviewBridge tests on iOS simulator (fastlane)
+        run: bundle exec fastlane webview_bridge_test
