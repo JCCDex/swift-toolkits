@@ -71,13 +71,23 @@ platform :ios do
     coverage_dir = "coverage"
     FileUtils.mkdir_p(coverage_dir)
 
+    # GitHub Actions macOS runner 上 SPM 默认的 profraw 写入路径可能被拒绝
+    # （"LLVM Profile Error: Failed to write file default.profraw: Operation not permitted"），
+    # 导致 --enable-code-coverage 跑完也没有 coverage 数据。
+    # 显式指定可写的 profraw 路径，跑完手动合并。
+    ENV["LLVM_PROFILE_FILE"] = File.expand_path("#{coverage_dir}/default-%p.profraw")
     sh("swift", "test", "--enable-code-coverage")
+    ENV.delete("LLVM_PROFILE_FILE")
 
-    # Locate profdata and the test binary
-    profdata = Dir.glob(".build/**/default.profdata").first
-    if profdata.nil?
-      UI.user_error!("default.profdata not found — did swift test succeed?")
+    # Locate profraw and merge into profdata
+    profraws = Dir.glob("#{coverage_dir}/default-*.profraw")
+    profraws += Dir.glob(".build/**/codecov/default-*.profraw") if profraws.empty?
+    if profraws.empty?
+      UI.user_error!("No .profraw files found — did swift test succeed?")
     end
+
+    profdata = "#{coverage_dir}/default.profdata"
+    sh("xcrun", "llvm-profdata", "merge", "-sparse", *profraws, "-o", profdata)
 
     # SPM test binary name varies; find the package tests executable
     test_binary = Dir.glob(".build/**/swift-toolkitsPackageTests.xctest/**/swift-toolkitsPackageTests").first ||
@@ -130,7 +140,7 @@ platform :ios do
 
       device_type_id = sh("xcrun", "simctl", "list", "devicetypes", "--json")
                        .then { |json| JSON.parse(json) }
-                       .then { |d| d["deviceTypes"] }
+                       .then { |d| d["devicetypes"] || d["deviceTypes"] || [] }
                        .find { |dt| dt["name"] =~ /iPhone 16/ }
                        &.fetch("identifier")
 
