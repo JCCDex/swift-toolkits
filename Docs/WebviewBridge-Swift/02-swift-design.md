@@ -605,7 +605,7 @@ public final class WebviewBridgeClient: NSObject {
         }
 
         let configuration = WKWebViewConfiguration()
-        configuration.preferences.javaScriptEnabled = true
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         // 对应 Kotlin LOAD_NO_CACHE：不持久化任何 Web 数据。
         // DOM Storage（localStorage/sessionStorage）默认启用，仅在内存中存活。
         configuration.websiteDataStore = .nonPersistent()
@@ -663,7 +663,9 @@ public final class WebviewBridgeClient: NSObject {
     /// 生成 JS 字符串字面量（JSON 字符串是 JS 字符串字面量的安全超集），
     /// 等价 Kotlin 的 JSONObject.quote()，避免手拼转义导致注入/语法错误。
     private static func jsString(_ value: String) -> String {
-        let data = try! JSONSerialization.data(withJSONObject: value)
+        // 顶层字符串必须加 .fragmentsAllowed：否则 NSJSONSerialization 抛 ObjC 异常，
+        // 在 Swift 桥接下会表现为 malloc guard 内存损坏（模拟器实测崩溃）。
+        let data = try! JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
         return String(data: data, encoding: .utf8)!
     }
 }

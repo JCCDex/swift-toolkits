@@ -191,7 +191,7 @@ webView.loadFileURL(bridgeURL, allowingReadAccessTo: bridgeURL.deletingLastPathC
 
 | 配置项 | Kotlin | Swift | 说明 |
 | --- | --- | --- | --- |
-| JS 启用 | `javaScriptEnabled = true` | `configuration.preferences.javaScriptEnabled = true` | 等价 |
+| JS 启用 | `javaScriptEnabled = true` | `configuration.defaultWebpagePreferences.allowsContentJavaScript = true`（`preferences.javaScriptEnabled` 已在 macOS 11+ 弃用） | 等价 |
 | DOM Storage | `domStorageEnabled = true` | 默认启用（`WKWebView`） | iOS WKWebView 默认启用 DOM Storage，无需显式配置。使用 `.nonPersistent()` 数据存储时 localStorage/sessionStorage 仅在内存中存活，行为与 Kotlin `LOAD_NO_CACHE` 一致 |
 | 文件访问 | `allowFileAccess = false` | `loadFileURL(_:allowingReadAccessTo:)` 仅授权桥接目录 | iOS 采用白名单方式天然更安全 |
 | 缓存 | `LOAD_NO_CACHE` | `websiteDataStore = .nonPersistent()` | 不持久化任何 Web 数据，效果更强 |

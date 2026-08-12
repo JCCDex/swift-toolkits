@@ -57,6 +57,8 @@ let result = try await MainActor.run {
 
 不要手工拼接 `"..." + method + "..."`：方法名/参数/ID 一律用 `JSONSerialization` 生成 JSON 文本作为 JS 字符串字面量，等价 Kotlin `JSONObject.quote()`，避免引号、换行、注入导致语法错误。
 
+**坑（实测）**：`JSONSerialization.data(withJSONObject: String)` 序列化顶层字符串时必须加 `.fragmentsAllowed`，否则 `NSJSONSerialization` 抛 ObjC 异常，在 Swift 桥接下不会走 Swift 错误处理，而是表现为 malloc guard 内存损坏（模拟器上 "freed pointer was not the last allocation" 崩溃）。`PromiseGateway.parseResult` 对数字/布尔结果做 JSON 序列化时同理。
+
 ### 2.5 取消语义（ContinuationBox）
 
 `withCheckedThrowingContinuation` 的续体**必须恰好恢复一次**，否则运行时报告泄漏或双重 resume。所有可能提前终止的路径（调用方取消、超时、WebView 销毁）都需要通过 `ContinuationBox` 安全恢复：

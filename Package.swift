@@ -32,6 +32,18 @@ var targets: [Target] = [
         name: "SwiftVaultTests",
         dependencies: ["SwiftVault"],
         path: "Tests/SwiftVaultTests"
+    ),
+    .target(
+        name: "SwiftWebviewBridge",
+        path: "Sources/SwiftWebviewBridge",
+        resources: [
+            .copy("Resources/bridge")
+        ]
+    ),
+    .testTarget(
+        name: "SwiftWebviewBridgeTests",
+        dependencies: ["SwiftWebviewBridge"],
+        path: "Tests/SwiftWebviewBridgeTests"
     )
 ]
 
@@ -55,6 +67,10 @@ let package = Package(
         .library(
             name: "SwiftVault",
             targets: ["SwiftVault"]
+        ),
+        .library(
+            name: "SwiftWebviewBridge",
+            targets: ["SwiftWebviewBridge"]
         )
     ],
     dependencies: [
