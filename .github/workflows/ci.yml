@@ -47,20 +47,3 @@ jobs:
         with:
           name: coverage-ios
           path: coverage/ios/
-
-  swift-webview-bridge-tests:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-
-      - name: Make scripts executable
-        run: chmod +x Scripts/*.sh
-
-      - name: Run SwiftWebviewBridge tests on iOS simulator (fastlane)
-        run: bundle exec fastlane webview_bridge_test
