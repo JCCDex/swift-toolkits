@@ -200,11 +200,27 @@ final class FakeRuntime: WebViewRuntime {
 
 ### 3.3 集成测试（真实 WKWebView）
 
-单测覆盖不了真实 `WKWebView` 的 JS 执行。建议：
+单测覆盖不了真实 `WKWebView` 的 JS 执行。当前实现把真实 WebView 集成测试直接放进 SPM 测试 target：
 
-1. 在 Demo App / host 测试 target 里加载 `wallet-bridge.html`，调用 `generateMnemonic`，断言返回值形态；
-2. 验证双变体就绪：`wallet-bridge.html` 走脚本主动通知，`did-bridge.html` 走 `didFinish` 兜底；
-3. 验证 destroy 后无泄漏（可配合内存图/Leaks 工具）。
+- `WebviewBridgeClientBehaviorTests`：每个用例独立创建真实 `WebviewBridgeClient`，走生产路径的 `wallet-bridge.html` JS，验证 `generateMnemonic` / `validateMnemonic` / `noSuchMethod` 错误等完整链路；
+- `WebviewBridgeEngineTests`：`callMethods_roundTripThroughRealWebView` 等用例覆盖引擎门面 + 真实 WebView。
+
+真实 WebView 用例只在 iOS 模拟器上运行（`WKWebView` 在无宿主 App 的 SPM 测试进程内可用），运行命令与策略：
+
+```bash
+# macOS：单测/行为测试（FakeRuntime）
+bundle exec fastlane macos_test
+
+# iOS 模拟器：真实 WKWebView 集成测试（默认最新运行时）
+bundle exec fastlane ios_test
+
+# 指定 iOS 主版本与机型（与 CI 一致）
+bundle exec fastlane ios_test "device_name:iPhone 16" device_os:18
+```
+
+稳定性策略：`ios_test` 会自动预热模拟器（`simctl bootstatus -b`）、串行执行（`-parallel-testing-enabled NO`），并对失败用例自动重试一次（`-retry-tests-on-failure` + `-test-iterations 2`），以吸收慢 runner 上 WebContent 冷启动造成的偶发超时。
+
+> 双变体说明：`wallet-bridge.html` 走脚本主动通知就绪，`did-bridge.html` 走 `didFinish` 兜底；两套资源均已随 target 打包。
 
 ## 4. 实施清单
 
