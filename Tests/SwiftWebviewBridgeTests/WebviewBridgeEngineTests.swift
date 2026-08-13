@@ -36,7 +36,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
     func test_config_defaults_areStable() {
         let config = WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html")
 
-        XCTAssertEqual(config.bridgeFileName, "bridge.html")
+        XCTAssertEqual(config.bridgeFileName, "wallet-bridge.html")
         XCTAssertEqual(config.jsInterfaceName, "JSBridge")
         XCTAssertEqual(config.consoleTag, "WebViewConsole")
     }
