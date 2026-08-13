@@ -55,6 +55,21 @@ jobs:
       - name: Run iOS ${{ matrix.ios }} simulator tests with coverage (fastlane + xcov)
         run: bundle exec fastlane ios_test "device_name:${{ matrix.device }}" device_os:${{ matrix.ios }}
 
+      - name: Dump xcresult test failures (on failure)
+        # xcodebuild -quiet 只在日志里留一句 "TEST FAILED"，
+        # 真正的断言/超时详情在 .xcresult 里；失败时导出，便于直接定位。
+        if: failure()
+        run: |
+          XCRESULT_PATH="$(ls -d .build/DerivedData/ios-coverage/Logs/Test/*.xcresult 2>/dev/null | head -n 1)"
+          if [[ -z "$XCRESULT_PATH" ]]; then
+            echo "No .xcresult found; skipping dump"
+            exit 0
+          fi
+          echo "=== Test results summary ==="
+          xcrun xcresulttool get test-results summary --path "$XCRESULT_PATH" || true
+          echo "=== Failing tests details ==="
+          xcrun xcresulttool get test-results tests --path "$XCRESULT_PATH" | head -c 20000 || true
+
       - name: Locate .xcresult for Codecov
         run: |
           XCRESULT_PATH="$(ls -d .build/DerivedData/ios-coverage/Logs/Test/*.xcresult | head -n 1)"
