@@ -32,149 +32,149 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         XCTAssertTrue(client.isInitializedForTest)
     }
 
-    // func test_start_fromBackground_thenCall_resolves() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_start_fromBackground_thenCall_resolves() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     // @MainActor 约束：后台线程需经 MainActor.run 切换（对应 Kotlin Handler.post）
-    //     try await MainActor.run { try client.start() }
+        // @MainActor 约束：后台线程需经 MainActor.run 切换（对应 Kotlin Handler.post）
+        try await MainActor.run { try client.start() }
 
-    //     let raw = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
-    //     XCTAssertEqual(raw, "true")
-    // }
+        let raw = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(raw, "true")
+    }
 
     // MARK: - 真实 JS 往返
 
-    // func test_callJsMethod_generateMnemonic_returnsRealResult() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethod_generateMnemonic_returnsRealResult() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let raw = try await client.callJsMethod(
-    //         method: "generateMnemonic",
-    //         params: ["length": 128],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
+        let raw = try await client.callJsMethod(
+            method: "generateMnemonic",
+            params: ["length": 128],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
 
-    //     let data = try XCTUnwrap(raw.data(using: .utf8))
-    //     let result = try JSONDecoder().decode(MnemonicResult.self, from: data)
-    //     XCTAssertEqual(result.language, "english")
-    //     XCTAssertEqual(result.value.split(separator: " ").count, 12) // 128-bit -> 12 words
-    // }
+        let data = try XCTUnwrap(raw.data(using: .utf8))
+        let result = try JSONDecoder().decode(MnemonicResult.self, from: data)
+        XCTAssertEqual(result.language, "english")
+        XCTAssertEqual(result.value.split(separator: " ").count, 12) // 128-bit -> 12 words
+    }
 
-    // func test_callJsMethodAs_decodesTypedResult() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethodAs_decodesTypedResult() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let result: MnemonicResult = try await client.callJsMethodAs(
-    //         method: "generateMnemonic",
-    //         params: ["length": 128],
-    //         as: MnemonicResult.self,
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
+        let result: MnemonicResult = try await client.callJsMethodAs(
+            method: "generateMnemonic",
+            params: ["length": 128],
+            as: MnemonicResult.self,
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
 
-    //     XCTAssertEqual(result.language, "english")
-    //     XCTAssertEqual(result.value.split(separator: " ").count, 12)
-    // }
+        XCTAssertEqual(result.language, "english")
+        XCTAssertEqual(result.value.split(separator: " ").count, 12)
+    }
 
-    // func test_callJsMethodAs_stringTarget_returnsRawString() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethodAs_stringTarget_returnsRawString() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let raw = try await client.callJsMethodAs(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         as: String.self,
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
+        let raw = try await client.callJsMethodAs(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            as: String.self,
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
 
-    //     XCTAssertEqual(raw, "true")
-    // }
+        XCTAssertEqual(raw, "true")
+    }
 
-    // func test_callJsMethod_coercesBooleanResultToString() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethod_coercesBooleanResultToString() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let valid = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
-    //     XCTAssertEqual(valid, "true")
+        let valid = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(valid, "true")
 
-    //     let invalid = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": "not a mnemonic"],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
-    //     XCTAssertEqual(invalid, "false")
-    // }
+        let invalid = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": "not a mnemonic"],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(invalid, "false")
+    }
 
-    // func test_callJsMethod_withEncodableParams_encodesAndExecutes() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethod_withEncodableParams_encodesAndExecutes() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let raw = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
+        let raw = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
 
-    //     XCTAssertEqual(raw, "true")
-    // }
+        XCTAssertEqual(raw, "true")
+    }
 
     // MARK: - 错误路径
 
-    // func test_callJsMethod_unknownMethod_reportsJsError() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_callJsMethod_unknownMethod_reportsJsError() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     do {
-    //         _ = try await client.callJsMethod(
-    //             method: "noSuchMethod",
-    //             timeoutMs: Self.timeoutMs,
-    //             readyWaitMs: Self.readyWaitMs
-    //         )
-    //         XCTFail("expected jsError")
-    //     } catch let error as WebviewBridgeError {
-    //         XCTAssertEqual(error, .jsError("no such method: noSuchMethod"))
-    //     } catch {
-    //         XCTFail("unexpected error: \(error)")
-    //     }
-    // }
+        do {
+            _ = try await client.callJsMethod(
+                method: "noSuchMethod",
+                timeoutMs: Self.timeoutMs,
+                readyWaitMs: Self.readyWaitMs
+            )
+            XCTFail("expected jsError")
+        } catch let error as WebviewBridgeError {
+            XCTAssertEqual(error, .jsError("no such method: noSuchMethod"))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
 
     // MARK: - 销毁与重建
 
-    // func test_destroy_thenCall_recreatesRealWebViewAndResolves() async throws {
-    //     let client = self.makeClient()
-    //     defer { client.destroy() }
+    func test_destroy_thenCall_recreatesRealWebViewAndResolves() async throws {
+        let client = self.makeClient()
+        defer { client.destroy() }
 
-    //     let first = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
-    //     XCTAssertEqual(first, "true")
+        let first = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(first, "true")
 
-    //     client.destroy()
+        client.destroy()
 
-    //     let second = try await client.callJsMethod(
-    //         method: "validateMnemonic",
-    //         params: ["mnemonic": validBip39Mnemonic],
-    //         timeoutMs: Self.timeoutMs,
-    //         readyWaitMs: Self.readyWaitMs
-    //     )
-    //     XCTAssertEqual(second, "true")
-    // }
+        let second = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(second, "true")
+    }
 }

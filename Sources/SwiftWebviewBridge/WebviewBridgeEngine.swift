@@ -17,7 +17,7 @@ public final class WebviewBridgeEngine {
 
     public func initialize(
         bundle: Bundle = WebviewBridgeResources.bundle,
-        config: WebviewBridgeConfig = WebviewBridgeConfig()
+        config: WebviewBridgeConfig
     ) {
         self.client.initialize(bundle: bundle, config: config)
     }
