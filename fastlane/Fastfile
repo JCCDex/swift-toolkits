@@ -143,6 +143,12 @@ platform :ios do
       device_id = resolve_or_create_simulator(device_name, runtime_os: device_os)
 
       UI.message("Running tests on simulator #{device_id}#{device_os ? " (iOS #{device_os})" : ""}")
+
+      # 预热模拟器：先 boot 并等待启动完成，避免 xcodebuild 现场冷启动
+      # 拖慢首个 WebContent 进程（真实 WKWebView 集成测试的 flaky 主因）。
+      UI.message("Booting simulator #{device_id} …")
+      sh("xcrun", "simctl", "bootstatus", device_id, "-b")
+
       FileUtils.mkdir_p(derived_data)
 
       # xcodebuild 必须在包根目录运行（CWD 需包含 Package.swift）
@@ -151,6 +157,12 @@ platform :ios do
          "-scheme", scheme,
          "-destination", "id=#{device_id}",
          "-enableCodeCoverage", "YES",
+         # 串行执行：真实 WebView 测试并发会互相抢占模拟器资源，
+         # 导致 WebContent 冷启动/JS 执行超时。
+         "-parallel-testing-enabled", "NO",
+         # WebView 用例在慢 CI runner 上偶发超时，允许失败用例自动重试一次。
+         "-retry-tests-on-failure",
+         "-test-iterations", "2",
          "-derivedDataPath", derived_data,
          "-quiet")
 

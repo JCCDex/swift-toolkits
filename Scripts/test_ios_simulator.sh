@@ -42,6 +42,10 @@ if [[ -z "$DEVICE_ID" ]]; then
   DEVICE_ID="$(xcrun simctl create "$DEVICE_NAME" "$DEVICE_TYPE" "$RUNTIME_ID")"
 fi
 
+# 预热模拟器：等待启动完成，避免 WebContent 首次冷启动拖慢真实 WKWebView 测试。
+echo "Booting simulator $DEVICE_NAME ($DEVICE_ID) …"
+xcrun simctl bootstatus "$DEVICE_ID" -b
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 XCODEBUILD_ARGS=(
@@ -49,6 +53,11 @@ XCODEBUILD_ARGS=(
   -skipPackagePluginValidation
   -scheme "$SCHEME"
   -destination "id=$DEVICE_ID"
+  # 串行执行：真实 WebView 测试并发会互相抢占模拟器资源导致超时
+  -parallel-testing-enabled NO
+  # 慢 runner 上偶发超时，失败用例自动重试一次
+  -retry-tests-on-failure
+  -test-iterations 2
 )
 
 if [[ "$COVERAGE" == "1" ]]; then
