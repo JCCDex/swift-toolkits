@@ -5,7 +5,7 @@
 | Kotlin | Swift | 说明 |
 | --- | --- | --- |
 | `DAppConnectSdk` object | `enum DAppConnectSdk` | 静态工具入口；无 Android Context/Resources |
-| `WebAppInterface` | `@MainActor WebAppInterface` | `@JavascriptInterface` → `WKScriptMessageHandlerWithReply` |
+| `WebAppInterface` | `@MainActor WebAppInterface` | `@JavascriptInterface` → legacy `WKScriptMessageHandler` + `_ccdaoSettle` 回传 |
 | `WebAppInterfaceWithWebView` | 并入 `WebAppInterface` | 无需子类，WebView 由宿主持有 |
 | `NativeResponseChannel` | `NativeResponseChannel`（payload 序列化） | 端口通道 → reply 回调 |
 | `WebOrigin` | `enum WebOrigin` | normalize + `walletInternal` |
@@ -27,8 +27,8 @@
 ## 2. 实现注意点 / 坑
 
 1. **无 `addJavascriptInterface`**：必须注入适配脚本把 `window._tw_.postMessage` 接到 `window.webkit.messageHandlers._tw_.postMessage(json, reply)`；命名 handler 为 `_tw_` 保持 DApp 侧零改动。
-2. **reply 只能一次且尽可能带 nonce**：`WKScriptMessageHandlerWithReply` 的 `replyHandler` 必须恰好调用一次；所有提前返回路径（校验/解析失败）都要回传 `{nonce, error:{code,message}}` 的 payload 字典，不能只回裸错误串——否则 JS `requestQueue` 无法 settle；确实无法取得 nonce 时（body 非字符串）靠 JS 侧超时兜底（Kotlin 对非法请求只打日志不回复，属继承缺陷，Swift 统一修正，见 03 章）。
-3. **主线程约束**：`WKScriptMessageHandlerWithReply` 回调在主线程；`WebAppInterface` 标 `@MainActor`，路由内 `Task { @MainActor }` 保证回复仍回主线程。
+2. **消息回传必须带 nonce**：legacy `WKScriptMessageHandler` 的 `userContentController(_:didReceive:)` 收到消息后，所有提前返回路径（校验/解析失败）都要经 `evaluateJavaScript` 调 `window._ccdaoSettle` 回传 `{nonce, error:{code,message}}`，不能只打日志——否则 JS `requestQueue` 无法 settle；确实无法取得 nonce 时（body 非字符串）靠 JS 侧超时兜底（Kotlin 对非法请求只打日志不回复，属继承缺陷，Swift 统一修正，见 03 章）。
+3. **主线程约束**：`WKScriptMessageHandler` 回调在主线程；`WebAppInterface` 标 `@MainActor`，路由内 `Task { @MainActor }` 保证 `evaluateJavaScript` 回传仍在主线程。
 4. **私有 requestQueue 不可注入 settle**：Swift 必须使用 provider JS 的 iOS 传输变体，不能只靠注入补丁（闭包外部无法访问 queue）。
 5. **JSON 处理**：`params` 是异构数组，Swift 用 `[Any]`/`JSONSerialization` 解析而非强类型 Decodable；响应序列化需区分 String/Number/Bool/Object/Array/Null，避免 `0x123` 被 JS 解析成数字。
 6. **错误码映射**：`UserRejectedException→4001`、`ChainNotSupportedException→4902`，其余所有异常在 `WebAppInterfaceWithWebView.sendErrorResponse` 里统一回传 `code = -1`。注意 Kotlin 虽定义了 `UnauthorizedException`(4100) 与 `TransactionException`(-32603)，但路由层从未抛出/捕获，属于死代码；Swift 侧对齐真实行为时通用错误应为 `-1`，若有意改为 `-32603` 需作为对 Kotlin 的显式偏离标注。
@@ -85,7 +85,7 @@ bundle exec fastlane ios_test       # iOS 模拟器：真实 WKWebView 集成测
 - [ ] `WebOrigin` + `isSafeUrl` + 单测
 - [ ] Provider 协议与 `CachingSecretProvider`（actor）
 - [ ] `EthMiddleware` / `SwtcMiddleware`（`WalletSigning` 协议）
-- [ ] `WebAppInterface`（`WKScriptMessageHandlerWithReply` 路由 + origin 校验）
+- [ ] `WebAppInterface`（legacy `WKScriptMessageHandler` 路由 + `_ccdaoSettle` 回传 + origin 校验）
 - [ ] `ccdao-eip1193-provider-ios.js`（iOS 传输变体）+ 适配脚本
 - [ ] `DAppConnectSdk` 工厂与 JS 生成
 - [ ] 单测 / 中间件测试 / 真实 WebView 集成测试

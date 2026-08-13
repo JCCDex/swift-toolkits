@@ -3,7 +3,7 @@
 ## 1. 设计目标与取舍
 
 - 保持 Kotlin 的**行为契约**（postMessage 消息格式、nonce 队列、错误码、requestAccounts 强制回调、origin 校验、HD 根过滤），把平台相关部分替换为 WebKit 生态。
-- iOS 没有 `addJavascriptInterface` 与 `WebMessagePort` 的等价物：JS→Native 用 `WKUserContentController.add(_:name:)` + `WKScriptMessageHandlerWithReply`；Native→JS 响应用 reply 回调返回（`WKScriptMessageHandlerWithReply` 的 `replyHandler`），等价于 Kotlin 的 C-03 端口通道。
+- iOS 没有 `addJavascriptInterface` 与 `WebMessagePort` 的等价物：JS→Native 用 `WKUserContentController.add(_:contentWorld:name:)` + legacy `WKScriptMessageHandler`；Native→JS 响应由 native 用 `evaluateJavaScript` 调用 provider 的 `window._ccdaoSettle(nonce, payloadJson)` 回传，等价于 Kotlin 的 C-03 端口通道。**弃用 `WKScriptMessageHandlerWithReply`**：其 reply 通道在裸测试进程（macOS/iOS 模拟器）消息能进但回复不送达，而 legacy + evaluateJavaScript 模式与 SwiftWebviewBridge 同款、已验证可用；页面内伪造 `_ccdaoSettle` 只能 settle 自身请求（nonce 只有发起方知道），安全性等价。
 - provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 侧**不能**在外部注入 settle 函数；因此 iOS 采用同一逻辑的 JS 变体（仅替换 `sendToNative` 的传输层），见 03 章。
 - Swift 6 严格并发下把 `WebAppInterface` / 中间件标为 `@MainActor`：`WKWebView` 本就要求主线程访问，用编译器强制替代 Kotlin 的 `Handler` 手工切线程；中间件内部的长任务用 `Task` 包裹。
 - 签名与 DID 能力抽象为协议（`WalletSigning` / `DidSDK`），宿主接线：本仓库 `SwiftVault` 提供私钥/秘钥，交易签名由宿主或后续 `SwiftWallet` 模块实现。
@@ -13,7 +13,7 @@
 ```text
 Sources/SwiftDappConnect/
 ├── DAppConnectSdk.swift          // 唯一入口：工厂 / JS 加载 / URL 安全 / EIP-6963
-├── WebAppInterface.swift         // @MainActor 消息路由（WKScriptMessageHandlerWithReply）
+├── WebAppInterface.swift         // @MainActor 消息路由（legacy WKScriptMessageHandler + _ccdaoSettle 回传）
 ├── NativeResponseChannel.swift   // 响应封装：success/error payload 序列化
 ├── WebOrigin.swift               // origin 归一化 + WALLET_INTERNAL
 ├── DidDocumentMutationListener.swift
@@ -36,7 +36,7 @@ Swift Package 注册示意：
 ```swift
 .target(
     name: "SwiftDappConnect",
-    dependencies: ["SwiftVault"],
+    dependencies: [],   // 宿主经协议注入（WalletSigning / DidSDK / Providers），模块不依赖具体钱包实现
     resources: [.copy("Resources")]
 )
 ```
@@ -183,7 +183,7 @@ public enum RPCResult {
 
 ```swift
 @MainActor
-public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
+public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private let ethMiddleware: any EthMiddlewareProtocol
     private let swtcMiddleware: any SwtcMiddlewareProtocol
     private let accountProvider: (any AccountProvider)?
@@ -210,14 +210,14 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
         onAccountSwitched = callback
     }
 
-    // JS 侧：window._tw_.postMessage(json, replyHandler)
-    public func didReceive(
-        message: WKScriptMessage,
-        replyHandler: @escaping (Any?, String?) -> Void
+    // JS 侧：window._tw_.postMessage(json)（legacy handler，无 reply 参数）
+    public func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
     ) {
+        _ = userContentController
         guard let json = message.body as? String else {
             // body 非字符串：无法取得 nonce，靠 JS 侧 queue 超时兜底（见 03 章）
-            replyHandler(NativeResponseChannel.errorPayload(nonce: "", code: -1, message: "Invalid message body"), nil)
             return
         }
 
@@ -228,7 +228,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
 
         let origin = dappOrigin
         guard !origin.isEmpty, DAppConnectSdk.isSafeUrl(origin) else {
-            replyHandler(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"), nil)
+            deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
             return
         }
 
@@ -239,7 +239,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
             let network = obj["network"] as? String,
             let id = obj["id"] as? String
         else {
-            replyHandler(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Malformed request"), nil)
+            deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Malformed request"))
             return
         }
         let request = DAppRequest(
@@ -251,16 +251,25 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
         )
 
         Task { @MainActor in
-            let response = await route(request, origin: origin)
-            replyHandler(response.payload, nil)   // 字典直接回传（WebKit 自动序列化为 JS 对象）
+            let payload = await route(request, origin: origin)
+            deliver(payload)
         }
+    }
+
+    /// Native → JS 响应投递：evaluateJavaScript 调用 provider 的 `window._ccdaoSettle`。
+    private func deliver(_ payload: [String: Any]) {
+        guard let webView else { return }
+        let nonce = (payload["nonce"] as? String) ?? ""
+        let script =
+            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(payload.jsonString)));"
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 }
 ```
 
-> `WKScriptMessageHandlerWithReply` 的 reply 只能调用一次且必须在主线程；路由整体在 `@MainActor` 上执行天然满足。所有 handler 与 Kotlin 一样包 try/catch，把异常映射为 RPC 错误码回传。
+> 传输说明：JS→Native 用 legacy `WKScriptMessageHandler`（`window.webkit.messageHandlers._tw_.postMessage(json)` 到达 `userContentController(_:didReceive:)`）；Native→JS 由 `deliver` 经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson)` 回传。路由整体在 `@MainActor` 上执行。所有 handler 与 Kotlin 一样包 try/catch，把异常映射为 RPC 错误码回传。
 >
-> **回复约定（对 Kotlin 的显式改进）**：所有回复路径（含校验/解析失败）统一带 `nonce` 回传 `{nonce, result|error}` 字典，失败路径也回 `{nonce, error:{code,message}}`；无法取得 nonce 时（body 非字符串）依赖 JS 侧 `requestQueue` 超时兜底（见 03 章 3.2）。不再像 Kotlin 那样对非法请求只打日志不回复——那样 DApp Promise 会永久挂起。回复形态（字符串 vs 字典）见下方「回复形态取舍（定稿）」。
+> **回复约定（对 Kotlin 的显式改进）**：所有回复路径（含校验/解析失败）统一带 `nonce` 回传 `{nonce, result|error}` JSON 字符串（经 `_ccdaoSettle` 的 `JSON.parse` 还原）；无法取得 nonce 时（body 非字符串）依赖 JS 侧 `requestQueue` 超时兜底（见 03 章 3.2）。不再像 Kotlin 那样对非法请求只打日志不回复——那样 DApp Promise 会永久挂起。
 >
 > `.jsonString` 为 `[String: Any]` 的 JSON 序列化辅助，与 `NativeResponseChannel` 的 payload 构造配套：
 >
@@ -276,11 +285,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandlerWithReply {
 > }
 > ```
 >
-> **回复形态取舍（定稿）**：默认**直接向 `replyHandler` 回传 `[String: Any]` 字典**——`WKScriptMessageHandlerWithReply` 会自动把字典序列化为 JS 对象，省去 native `.jsonString` 与 JS `JSON.parse` 的双重序列化；JS 变体对「字符串 / 对象」两种回复均已兼容（见 03 章 3.2）。`.jsonString` 保留，仅在需要与 Kotlin wire 格式严格对齐或统一日志时使用（二者可随时切换，仅改 native 回传侧）。
+> **回复形态（定稿）**：native 统一以 **JSON 字符串** 回传（`_ccdaoSettle(nonce, payloadJson)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志。不采用 WithReply 的字典直传（该通道在裸测试进程不送达）。
 
 ## 5. NativeResponseChannel（Swift）
 
-Kotlin 用 WebMessagePort + `HANDSHAKE`；Swift 用 `WKScriptMessageHandlerWithReply`，native 侧只负责「构造 payload」：
+Kotlin 用 WebMessagePort + `HANDSHAKE`；Swift 用 `evaluateJavaScript` + `window._ccdaoSettle` 回传，native 侧只负责「构造 payload」：
 
 ```swift
 enum NativeResponseChannel {

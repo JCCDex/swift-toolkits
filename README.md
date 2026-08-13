@@ -17,6 +17,12 @@ Webview Bridge：Swift 移植设计、快速接入、协议说明与测试策略
 
 [SwiftWebviewBridge/README.md](Sources/SwiftWebviewBridge/README.md)
 
+## SwiftDappConnect
+
+DApp Connect：Swift 移植设计、快速接入、通信协议与安全说明详见：
+
+[SwiftDappConnect/README.md](Sources/SwiftDappConnect/README.md)
+
 ## 测试
 
 测试统一通过 fastlane 运行（脚本见 `fastlane/Fastfile`，首次需 `bundle install`）：

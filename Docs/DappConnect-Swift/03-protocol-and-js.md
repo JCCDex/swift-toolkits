@@ -59,11 +59,12 @@ JS 侧 `requestQueue[nonce]` 匹配，先到先删；`error` 存在则 reject，
 
 ### 3.2 iOS（Swift 设计）
 
-`WKWebView` 无 WebMessagePort。等价通道是 `WKScriptMessageHandlerWithReply`（iOS 14+）：
+`WKWebView` 无 WebMessagePort。Swift 版等价通道：
 
-- JS 侧：`window.webkit.messageHandlers._tw_.postMessage(json, replyHandler)`。
-- Native 侧：`didReceive(message:replyHandler:)` 在路由完成后调用一次 `replyHandler(payload, nil)`；payload 即 `{nonce, result|error}` 的字典（WebKit 自动序列化为 JS 对象）。
-- 由于 provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 直接复用 Kotlin JS 无法 settle 响应；因此 Swift 版携带 **`ccdao-eip1193-provider-ios.js`**：与 Kotlin 版仅 `sendToNative` 的传输段不同：
+- JS 侧：`window.webkit.messageHandlers._tw_.postMessage(json)`（legacy `WKScriptMessageHandler`，无 reply 参数）。
+- Native 侧：`userContentController(_:didReceive:)` 路由完成后，经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson)` 回传。
+- **为什么不用 `WKScriptMessageHandlerWithReply`**：实测该 reply 通道在裸测试进程（macOS/iOS 模拟器）中消息能进（`didReceive` 被调用）但回复不送达 JS；legacy handler + evaluateJavaScript 与 SwiftWebviewBridge 同款、已验证可用。页面内伪造 `_ccdaoSettle` 只能 settle 自身请求（nonce 只有发起方知道），与 WithReply 安全性等价。
+- 由于 provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 直接复用 Kotlin JS 无法 settle 响应；因此 Swift 版携带 **`ccdao-eip1193-provider-ios.js`**：与 Kotlin 版仅 `sendToNative` 的传输段不同，并新增 `window._ccdaoSettle` 作为 native 回传入口：
 
 ```js
 // Kotlin 版（Android）：window._tw_.postMessage(json)，响应经端口
@@ -71,31 +72,31 @@ if (window._tw_ && window._tw_.postMessage) {
   window._tw_.postMessage(message);
 }
 
-// iOS 变体：携带 replyHandler，native 经 reply 回传
+// iOS 变体：legacy postMessage；native 经 evaluateJavaScript 调 window._ccdaoSettle 回传
 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers._tw_) {
-  window.webkit.messageHandlers._tw_.postMessage(message, function (response) {
-    var msg = response;
-    if (typeof msg === 'string') {
-      try { msg = JSON.parse(msg); } catch (_) { return; }
-    }
-    if (!msg || typeof msg.nonce !== 'string') return;
-    if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
-      settleRequest(msg.nonce, { error: msg.error });
-    } else {
-      settleRequest(msg.nonce, { result: msg.result });
-    }
-  });
+  window.webkit.messageHandlers._tw_.postMessage(message);
 } else {
   console.error('[CCDAO EIP-1193] _tw_ not available');
   // 对 Kotlin 的显式偏离：Kotlin 回字符串 error；这里统一为 {code,message} 结构，
   // 让 DApp 侧只处理一种 error 形态（见 04 章坑 #13）。
   settleRequest(nonce, { error: { code: -1, message: 'Bridge not available' } });
 }
+
+// native → JS 响应投递入口（与 sendToNative 同闭包，可访问私有 requestQueue）
+window._ccdaoSettle = function (nonce, payloadJson) {
+  var msg = JSON.parse(payloadJson);
+  if (!msg || msg.nonce !== nonce) return;
+  if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
+    settleRequest(msg.nonce, { error: msg.error });
+  } else {
+    settleRequest(msg.nonce, { result: msg.result });
+  }
+};
 ```
 
 其余逻辑（状态、事件、拦截、EIP-6963、二进制参数归一化）与 Kotlin 版保持一致，确保行为契约不漂移。
 
-> **回复形态兼容性**：native 侧无论回传 JSON 字符串还是直接回传字典（WebKit 自动转 JS 对象），上述 `replyHandler` 都能处理——`typeof msg === 'string'` 时 `JSON.parse`，否则直接按对象走 nonce 校验。因此 02 章「字符串 vs 字典」两种回复形态可随时切换。
+> **回复形态**：native 统一以 JSON 字符串回传（`_ccdaoSettle(nonce, payloadJson)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志；不再区分字典/字符串双形态。
 
 ## 4. provider JS 能力
 

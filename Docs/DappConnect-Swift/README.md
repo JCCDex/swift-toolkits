@@ -6,7 +6,7 @@
 
 ## 设计原则
 
-1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS `WKScriptMessageHandler` + reply 通道）。
+1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS legacy `WKScriptMessageHandler` + `_ccdaoSettle` 回传）。
 2. **行为对齐**：错误码（4001 / 4902 / -1）、强制 requestAccounts 回调（M-06）、origin 校验（M-05）、地址去重/链过滤、缓存窗口等行为逐一对齐 Kotlin 契约与测试。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`/`AsyncSequence`，`StateFlow` → actor 状态，`JSONObject` → `Codable`/`[String: Any]`，线程约束 → `@MainActor`。
 
@@ -58,7 +58,7 @@ interface.setOrigin("https://dapp.example.com")   // 导航时接线（M-05）
 | --- | --- | --- |
 | JS 注入接口 | `addJavascriptInterface(wai, "_tw_")` | `WKUserContentController.add(handler, name: "_tw_")` + 适配脚本 |
 | JS → Native | `window._tw_.postMessage(json)` | `window.webkit.messageHandlers._tw_.postMessage(json, reply)` |
-| Native → JS 响应 | `WebMessagePort` 握手（C-03） | `WKScriptMessageHandlerWithReply` reply 通道 |
+| Native → JS 响应 | `WebMessagePort` 握手（C-03） | `evaluateJavaScript` 调 `window._ccdaoSettle` |
 | 并发 | `CoroutineScope(Dispatchers.IO)` + `Flow` | `@MainActor` + `Task` + `AsyncStream` |
 | 参数/结果 | `org.json.JSONObject` | `Codable` / `[String: Any]` |
 | 密钥 | `WalletSdk`（模块内调用） | `WalletSigning` 协议（宿主接线，本仓库 `SwiftVault` 供钥） |

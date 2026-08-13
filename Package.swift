@@ -46,6 +46,20 @@ var targets: [Target] = [
         name: "SwiftWebviewBridgeTests",
         dependencies: ["SwiftWebviewBridge"],
         path: "Tests/SwiftWebviewBridgeTests"
+    ),
+    .target(
+        name: "SwiftDappConnect",
+        path: "Sources/SwiftDappConnect",
+        resources: [
+            // 注意：不能 .copy("Resources")（会在 bundle 内生成 Resources/ 包装层，
+            // 本工具链 codesign 报 "bundle format unrecognized"）；直接复制文件到 bundle 根。
+            .copy("Resources/ccdao-eip1193-provider-ios.js")
+        ]
+    ),
+    .testTarget(
+        name: "SwiftDappConnectTests",
+        dependencies: ["SwiftDappConnect"],
+        path: "Tests/SwiftDappConnectTests"
     )
 ]
 
@@ -73,6 +87,10 @@ let package = Package(
         .library(
             name: "SwiftWebviewBridge",
             targets: ["SwiftWebviewBridge"]
+        ),
+        .library(
+            name: "SwiftDappConnect",
+            targets: ["SwiftDappConnect"]
         )
     ],
     dependencies: [

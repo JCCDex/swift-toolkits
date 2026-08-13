@@ -1,0 +1,91 @@
+import Foundation
+@testable import SwiftDappConnect
+import Testing
+
+@MainActor
+private func makeInterface(
+    eth: FakeEthMiddleware = FakeEthMiddleware(),
+    swtc: FakeSwtcMiddleware = FakeSwtcMiddleware()
+) -> WebAppInterface {
+    WebAppInterface(ethMiddleware: eth, swtcMiddleware: swtc)
+}
+
+private func request(
+    name: String,
+    network: String = "eth",
+    id: String = "1",
+    nonce: String = "nonce-1",
+    params: [Any]? = nil
+) -> DAppRequest {
+    DAppRequest(name: name, network: network, id: id, nonce: nonce, params: params)
+}
+
+@Test @MainActor func `eth request accounts routes to middleware with nonce`() async {
+    let eth = FakeEthMiddleware()
+    eth.requestAccountsResult = ["0x1"]
+    let interface = makeInterface(eth: eth)
+
+    let payload = await interface.route(request(name: "eth_requestAccounts"), origin: "https://dapp.com")
+
+    #expect(payload["nonce"] as? String == "nonce-1")
+    #expect(payload["result"] as? [String] == ["0x1"])
+    #expect(eth.recordedOrigins == ["https://dapp.com"])
+}
+
+@Test @MainActor func `unknown method returns method not supported error`() async {
+    let interface = makeInterface()
+    let payload = await interface.route(request(name: "no_such_method"), origin: "https://dapp.com")
+
+    #expect(payload["nonce"] as? String == "nonce-1")
+    let error = payload["error"] as? [String: Any]
+    #expect(error?["code"] as? Int == -1)
+    #expect(error?["message"] as? String == "Method not supported")
+}
+
+@Test @MainActor func `swtc request accounts flips eth chain to swtc`() async {
+    let eth = FakeEthMiddleware()
+    let swtc = FakeSwtcMiddleware()
+    swtc.requestAccountsResult = ["j1"]
+    let interface = makeInterface(eth: eth, swtc: swtc)
+
+    let payload = await interface.route(request(name: "swtc_requestAccounts", network: "swtc"), origin: "https://dapp.com")
+
+    #expect(payload["result"] as? [String] == ["j1"])
+    #expect(eth.setCurrentChainCalls == [.swtc])
+}
+
+@Test @MainActor func `user rejected maps to error code 4001`() async {
+    let eth = FakeEthMiddleware()
+    eth.requestAccountsError = DAppConnectError.userRejected("User rejected")
+    let interface = makeInterface(eth: eth)
+
+    let payload = await interface.route(request(name: "eth_requestAccounts"), origin: "https://dapp.com")
+    let error = payload["error"] as? [String: Any]
+    #expect(error?["code"] as? Int == 4001)
+}
+
+@Test @MainActor func `web3 client version returns constant`() async {
+    let interface = makeInterface()
+    let payload = await interface.route(request(name: "web3_clientVersion"), origin: "https://dapp.com")
+    #expect(payload["result"] as? String == "CCDAO/v1.0.0")
+}
+
+@Test @MainActor func `missing transaction params returns error`() async {
+    let interface = makeInterface()
+    let payload = await interface.route(request(name: "eth_sendTransaction"), origin: "https://dapp.com")
+    let error = payload["error"] as? [String: Any]
+    #expect(error?["message"] as? String == "Missing transaction parameters")
+}
+
+@Test @MainActor func `wallet switch chain success returns null result`() async {
+    let eth = FakeEthMiddleware()
+    let interface = makeInterface(eth: eth)
+
+    let payload = await interface.route(
+        request(name: "wallet_switchEthereumChain", params: [["chainId": "0x1"]]),
+        origin: "https://dapp.com"
+    )
+
+    #expect(eth.chainSwitched)
+    #expect(payload["result"] is NSNull)
+}
