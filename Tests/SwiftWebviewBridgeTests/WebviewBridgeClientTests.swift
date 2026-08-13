@@ -17,9 +17,9 @@ final class WebviewBridgeClientTests: XCTestCase {
     }
 
     func test_defaultConfig_usesStableDefaults() {
-        let config = WebviewBridgeConfig()
+        let config = WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html")
 
-        XCTAssertEqual(config.bridgeFileName, "bridge.html")
+        XCTAssertEqual(config.bridgeFileName, "wallet-bridge.html")
         XCTAssertEqual(config.jsInterfaceName, "JSBridge")
         XCTAssertEqual(config.consoleTag, "WebViewConsole")
         XCTAssertFalse(config.allowsConsoleForwarding)
@@ -58,10 +58,7 @@ final class WebviewBridgeClientTests: XCTestCase {
     }
 
     func test_start_throwsWhenBridgeResourceMissing() {
-        let client = WebviewBridgeClient(
-            gateway: PromiseGateway(),
-            runtimeFactory: { FakeRuntime() }
-        )
+        let client = WebviewBridgeClient()
         client.initialize(config: WebviewBridgeConfig(bridgeFileName: "missing.html"))
 
         XCTAssertThrowsError(try client.start()) { error in

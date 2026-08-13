@@ -9,7 +9,7 @@ public final class WebviewBridgeClient: NSObject {
     private let runtimeFactory: (() throws -> WebViewRuntime)?
     private var runtime: WebViewRuntime?
     private var messageHandler: BridgeMessageHandler?
-    private var config = WebviewBridgeConfig()
+    private var config: WebviewBridgeConfig!
     private var resourceBundle: Bundle = WebviewBridgeResources.bundle
     private var isInitialized = false
 
@@ -32,7 +32,7 @@ public final class WebviewBridgeClient: NSObject {
 
     public func initialize(
         bundle: Bundle = WebviewBridgeResources.bundle,
-        config: WebviewBridgeConfig = WebviewBridgeConfig()
+        config: WebviewBridgeConfig
     ) {
         self.resourceBundle = bundle
         self.config = config

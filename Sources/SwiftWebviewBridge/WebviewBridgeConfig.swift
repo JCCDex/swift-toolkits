@@ -16,7 +16,7 @@ public struct WebviewBridgeConfig {
     public var allowsConsoleForwarding: Bool
 
     public init(
-        bridgeFileName: String = "bridge.html",
+        bridgeFileName: String,
         resourceBundle: Bundle = WebviewBridgeResources.bundle,
         jsInterfaceName: String = "JSBridge",
         consoleTag: String = "WebViewConsole",

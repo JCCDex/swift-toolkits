@@ -1,8 +1,20 @@
 @testable import SwiftWebviewBridge
 import XCTest
 
+/// 引擎层测试：同样走真实 WKWebView（不注入 FakeRuntime）。
+/// 每个用例独立 engine，超时给足余量（冷启动 + CI 环境）。
 @MainActor
 final class WebviewBridgeEngineTests: XCTestCase {
+
+    private static let readyWaitMs: TimeInterval = 120_000
+    private static let timeoutMs: TimeInterval = 180_000
+
+    private func makeEngine() -> WebviewBridgeEngine {
+        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
+        engine.initialize(config: .bridge(named: "wallet-bridge"))
+        return engine
+    }
+
     func test_initialize_setsConfig() {
         let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
 
@@ -13,12 +25,8 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_start_and_destroy_areSafe_afterInitialize() throws {
-        let fake = FakeRuntime()
-        let engine = WebviewBridgeEngine(
-            client: WebviewBridgeClient(gateway: PromiseGateway(), runtimeFactory: { fake })
-        )
+        let engine = self.makeEngine()
 
-        engine.initialize(config: .bridge(named: "wallet-bridge"))
         try engine.start()
         engine.destroy()
 
@@ -26,81 +34,57 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_config_defaults_areStable() {
-        let config = WebviewBridgeConfig()
+        let config = WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html")
 
-        XCTAssertEqual(config.bridgeFileName, "bridge.html")
+        XCTAssertEqual(config.bridgeFileName, "wallet-bridge.html")
         XCTAssertEqual(config.jsInterfaceName, "JSBridge")
         XCTAssertEqual(config.consoleTag, "WebViewConsole")
     }
 
-    func test_callMethods_delegateToClient() async throws {
-        let gateway = PromiseGateway()
-        let fake = FakeRuntime()
-        let engine = WebviewBridgeEngine(
-            client: WebviewBridgeClient(gateway: gateway, runtimeFactory: { fake })
+    func test_callMethods_roundTripThroughRealWebView() async throws {
+        let engine = self.makeEngine()
+        defer { engine.destroy() }
+
+        let raw = try await engine.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
-        engine.initialize(config: .bridge(named: "wallet-bridge"))
-        try engine.start()
-        gateway.onBridgeReady()
+        XCTAssertEqual(raw, "true")
 
-        let first = Task {
-            try await engine.callJsMethod(
-                method: "generateMnemonic",
-                params: ["length": 128],
-                timeoutMs: 5000,
-                readyWaitMs: 5000
-            )
-        }
-        await waitUntil { fake.recordedScripts.count == 1 }
-        let firstId = try extractPromiseId(from: fake.recordedScripts[0])
-        gateway.onPromiseResult(id: firstId, resultJson: #"{"result":"ok"}"#)
-        let firstValue = try await first.value
-        XCTAssertEqual(firstValue, "ok")
-
-        let second = Task {
-            try await engine.callJsMethodAs(method: "getValue", as: String.self, timeoutMs: 5000, readyWaitMs: 5000)
-        }
-        await waitUntil { fake.recordedScripts.count == 2 }
-        let secondId = try extractPromiseId(from: fake.recordedScripts[1])
-        gateway.onPromiseResult(id: secondId, resultJson: #"{"result":"raw"}"#)
-        let secondValue = try await second.value
-        XCTAssertEqual(secondValue, "raw")
+        let typed: MnemonicResult = try await engine.callJsMethodAs(
+            method: "generateMnemonic",
+            params: ["length": 128],
+            as: MnemonicResult.self,
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(typed.language, "english")
+        XCTAssertEqual(typed.value.split(separator: " ").count, 12)
     }
 
     func test_callJsMethod_afterDestroy_recreatesRuntimeAndResolves() async throws {
-        var factoryCalls = 0
-        var fakes: [FakeRuntime] = []
-        let gateway = PromiseGateway()
-        let engine = WebviewBridgeEngine(
-            client: WebviewBridgeClient(
-                gateway: gateway,
-                runtimeFactory: {
-                    factoryCalls += 1
-                    let fake = FakeRuntime()
-                    fakes.append(fake)
-                    return fake
-                }
-            )
+        let engine = self.makeEngine()
+        defer { engine.destroy() }
+
+        let first = try await engine.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
         )
-        engine.initialize(config: .bridge(named: "wallet-bridge"))
-        try engine.start()
-        gateway.onBridgeReady()
+        XCTAssertEqual(first, "true")
 
         engine.destroy()
-        XCTAssertEqual(factoryCalls, 1)
 
-        let deferred = Task {
-            try await engine.callJsMethod(method: "afterDestroy", timeoutMs: 5000, readyWaitMs: 5000)
-        }
-        await waitUntil { factoryCalls == 2 }
-        gateway.onBridgeReady()
-        await waitUntil { fakes[1].recordedScripts.contains { $0.contains("afterDestroy") } }
-
-        let id = try extractPromiseId(from: XCTUnwrap(fakes[1].recordedScripts.last))
-        gateway.onPromiseResult(id: id, resultJson: #"{"result":"restarted"}"#)
-
-        let value = try await deferred.value
-        XCTAssertEqual(value, "restarted")
+        let second = try await engine.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(second, "true")
     }
 
     func test_callJsMethod_throwsWhenNotInitialized() async {

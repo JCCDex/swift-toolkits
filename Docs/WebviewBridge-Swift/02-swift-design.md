@@ -110,14 +110,14 @@ public enum WebviewBridgeError: Error, Sendable {
 
 ```swift
 public struct WebviewBridgeConfig {
-    public var bridgeFileName: String            // 默认 "bridge.html"
+    public var bridgeFileName: String            // 必填，无默认值（如 "wallet-bridge.html"）
     public var resourceBundle: Bundle            // 默认 .main；SPM 内用 Bundle.module
     public var jsInterfaceName: String           // 默认 "JSBridge"，仅作为 window 对象名
     public var consoleTag: String                // 默认 "WebViewConsole"
     public var allowsConsoleForwarding: Bool     // 默认 false，对应 Kotlin 关闭的 onConsoleMessage
 
     public init(
-        bridgeFileName: String = "bridge.html",
+        bridgeFileName: String,
         resourceBundle: Bundle = .main,
         jsInterfaceName: String = "JSBridge",
         consoleTag: String = "WebViewConsole",
@@ -392,7 +392,7 @@ public final class WebviewBridgeClient: NSObject {
     private let runtimeFactory: (() -> WebViewRuntime)?   // 测试注入点
     private var runtime: WebViewRuntime?
     private var messageHandler: BridgeMessageHandler?
-    private var config = WebviewBridgeConfig()
+    private var config: WebviewBridgeConfig!   // initialize() 后才有值，读取前有 isInitialized 守卫
     private var resourceBundle: Bundle = .main
     private var isInitialized = false
 
@@ -415,7 +415,7 @@ public final class WebviewBridgeClient: NSObject {
 
     public func initialize(
         bundle: Bundle = .main,
-        config: WebviewBridgeConfig = WebviewBridgeConfig()
+        config: WebviewBridgeConfig
     ) {
         resourceBundle = bundle
         self.config = config
@@ -741,7 +741,7 @@ public final class WebviewBridgeEngine {
 
     public func initialize(
         bundle: Bundle = .main,
-        config: WebviewBridgeConfig = WebviewBridgeConfig()
+        config: WebviewBridgeConfig
     ) {
         client.initialize(bundle: bundle, config: config)
     }
