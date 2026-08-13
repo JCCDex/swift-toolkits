@@ -14,9 +14,9 @@ jobs:
       matrix:
         include:
           # 主流 iOS 版本：当前版本 iOS 26 + 上一代主力 iOS 18
-          - ios: '18'
-            runner: macos-15
-            device: iPhone 16
+          # - ios: '18'
+          #   runner: macos-15
+          #   device: iPhone 16
           - ios: '26'
             runner: macos-26
             device: iPhone 16e
