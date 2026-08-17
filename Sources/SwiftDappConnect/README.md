@@ -37,10 +37,10 @@ let interface = DAppConnectSdk.createWebAppInterface(
     secretProvider: secrets
 )
 
-// 页面加载时：注入 provider + 初始化 JS，并接线 origin（M-05）
+// 页面加载时：注入 provider + 初始化 JS
+// （origin 无需接线：按消息从 frameInfo.securityOrigin 自动推导，见 M-05 / H1）
 webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs())
 webView.evaluateJavaScript(DAppConnectSdk.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://eth-rpc.example.com"))
-interface.setOrigin("https://dapp.example.com")
 
 // 账户切换后推送地址
 webView.evaluateJavaScript(DAppConnectSdk.loadAddressJs(address: newAddress, isSwtc: false))

@@ -49,7 +49,7 @@ let interface = DAppConnectSdk.createWebAppInterface(
     secretProvider: secrets
 )
 interface.installResponseChannel()   // provider JS 注入完成后调用（C-03）
-interface.setOrigin("https://dapp.example.com")   // 导航时接线（M-05）
+// origin 无需接线：按消息从 frameInfo.securityOrigin 自动推导（M-05 / H1）
 ```
 
 ## 与 Kotlin 差异一览

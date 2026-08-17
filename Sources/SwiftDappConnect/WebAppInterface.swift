@@ -15,7 +15,6 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private let didDocumentMutationListener: DidDocumentMutationListener?
 
     weak var webView: WKWebView?
-    private var dappOrigin = ""
     private var chainProvider: (any ChainProvider)?
     private var onAccountSwitched: ((String) -> Void)?
 
@@ -38,9 +37,14 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         super.init()
     }
 
-    /// 宿主必须在导航时设置 origin（M-05）；空白/非安全 origin 会被拒绝。
+    /// 宿主在导航时设置 DApp origin（M-05，Kotlin 迁移契约）。
+    ///
+    /// - Important: 已废弃。H1 修复后授权 origin 改为按消息从 `frameInfo.securityOrigin`
+    ///   实时推导（且仅接受主 frame 消息），不再读取宿主设置的全局值。
+    ///   保留此方法仅为兼容旧接入代码；调用不再影响任何授权判定。
+    @available(*, deprecated, message: "origin 已按消息从 frameInfo.securityOrigin 自动推导，无需（也不应）再调用 setOrigin")
     public func setOrigin(_ origin: String) {
-        self.dappOrigin = WebOrigin.normalize(origin) ?? origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = origin
     }
 
     /// 设置链切换 Provider（legacy；链切换主要走中间件构造注入的 chainProvider）。
@@ -68,18 +72,35 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         _ = userContentController
-        guard let json = message.body as? String else {
-            // body 非字符串：无法取得 nonce，靠 JS 侧 queue 超时兜底（见设计文档 03 章）
-            return
-        }
 
         // best-effort 解析：先取 nonce/id，保证后续失败路径也能带 nonce 回传。
-        let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        let obj: [String: Any]? = if let json = message.body as? String {
+            try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        } else {
+            nil
+        }
         let nonce = (obj?["nonce"] as? String) ?? (obj?["id"] as? String) ?? ""
 
-        let origin = self.dappOrigin
-        guard !origin.isEmpty, DAppConnectSdk.isSafeUrl(origin) else {
-            self.deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
+        // 安全边界（H1）：origin 一律按消息来源实时推导，绝不使用宿主设置的全局状态
+        // （导航后可能过期/写错），页面 JS 也无法伪造 `frameInfo`。
+        // - 只信任主 frame：`forMainFrameOnly` 只限制用户脚本注入，消息通道对 webview
+        //   内**所有 frame** 开放——跨域 iframe（广告/内嵌页）里的任意 JS 都能直接
+        //   `postMessage` 到 `_tw_`，这类消息视为伪造，直接丢弃（其 pending 由 JS 侧
+        //   60s 超时兜底，且无法经主 frame 的 `_ccdaoSettle` 回传）。
+        // - 主 frame origin 取自 `frameInfo.securityOrigin`（系统按当前文档推导）。
+        guard
+            let origin = Self.authorizedOrigin(
+                isMainFrame: message.frameInfo.isMainFrame,
+                scheme: message.frameInfo.securityOrigin.protocol,
+                host: message.frameInfo.securityOrigin.host,
+                port: message.frameInfo.securityOrigin.port
+            )
+        else {
+            // 仅当消息来自主 frame 且 origin 不合法（about:blank / file:// 等）时
+            // 按既有契约回错误；子 frame 消息在上面的授权判定已被拒绝，不回传。
+            if message.frameInfo.isMainFrame {
+                self.deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
+            }
             return
         }
 
@@ -105,6 +126,23 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             let payload = await route(request, origin: origin)
             self.deliver(payload)
         }
+    }
+
+    /// 从消息来源推导可授权 origin（纯函数，便于单测；`WKScriptMessage` 无法在测试中构造）。
+    ///
+    /// - 仅主 frame：子 frame 消息一律拒绝（消息通道对所有 frame 开放）；
+    /// - 仅 http/https 且 host 非空；
+    /// - 结果经 `WebOrigin.normalize` 归一化（小写、去默认端口）。
+    nonisolated static func authorizedOrigin(isMainFrame: Bool, scheme: String, host: String, port: Int) -> String? {
+        guard isMainFrame else { return nil }
+        let normalizedScheme = scheme.lowercased()
+        guard normalizedScheme == "http" || normalizedScheme == "https" else { return nil }
+        let normalizedHost = host.lowercased()
+        guard !normalizedHost.isEmpty else { return nil }
+        // WKSecurityOrigin.host 的 IPv6 地址不带方括号，URLComponents 解析需要补上。
+        let urlHost = normalizedHost.contains(":") ? "[\(normalizedHost)]" : normalizedHost
+        let url = port != 0 ? "\(normalizedScheme)://\(urlHost):\(port)" : "\(normalizedScheme)://\(urlHost)"
+        return WebOrigin.normalize(url)
     }
 
     /// Native → JS 响应投递：evaluateJavaScript 调用 provider JS 的 `window._ccdaoSettle`。

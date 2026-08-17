@@ -29,7 +29,7 @@ dapp-connect/src/main/
 ```text
 DApp JS ── window._tw_.postMessage(json) ──► WebAppInterface.postMessage
     │
-    ├─ 校验：origin 非空（M-05）且 isSafeUrl 通过
+    ├─ 校验：仅主 frame 消息（H1）；origin 按消息从 frameInfo.securityOrigin 推导（M-05）
     ├─ 解析 {name, network, id, nonce, params}
     ├─ DAppMethod.fromValue(name) 路由
     │     └─ 每个 handler 在 CoroutineScope(IO) 里调中间件 async 方法
@@ -81,7 +81,7 @@ DApp JS ── window._tw_.postMessage(json) ──► WebAppInterface.postMessa
 
 | 规则 | 内容 |
 | --- | --- |
-| M-05 | postMessage 拒绝空白或非安全 origin；宿主必须在导航时 `setOrigin` |
+| M-05 | 只接受主 frame 消息（H1，iframe 通道对全 frame 开放）；origin 按消息从 `frameInfo.securityOrigin` 推导，拒绝非 http/https 或空 host；宿主无需（也不应）再 `setOrigin` |
 | M-06 | requestAccounts 必须设置回调，未设置视为用户拒绝（4001） |
 | M-15 | `signCredentialForDApp` 只校验 VC 结构，用户确认由宿主 UI 完成 |
 | M-18 | 原生 NFT 等内部取密钥用 `WebOrigin.WALLET_INTERNAL` 哨兵，不可作为可授权 web origin |

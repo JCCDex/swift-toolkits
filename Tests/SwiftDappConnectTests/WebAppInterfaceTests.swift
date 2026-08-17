@@ -89,3 +89,37 @@ private func request(
     #expect(eth.chainSwitched)
     #expect(payload["result"] is NSNull)
 }
+
+// ── H1：消息来源 origin 推导（frameInfo 无法在单测构造，测试纯函数） ──
+
+@Test func `authorized origin accepts main frame https and strips default port`() {
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "https", host: "DApp.Example.com", port: 443) == "https://dapp.example.com")
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "https", host: "dapp.example.com", port: 0) == "https://dapp.example.com")
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "http", host: "dapp.example.com", port: 80) == "http://dapp.example.com")
+}
+
+@Test func `authorized origin keeps non default port`() {
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "https", host: "dapp.example.com", port: 8443) == "https://dapp.example.com:8443")
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "http", host: "dapp.example.com", port: 8080) == "http://dapp.example.com:8080")
+}
+
+@Test func `authorized origin rejects sub frame messages`() {
+    // iframe 消息通道对所有 frame 开放：子 frame 消息一律视为伪造。
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: false, scheme: "https", host: "evil.example.com", port: 443) == nil)
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: false, scheme: "https", host: "dapp.example.com", port: 443) == nil)
+}
+
+@Test func `authorized origin rejects non http schemes and empty hosts`() {
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "file", host: "x", port: 0) == nil)
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "about", host: "blank", port: 0) == nil)
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "https", host: "", port: 0) == nil)
+    #expect(WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "", host: "dapp.example.com", port: 0) == nil)
+}
+
+@Test func `authorized origin accepts ipv6 host`() {
+    let origin = WebAppInterface.authorizedOrigin(isMainFrame: true, scheme: "https", host: "::1", port: 8443)
+    #expect(origin != nil)
+    #expect(origin?.contains("::1") == true)
+    // 输出必须能被再次归一化（round-trip 稳定，无悬挂的非法格式）。
+    #expect(WebOrigin.normalize(origin ?? "") == origin)
+}

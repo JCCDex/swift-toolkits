@@ -42,8 +42,9 @@ import WebKit
             ethMiddleware: FakeEthMiddleware(),
             swtcMiddleware: FakeSwtcMiddleware()
         )
-        interface.setOrigin("https://dapp.example.com")
-
+        // H1 修复后 origin 按消息从 frameInfo.securityOrigin 实时推导：
+        // loadHTMLString 的 baseURL 决定页面 origin（此处即 https://dapp.example.com），
+        // 不再需要（也不应）调用 setOrigin。
         let resultWaiter = BridgeResultWaiter()
         webView.configuration.userContentController.add(resultWaiter, contentWorld: .page, name: "testResult")
 

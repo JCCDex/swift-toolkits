@@ -85,7 +85,7 @@ bundle exec fastlane ios_test       # iOS 模拟器：真实 WKWebView 集成测
 - [ ] `WebOrigin` + `isSafeUrl` + 单测
 - [ ] Provider 协议与 `CachingSecretProvider`（actor）
 - [ ] `EthMiddleware` / `SwtcMiddleware`（`WalletSigning` 协议）
-- [ ] `WebAppInterface`（legacy `WKScriptMessageHandler` 路由 + `_ccdaoSettle` 回传 + origin 校验）
+- [ ] `WebAppInterface`（legacy `WKScriptMessageHandler` 路由 + `_ccdaoSettle` 回传 + origin 校验；H1：仅主 frame + origin 按消息推导）
 - [ ] `ccdao-eip1193-provider-ios.js`（iOS 传输变体）+ 适配脚本
 - [ ] `DAppConnectSdk` 工厂与 JS 生成
 - [ ] 单测 / 中间件测试 / 真实 WebView 集成测试

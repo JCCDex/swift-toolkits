@@ -190,13 +190,12 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private let secretProvider: (any SecretProvider)?
     private let nftProvider: (any NftProvider)?
     private let didDocumentMutationListener: DidDocumentMutationListener?
-    private var dappOrigin = ""
     private var chainProvider: (any ChainProvider)?
     private var onAccountSwitched: ((String) -> Void)?
 
-    public func setOrigin(_ origin: String) {
-        dappOrigin = WebOrigin.normalize(origin) ?? origin.trimmingCharacters(in: .whitespaces)
-    }
+    // H1 修复：origin 不再由宿主全局设置（setOrigin 已废弃为 no-op）。
+    // 授权 origin 按消息从 frameInfo.securityOrigin 实时推导，见 userContentController。
+    public func setOrigin(_ origin: String) {}
 
     // Kotlin 的 setChainProvider / setOnAccountSwitched（legacy；链切换主要走 EthMiddleware 构造注入的 chainProvider）：
     public func setChainProvider(_ provider: any ChainProvider) {
@@ -216,19 +215,27 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         _ = userContentController
-        guard let json = message.body as? String else {
-            // body 非字符串：无法取得 nonce，靠 JS 侧 queue 超时兜底（见 03 章）
-            return
-        }
 
         // best-effort 解析：先取 nonce/id，保证后续失败路径也能带 nonce 回传，
         // JS 的 requestQueue 才能 settle（与 Kotlin 直接丢日志的缺陷区分）。
-        let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-        let nonce = (obj?["nonce"] as? String) ?? (obj?["id"] as? String) ?? ""
+        // （正文见 WebAppInterface.swift；此处略去 body 解析细节）
 
-        let origin = dappOrigin
-        guard !origin.isEmpty, DAppConnectSdk.isSafeUrl(origin) else {
-            deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
+        // 安全边界（H1）：origin 一律按消息来源实时推导，绝不使用宿主设置的全局状态。
+        // - 只信任主 frame：消息通道对 webview 内所有 frame 开放（forMainFrameOnly
+        //   只限制脚本注入），跨域 iframe 的任意 JS 都能 postMessage 到 `_tw_`，
+        //   子 frame 消息一律视为伪造并丢弃（JS 侧 60s 超时兜底）。
+        // - 主 frame origin 取自 frameInfo.securityOrigin，页面 JS 无法伪造。
+        guard
+            let origin = WebAppInterface.authorizedOrigin(
+                isMainFrame: message.frameInfo.isMainFrame,
+                scheme: message.frameInfo.securityOrigin.protocol,
+                host: message.frameInfo.securityOrigin.host,
+                port: message.frameInfo.securityOrigin.port
+            )
+        else {
+            if message.frameInfo.isMainFrame {
+                deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
+            }
             return
         }
 
