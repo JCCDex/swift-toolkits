@@ -71,27 +71,32 @@ public enum DAppConnectSdk {
     // MARK: - Provider JS
 
     /// 加载 EIP-1193 provider 脚本（iOS 传输变体，实现 window.ethereum / window.ccdao）。
-    public static func loadProviderJs() -> String {
+    ///
+    /// - Parameter token: `WebAppInterface.responseToken`。注入 provider 闭包作为
+    ///   native → JS 回传（`_ccdaoSettle` / `_ccdaoNative`）的鉴权凭证（M1/M2）；
+    ///   页面 JS 读不到该 token，无法伪造 native 响应或状态推送。token 为空时
+    ///   provider 对回传 fail-closed。
+    public static func loadProviderJs(token: String) -> String {
         guard
             let url = Bundle.module.url(forResource: "ccdao-eip1193-provider-ios", withExtension: "js"),
             let text = try? String(contentsOf: url, encoding: .utf8)
         else {
             return ""
         }
-        return text
+        // 把资源里的占位符替换为 token 字面量；未找到占位符时保持 null（fail-closed）。
+        return text.replacingOccurrences(of: "/*__CCDAO_BRIDGE_TOKEN__*/ null", with: self.jsQuote(token))
     }
 
-    /// 初始化 JS：设置 chainId / rpcUrl 到 provider 状态。
-    public static func loadInitJs(chainIdHex: String, rpcUrl: String) -> String {
+    /// 初始化 JS：经 `_ccdaoNative('init', ...)` 设置 chainId / rpcUrl（带 token 鉴权）。
+    public static func loadInitJs(chainIdHex: String, rpcUrl: String, token: String) -> String {
         let chain = self.jsQuote(chainIdHex)
         let rpc = self.jsQuote(rpcUrl)
+        let auth = self.jsQuote(token)
         return """
         (function () {
           try {
-            if (window._ccdaoProviderState) {
-              window._ccdaoProviderState.chainId = \(chain);
-              window._ccdaoProviderState.rpcUrl = \(rpc);
-              console.log('[CCDAO Init] Provider state updated: chainId=\(chain) rpcUrl=\(rpc)');
+            if (window._ccdaoNative) {
+              window._ccdaoNative('init', { chainId: \(chain), rpcUrl: \(rpc) }, \(auth));
             }
           } catch (e) {
             console.error('[CCDAO Init] Failed to update provider', e);
@@ -100,15 +105,19 @@ public enum DAppConnectSdk {
         """
     }
 
-    /// 推送选中地址变更。
-    public static func loadAddressJs(address: String, isSwtc: Bool) -> String {
-        let fn = isSwtc ? "_updateSwtcSelectedAddress" : "_updateSelectedAddress"
-        return "if (window.\(fn)) { window.\(fn)(\(self.jsQuote(address))); }"
+    /// 推送选中地址变更（经 `_ccdaoNative('setAddress', ...)`，带 token 鉴权）。
+    public static func loadAddressJs(address: String, isSwtc: Bool, token: String) -> String {
+        let addr = self.jsQuote(address)
+        let auth = self.jsQuote(token)
+        return "if (window._ccdaoNative) { window._ccdaoNative('setAddress', { address: \(addr), isSwtc: \(isSwtc) }, \(auth)); }"
     }
 
-    /// 推送链切换并触发 chainChanged。
-    public static func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String) -> String {
-        "if (window._updateChainId) { window._updateChainId(\(self.jsQuote(chainIdHex)), \(self.jsQuote(rpcUrl))); }"
+    /// 推送链切换并触发 chainChanged（经 `_ccdaoNative('setChainId', ...)`，带 token 鉴权）。
+    public static func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String, token: String) -> String {
+        let chain = self.jsQuote(chainIdHex)
+        let rpc = self.jsQuote(rpcUrl)
+        let auth = self.jsQuote(token)
+        return "if (window._ccdaoNative) { window._ccdaoNative('setChainId', { chainIdHex: \(chain), rpcUrl: \(rpc) }, \(auth)); }"
     }
 
     /// 覆盖 EIP-6963 announce 的钱包图标。

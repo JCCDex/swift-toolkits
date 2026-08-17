@@ -6,7 +6,7 @@
 
 ## 设计原则
 
-1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS legacy `WKScriptMessageHandler` + `_ccdaoSettle` 回传）。
+1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS legacy `WKScriptMessageHandler` + `_ccdaoSettle(nonce, payload, token)` 回传）。
 2. **行为对齐**：错误码（4001 / 4902 / -1）、强制 requestAccounts 回调（M-06）、origin 校验（M-05）、地址去重/链过滤、缓存窗口等行为逐一对齐 Kotlin 契约与测试。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`/`AsyncSequence`，`StateFlow` → actor 状态，`JSONObject` → `Codable`/`[String: Any]`，线程约束 → `@MainActor`。
 
@@ -37,10 +37,7 @@ let swtc = DAppConnectSdk.createSwtcMiddleware(
     nodeProvider: nodes
 )
 
-// 每个页面加载时注入 provider 与初始化 JS
-let providerJs = DAppConnectSdk.loadProviderJs()
-let initJs = DAppConnectSdk.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://eth-rpc.example.com")
-
+// 先创建 interface（持有 responseToken，M1/M2）
 let interface = DAppConnectSdk.createWebAppInterface(
     webView: webView,
     ethMiddleware: eth,
@@ -48,6 +45,10 @@ let interface = DAppConnectSdk.createWebAppInterface(
     accountProvider: accounts,
     secretProvider: secrets
 )
+
+// 每个页面加载时注入 provider 与初始化 JS（provider 必须带 interface.responseToken）
+let providerJs = DAppConnectSdk.loadProviderJs(token: interface.responseToken)
+let initJs = interface.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://eth-rpc.example.com")
 interface.installResponseChannel()   // provider JS 注入完成后调用（C-03）
 // origin 无需接线：按消息从 frameInfo.securityOrigin 自动推导（M-05 / H1）
 ```
@@ -58,7 +59,7 @@ interface.installResponseChannel()   // provider JS 注入完成后调用（C-03
 | --- | --- | --- |
 | JS 注入接口 | `addJavascriptInterface(wai, "_tw_")` | `WKUserContentController.add(handler, name: "_tw_")` + 适配脚本 |
 | JS → Native | `window._tw_.postMessage(json)` | `window.webkit.messageHandlers._tw_.postMessage(json, reply)` |
-| Native → JS 响应 | `WebMessagePort` 握手（C-03） | `evaluateJavaScript` 调 `window._ccdaoSettle` |
+| Native → JS 响应 | `WebMessagePort` 握手（C-03） | `evaluateJavaScript` 调 `window._ccdaoSettle(nonce, payload, token)`（token 鉴权，M1） |
 | 并发 | `CoroutineScope(Dispatchers.IO)` + `Flow` | `@MainActor` + `Task` + `AsyncStream` |
 | 参数/结果 | `org.json.JSONObject` | `Codable` / `[String: Any]` |
 | 密钥 | `WalletSdk`（模块内调用） | `WalletSigning` 协议（宿主接线，本仓库 `SwiftVault` 供钥） |

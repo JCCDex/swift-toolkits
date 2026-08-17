@@ -18,6 +18,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private var chainProvider: (any ChainProvider)?
     private var onAccountSwitched: ((String) -> Void)?
 
+    /// Native → JS 回传鉴权 token（M1/M2）：注入 provider 闭包后，`_ccdaoSettle` /
+    /// `_ccdaoNative` 校验它才执行。页面 JS 读不到该值，无法伪造响应或状态推送。
+    /// 宿主注入 provider 时必须用 `DAppConnectSdk.loadProviderJs(token: self.responseToken)`。
+    public let responseToken: String
+
     public init(
         ethMiddleware: any EthMiddlewareProtocol,
         swtcMiddleware: any SwtcMiddlewareProtocol,
@@ -34,7 +39,30 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         self.nftProvider = nftProvider
         self.didSDK = didSDK
         self.didDocumentMutationListener = didDocumentMutationListener
+        self.responseToken = Self.makeResponseToken()
         super.init()
+    }
+
+    // MARK: - Native → JS 推送（带 token 鉴权，避免宿主漏传导致静默失效）
+
+    /// 等价 `DAppConnectSdk.loadInitJs(chainIdHex:rpcUrl:token:)`，token 自动带上。
+    public func loadInitJs(chainIdHex: String, rpcUrl: String) -> String {
+        DAppConnectSdk.loadInitJs(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
+    }
+
+    /// 等价 `DAppConnectSdk.loadAddressJs(address:isSwtc:token:)`，token 自动带上。
+    public func loadAddressJs(address: String, isSwtc: Bool) -> String {
+        DAppConnectSdk.loadAddressJs(address: address, isSwtc: isSwtc, token: self.responseToken)
+    }
+
+    /// 等价 `DAppConnectSdk.loadUpdateChainIdJs(chainIdHex:rpcUrl:token:)`，token 自动带上。
+    public func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String) -> String {
+        DAppConnectSdk.loadUpdateChainIdJs(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
+    }
+
+    private static func makeResponseToken() -> String {
+        let bytes = (0 ..< 32).map { _ in UInt8.random(in: .min ... .max) }
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     /// 宿主在导航时设置 DApp origin（M-05，Kotlin 迁移契约）。
@@ -148,13 +176,15 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     /// Native → JS 响应投递：evaluateJavaScript 调用 provider JS 的 `window._ccdaoSettle`。
     /// 说明：`WKScriptMessageHandlerWithReply` 的 reply 通道在裸测试进程（macOS/iOS 模拟器）
     /// 不送达；改为 legacy handler + evaluateJavaScript 回传（与 SwiftWebviewBridge 同款、
-    /// 已验证可用的模式）。页面内伪造 settle 只能影响其自身请求，安全性等价。
+    /// 已验证可用的模式）。M1 加固：回传携带 `responseToken`，provider 闭包校验通过才
+    /// settle——页面 JS 无 token 且读不到挂起 nonce，无法伪造 native 响应；入口函数本身
+    /// 也被 provider 冻结（不可写/不可删）。
     private func deliver(_ payload: [String: Any]) {
         guard let webView else { return }
         let nonce = (payload["nonce"] as? String) ?? ""
         let json = payload.jsonString
         let script =
-            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(json)));"
+            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(json)), \(Self.jsQuote(self.responseToken)));"
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 

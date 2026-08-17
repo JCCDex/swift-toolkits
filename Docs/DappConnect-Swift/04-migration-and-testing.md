@@ -5,7 +5,7 @@
 | Kotlin | Swift | 说明 |
 | --- | --- | --- |
 | `DAppConnectSdk` object | `enum DAppConnectSdk` | 静态工具入口；无 Android Context/Resources |
-| `WebAppInterface` | `@MainActor WebAppInterface` | `@JavascriptInterface` → legacy `WKScriptMessageHandler` + `_ccdaoSettle` 回传 |
+| `WebAppInterface` | `@MainActor WebAppInterface` | `@JavascriptInterface` → legacy `WKScriptMessageHandler` + token 鉴权的 `_ccdaoSettle` 回传（M1） |
 | `WebAppInterfaceWithWebView` | 并入 `WebAppInterface` | 无需子类，WebView 由宿主持有 |
 | `NativeResponseChannel` | `NativeResponseChannel`（payload 序列化） | 端口通道 → reply 回调 |
 | `WebOrigin` | `enum WebOrigin` | normalize + `walletInternal` |
@@ -27,7 +27,7 @@
 ## 2. 实现注意点 / 坑
 
 1. **无 `addJavascriptInterface`**：必须注入适配脚本把 `window._tw_.postMessage` 接到 `window.webkit.messageHandlers._tw_.postMessage(json, reply)`；命名 handler 为 `_tw_` 保持 DApp 侧零改动。
-2. **消息回传必须带 nonce**：legacy `WKScriptMessageHandler` 的 `userContentController(_:didReceive:)` 收到消息后，所有提前返回路径（校验/解析失败）都要经 `evaluateJavaScript` 调 `window._ccdaoSettle` 回传 `{nonce, error:{code,message}}`，不能只打日志——否则 JS `requestQueue` 无法 settle；确实无法取得 nonce 时（body 非字符串）靠 JS 侧超时兜底（Kotlin 对非法请求只打日志不回复，属继承缺陷，Swift 统一修正，见 03 章）。
+2. **消息回传必须带 nonce（且带 token）**：legacy `WKScriptMessageHandler` 的 `userContentController(_:didReceive:)` 收到消息后，所有提前返回路径（校验/解析失败）都要经 `evaluateJavaScript` 调 `window._ccdaoSettle` 回传 `{nonce, error:{code,message}}`，不能只打日志——否则 JS `requestQueue` 无法 settle；确实无法取得 nonce 时（body 非字符串）靠 JS 侧超时兜底（Kotlin 对非法请求只打日志不回复，属继承缺陷，Swift 统一修正，见 03 章）。M1 起回传必须携带 `responseToken`，且 provider 注入必须用 `loadProviderJs(token:)`——token 缺失时回传 fail-closed（Promise 超时而非被伪造）。
 3. **主线程约束**：`WKScriptMessageHandler` 回调在主线程；`WebAppInterface` 标 `@MainActor`，路由内 `Task { @MainActor }` 保证 `evaluateJavaScript` 回传仍在主线程。
 4. **私有 requestQueue 不可注入 settle**：Swift 必须使用 provider JS 的 iOS 传输变体，不能只靠注入补丁（闭包外部无法访问 queue）。
 5. **JSON 处理**：`params` 是异构数组，Swift 用 `[Any]`/`JSONSerialization` 解析而非强类型 Decodable；响应序列化需区分 String/Number/Bool/Object/Array/Null，避免 `0x123` 被 JS 解析成数字。
@@ -66,7 +66,7 @@
 2. 断言 `window.ethereum.request({method:"eth_chainId"})` 本地拦截返回值。
 3. `eth_requestAccounts` 走 native（Fake 中间件返回账户），断言 JS 侧 `accountsChanged` / `selectedAddress` 更新。
 4. 错误路径：中间件抛 4001，断言 JS Promise reject 且 error.code 正确。
-5. `_updateSelectedAddress` / `_updateChainId` 推送后，断言对应事件触发（地址未变不触发）。
+5. 经 `interface.loadAddressJs` / `interface.loadUpdateChainIdJs`（带 token）推送后，断言对应事件触发（地址未变不触发）；断言伪造（无 token 调用 `_ccdaoSettle` / `_ccdaoNative`）不生效、`window._ccdaoProviderState` 不存在。
 6. C-03 回归：断言 `window.ccdao.sendResponse` 不存在。
 
 ### 3.4 运行方式（fastlane）
@@ -85,7 +85,7 @@ bundle exec fastlane ios_test       # iOS 模拟器：真实 WKWebView 集成测
 - [ ] `WebOrigin` + `isSafeUrl` + 单测
 - [ ] Provider 协议与 `CachingSecretProvider`（actor）
 - [ ] `EthMiddleware` / `SwtcMiddleware`（`WalletSigning` 协议）
-- [ ] `WebAppInterface`（legacy `WKScriptMessageHandler` 路由 + `_ccdaoSettle` 回传 + origin 校验；H1：仅主 frame + origin 按消息推导）
+- [ ] `WebAppInterface`（legacy `WKScriptMessageHandler` 路由 + `_ccdaoSettle` 回传 + origin 校验；H1：仅主 frame + origin 按消息推导；M1/M2：回传 token 鉴权 + 状态闭包化）
 - [ ] `ccdao-eip1193-provider-ios.js`（iOS 传输变体）+ 适配脚本
 - [ ] `DAppConnectSdk` 工厂与 JS 生成
 - [ ] 单测 / 中间件测试 / 真实 WebView 集成测试

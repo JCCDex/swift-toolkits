@@ -4,7 +4,7 @@
 
 ## 设计原则
 
-1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS legacy `WKScriptMessageHandler` + `_ccdaoSettle` 回传）。
+1. **协议不变、平台适配**：DApp ↔ Native 之间的 postMessage 消息格式、nonce 请求队列、响应结构、方法名与 Kotlin 完全一致，只替换承载通道（Android `addJavascriptInterface` + `WebMessagePort` → iOS legacy `WKScriptMessageHandler` + `_ccdaoSettle(nonce, payload, token)` 回传）。
 2. **行为对齐**：错误码（4001 / 4902 / -1）、强制 requestAccounts 回调（M-06）、origin 校验（M-05）、HD 根过滤、缓存窗口等行为逐一对齐 Kotlin 契约。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`，线程约束 → `@MainActor`；签名 / DID 抽象为宿主注入的协议。
 
@@ -38,12 +38,13 @@ let interface = DAppConnectSdk.createWebAppInterface(
 )
 
 // 页面加载时：注入 provider + 初始化 JS
-// （origin 无需接线：按消息从 frameInfo.securityOrigin 自动推导，见 M-05 / H1）
-webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs())
-webView.evaluateJavaScript(DAppConnectSdk.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://eth-rpc.example.com"))
+// （origin 无需接线：按消息从 frameInfo.securityOrigin 自动推导，见 M-05 / H1；
+//   provider 必须带 interface.responseToken，native 回传才被信任，见 M1/M2）
+webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs(token: interface.responseToken))
+webView.evaluateJavaScript(interface.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://eth-rpc.example.com"))
 
-// 账户切换后推送地址
-webView.evaluateJavaScript(DAppConnectSdk.loadAddressJs(address: newAddress, isSwtc: false))
+// 账户切换后推送地址（实例方法自动带上 token）
+webView.evaluateJavaScript(interface.loadAddressJs(address: newAddress, isSwtc: false))
 ```
 
 > `createWebAppInterface` 会自动注册 `_tw_` 消息处理器并注入 `window._tw_` 适配脚本（对应设计稿 C-03 的 `installResponseChannel`），宿主无需额外调用。
@@ -53,7 +54,7 @@ webView.evaluateJavaScript(DAppConnectSdk.loadAddressJs(address: newAddress, isS
 ```text
 Sources/SwiftDappConnect/
 ├── DAppConnectSdk.swift          // 统一入口：工厂 / JS 生成 / URL 安全
-├── WebAppInterface.swift         // @MainActor 消息路由（legacy WKScriptMessageHandler + _ccdaoSettle 回传）
+├── WebAppInterface.swift         // @MainActor 消息路由（legacy WKScriptMessageHandler + _ccdaoSettle 回传，token 鉴权）
 ├── NativeResponseChannel.swift   // {nonce, result|error} payload 构造
 ├── WebOrigin.swift               // origin 归一化 + WALLET_INTERNAL 哨兵
 ├── AsyncSequence+First.swift     // AsyncStream 取首个元素辅助
@@ -77,7 +78,7 @@ Sources/SwiftDappConnect/
 | --- | --- |
 | 中间件工厂 | `createEthMiddleware(...)` / `createSwtcMiddleware(...)` |
 | 桥接入口 | `createWebAppInterface(webView:...)`（自动注册 `_tw_` 与适配脚本） |
-| JS 生成 | `loadProviderJs()` / `loadInitJs(chainIdHex:rpcUrl:)` / `loadAddressJs(address:isSwtc:)` / `loadUpdateChainIdJs(...)` / `loadEip6963IconOverrideJs(...)` |
+| JS 生成 | `loadProviderJs(token:)` / `loadInitJs(chainIdHex:rpcUrl:token:)` / `loadAddressJs(address:isSwtc:token:)` / `loadUpdateChainIdJs(...)` / `loadEip6963IconOverrideJs(...)`；`WebAppInterface` 提供同签名的实例方法（token 自动带上） |
 | 安全 | `isSafeUrl(_:)` / `WebOrigin.normalize(_:)` / `WebOrigin.walletInternal` |
 | Provider | `AccountProvider` / `SecretProvider` / `NodeProvider` / `ChainProvider` / `NftProvider` |
 | 缓存 | `CachingSecretProvider`（5s 批次窗口 / 20s 上限 / clearCache） |
@@ -85,9 +86,9 @@ Sources/SwiftDappConnect/
 ## Notes
 
 - **配置必填**：所有 Provider 与 `WalletSigning` / `DidSDK` 均由宿主注入，模块不依赖具体钱包实现（`SwiftVault` 可作 `SecretProvider` 后端）。
-- **主线程约束**：`WebAppInterface` 与中间件标记 `@MainActor`；消息回传统一经 `evaluateJavaScript` 调 `window._ccdaoSettle`（带 nonce 的 JSON 字符串）。
+- **主线程约束**：`WebAppInterface` 与中间件标记 `@MainActor`；消息回传统一经 `evaluateJavaScript` 调 `window._ccdaoSettle(nonce, payload, token)`。
 - **错误码**：`userRejected→4001`、`chainNotSupported→4902`、通用错误 `-1`。
-- **安全**：postMessage 拒绝空白/非安全 origin（M-05）；原生内部取密钥用 `WebOrigin.walletInternal`（M-18）。
+- **安全**：仅接受主 frame 消息且 origin 按消息从 `frameInfo.securityOrigin` 推导（M-05 / H1）；native → JS 回传（响应与状态推送）校验 `interface.responseToken`，入口函数冻结、状态收进闭包，页面 JS 无法伪造（M1/M2）；原生内部取密钥用 `WebOrigin.walletInternal`（M-18）。
 - **对 Kotlin 的显式改进**：provider JS 的 `requestQueue` 增加 60s 超时兜底并防止 timer 泄漏；bridge 不可用统一回 `{code:-1,message}`。
 
 ## Design Docs

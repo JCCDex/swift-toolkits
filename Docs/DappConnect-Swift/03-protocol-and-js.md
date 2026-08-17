@@ -62,9 +62,10 @@ JS 侧 `requestQueue[nonce]` 匹配，先到先删；`error` 存在则 reject，
 `WKWebView` 无 WebMessagePort。Swift 版等价通道：
 
 - JS 侧：`window.webkit.messageHandlers._tw_.postMessage(json)`（legacy `WKScriptMessageHandler`，无 reply 参数）。
-- Native 侧：`userContentController(_:didReceive:)` 路由完成后，经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson)` 回传。
-- **为什么不用 `WKScriptMessageHandlerWithReply`**：实测该 reply 通道在裸测试进程（macOS/iOS 模拟器）中消息能进（`didReceive` 被调用）但回复不送达 JS；legacy handler + evaluateJavaScript 与 SwiftWebviewBridge 同款、已验证可用。页面内伪造 `_ccdaoSettle` 只能 settle 自身请求（nonce 只有发起方知道），与 WithReply 安全性等价。
-- 由于 provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 直接复用 Kotlin JS 无法 settle 响应；因此 Swift 版携带 **`ccdao-eip1193-provider-ios.js`**：与 Kotlin 版仅 `sendToNative` 的传输段不同，并新增 `window._ccdaoSettle` 作为 native 回传入口：
+- Native 侧：`userContentController(_:didReceive:)` 路由完成后，经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson, token)` 回传。
+- **为什么不用 `WKScriptMessageHandlerWithReply`**：实测该 reply 通道在裸测试进程（macOS/iOS 模拟器）中消息能进（`didReceive` 被调用）但回复不送达 JS；legacy handler + evaluateJavaScript 与 SwiftWebviewBridge 同款、已验证可用。
+- **M1 加固（相对 Kotlin 的显式偏离）**：`_ccdaoSettle` / `_ccdaoNative` 是 native → JS 的仅有两个入口，二者均（a）校验桥接 token（`DAppConnectSdk.loadProviderJs(token:)` 注入 provider 闭包，页面 JS 读不到）；（b）`Object.defineProperty` 冻结为不可写/不可删/不可枚举，页面 JS 无法覆盖/删除；（c）响应继续用请求级 nonce 绑定唯一挂起请求。页面 JS 无 token 且读不到 nonce，无法伪造 native 响应或状态推送。
+- 由于 provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 直接复用 Kotlin JS 无法 settle 响应；因此 Swift 版携带 **`ccdao-eip1193-provider-ios.js`**：与 Kotlin 版仅 `sendToNative` 的传输段不同，并新增 token 鉴权的 `window._ccdaoSettle` 作为 native 回传入口：
 
 ```js
 // Kotlin 版（Android）：window._tw_.postMessage(json)，响应经端口
@@ -82,21 +83,25 @@ if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandl
   settleRequest(nonce, { error: { code: -1, message: 'Bridge not available' } });
 }
 
-// native → JS 响应投递入口（与 sendToNative 同闭包，可访问私有 requestQueue）
-window._ccdaoSettle = function (nonce, payloadJson) {
+// native → JS 响应投递入口（与 sendToNative 同闭包，可访问私有 requestQueue）。
+// token 由 loadProviderJs(token:) 注入闭包；页面 JS 无法伪造。
+function settleFromNative(nonce, payloadJson, token) {
+  if (!bridgeAuth(token)) return;         // token 校验（M1）
   var msg = JSON.parse(payloadJson);
-  if (!msg || msg.nonce !== nonce) return;
+  if (!msg || msg.nonce !== nonce) return; // 请求级 nonce 绑定
   if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
     settleRequest(msg.nonce, { error: msg.error });
   } else {
     settleRequest(msg.nonce, { result: msg.result });
   }
-};
+}
+// 冻结为不可写/不可删/不可枚举，页面 JS 无法覆盖/删除（M1）
+Object.defineProperty(window, '_ccdaoSettle', { value: settleFromNative, writable: false, configurable: false, enumerable: false });
 ```
 
 其余逻辑（状态、事件、拦截、EIP-6963、二进制参数归一化）与 Kotlin 版保持一致，确保行为契约不漂移。
 
-> **回复形态**：native 统一以 JSON 字符串回传（`_ccdaoSettle(nonce, payloadJson)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志；不再区分字典/字符串双形态。
+> **回复形态**：native 统一以 JSON 字符串回传（`_ccdaoSettle(nonce, payloadJson, token)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志；不再区分字典/字符串双形态。
 
 ## 4. provider JS 能力
 
@@ -105,10 +110,11 @@ window._ccdaoSettle = function (nonce, payloadJson) {
 - `window.ethereum` / `window.eth`：EIP-1193 provider（`request` / `on` / `removeListener` / `removeAllListeners` / `emit`）。
 - `window.ccdao`：CCDAO 扩展 provider，与 `window.ethereum` 共享 `state.listeners` 与 `requestQueue`。
 - 本地拦截：`eth_chainId` / `eth_accounts` 直接读状态；`eth_requestAccounts` 走 native 并写回 `state.accounts`。
-- 全局推送函数：
-  - `_updateSelectedAddress(address)` → `accountsChanged`（地址未变不触发）
-  - `_updateSwtcSelectedAddress(address)` → `swtcAccountsChanged`
-  - `_updateChainId(chainIdHex, rpcUrl)` → `chainChanged`
+- 状态全部收进 IIFE 闭包（不再暴露可写的 `window._ccdaoProviderState`）；native 状态推送统一走 token 鉴权的 `_ccdaoNative(kind, payload, token)`（M2）：
+  - `'setAddress', { address, isSwtc }` → `accountsChanged` / `swtcAccountsChanged`（地址未变不触发）
+  - `'setChainId', { chainIdHex, rpcUrl }` → `chainChanged`
+  - `'init', { chainId, rpcUrl }` → 初始化链与 RPC URL
+- 对应宿主侧 JS 生成：`interface.loadAddressJs(address:isSwtc:)` / `interface.loadUpdateChainIdJs(chainIdHex:rpcUrl:)` / `interface.loadInitJs(chainIdHex:rpcUrl:)`（自动带 token）或带 `token:` 参数的 `DAppConnectSdk` 静态方法。
 - `ipfs_personalSign` 二进制参数归一化：`ArrayBuffer` / TypedArray / 数组 → 普通字节数组再传给原生。
 - EIP-6963：`eip6963:announceProvider` 广播（5s 周期 + 响应 `eip6963:requestProvider`）；宿主可经 `loadEip6963IconOverrideJs` 覆盖真实钱包图标。
 

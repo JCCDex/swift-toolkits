@@ -103,7 +103,7 @@ DApp JS ── window._tw_.postMessage(json) ──► WebAppInterface.postMessa
 
 | 测试文件 | 覆盖点 |
 | --- | --- |
-| `DAppConnectSdkTest` | isSafeUrl（https/http/端口/路径/query/域名）；loadAddressJs 的 EVM/SWTC 分支 |
+| `DAppConnectSdkTest` | isSafeUrl（https/http/端口/路径/query/域名）；loadAddressJs 的 EVM/SWTC 分支；provider JS 注入 token 与 M1/M2 加固断言 |
 | `WebOriginTest` | normalize：默认端口省略、非法 scheme/host 返回 null |
 | `NativeResponseChannelTest` | 响应 payload 序列化（result 类型分支） |
 | `WebAppInterfaceJsCallbackTest` | 非端口通道的 JS 回调转义（保留给单测） |

@@ -13,7 +13,16 @@ import WebKit
     @Test(.serialized) @MainActor func `real webview web3 client version returns constant`() async throws {
         let (webView, resultWaiter, interface) = try await makeLoadedWebView()
 
-        #expect(await injectProviderJS(into: webView), "provider JS 未能在页面中生效（可能被重载冲掉）")
+        #expect(await injectProviderJS(into: webView, token: interface.responseToken), "provider JS 未能在页面中生效（可能被重载冲掉）")
+
+        // M1/M2 加固断言：回传入口被冻结、状态不再暴露为可写全局。
+        let settleFrozen = try? await webView.evaluateJavaScript(
+            "Object.getOwnPropertyDescriptor(window, '_ccdaoSettle').writable === false" +
+                " && Object.getOwnPropertyDescriptor(window, '_ccdaoNative').writable === false"
+        ) as? Bool
+        #expect(settleFrozen == true, "native 回传入口应被冻结为只读")
+        let noGlobalState = try? await webView.evaluateJavaScript("typeof window._ccdaoProviderState") as? String
+        #expect(noGlobalState == "undefined", "provider 状态不应暴露为可写全局对象")
 
         // DApp 侧调用：window.ccdao.request 走 native 路由，web3_clientVersion 返回常量。
         // 结果经 testResult 通道回传（成功 result / 失败 error），Swift 以 continuation 等待。
@@ -62,7 +71,7 @@ import WebKit
     @Test(.serialized) @MainActor func `real webview eip6963 announces provider info`() async throws {
         let (webView, resultWaiter, interface) = try await makeLoadedWebView()
 
-        #expect(await injectProviderJS(into: webView), "provider JS 未能在页面中生效")
+        #expect(await injectProviderJS(into: webView, token: interface.responseToken), "provider JS 未能在页面中生效")
 
         // 挂监听 + 派发 eip6963:requestProvider 触发重广播（同一段脚本原子执行，避免页面上下文重置）
         _ = try await webView.evaluateJavaScript("""
@@ -113,7 +122,7 @@ import WebKit
         _ = try await webView.evaluateJavaScript(
             DAppConnectSdk.loadEip6963IconOverrideJs(iconDataUri: customIcon) + "; true;"
         )
-        #expect(await injectProviderJS(into: webView), "provider JS 未能在页面中生效")
+        #expect(await injectProviderJS(into: webView, token: interface.responseToken), "provider JS 未能在页面中生效")
 
         // 挂监听 + 派发 requestProvider 触发重广播（原子执行）
         _ = try await webView.evaluateJavaScript("""
@@ -134,12 +143,12 @@ import WebKit
         interface.detach()
     }
 
-    /// 注入 EIP-1193 provider JS（宿主标准用法；IIFE 返回 undefined 会触发 WKError Code=5，补 "; true"）。
+    /// 注入 EIP-1193 provider JS（宿主标准用法：必须带 interface.responseToken，M1/M2）。
     /// 注入后校验状态标记，确认页面内已生效。
     @MainActor
-    private func injectProviderJS(into webView: WKWebView) async -> Bool {
-        _ = try? await webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs() + "; true;")
-        let state = try? await webView.evaluateJavaScript("typeof window._ccdaoProviderState") as? String
+    private func injectProviderJS(into webView: WKWebView, token: String) async -> Bool {
+        _ = try? await webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs(token: token) + "; true;")
+        let state = try? await webView.evaluateJavaScript("typeof window.ethereum") as? String
         return state == "object"
     }
 

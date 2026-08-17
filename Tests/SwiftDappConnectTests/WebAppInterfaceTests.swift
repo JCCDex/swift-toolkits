@@ -123,3 +123,24 @@ private func request(
     // 输出必须能被再次归一化（round-trip 稳定，无悬挂的非法格式）。
     #expect(WebOrigin.normalize(origin ?? "") == origin)
 }
+
+// ── M1/M2：responseToken 生成与便捷 JS 构建器 ──
+
+@Test @MainActor func `response token is unique per interface`() {
+    let first = makeInterface()
+    let second = makeInterface()
+
+    #expect(!first.responseToken.isEmpty)
+    #expect(!second.responseToken.isEmpty)
+    #expect(first.responseToken.count == 64) // 32 字节 hex
+    #expect(first.responseToken != second.responseToken)
+}
+
+@Test @MainActor func `instance js builders embed the response token`() {
+    let interface = makeInterface()
+    let token = interface.responseToken
+
+    #expect(interface.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
+    #expect(interface.loadAddressJs(address: "0xabc", isSwtc: false).contains("\"\(token)\""))
+    #expect(interface.loadUpdateChainIdJs(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
+}

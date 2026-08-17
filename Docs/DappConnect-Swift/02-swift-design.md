@@ -3,7 +3,8 @@
 ## 1. 设计目标与取舍
 
 - 保持 Kotlin 的**行为契约**（postMessage 消息格式、nonce 队列、错误码、requestAccounts 强制回调、origin 校验、HD 根过滤），把平台相关部分替换为 WebKit 生态。
-- iOS 没有 `addJavascriptInterface` 与 `WebMessagePort` 的等价物：JS→Native 用 `WKUserContentController.add(_:contentWorld:name:)` + legacy `WKScriptMessageHandler`；Native→JS 响应由 native 用 `evaluateJavaScript` 调用 provider 的 `window._ccdaoSettle(nonce, payloadJson)` 回传，等价于 Kotlin 的 C-03 端口通道。**弃用 `WKScriptMessageHandlerWithReply`**：其 reply 通道在裸测试进程（macOS/iOS 模拟器）消息能进但回复不送达，而 legacy + evaluateJavaScript 模式与 SwiftWebviewBridge 同款、已验证可用；页面内伪造 `_ccdaoSettle` 只能 settle 自身请求（nonce 只有发起方知道），安全性等价。
+- iOS 没有 `addJavascriptInterface` 与 `WebMessagePort` 的等价物：JS→Native 用 `WKUserContentController.add(_:contentWorld:name:)` + legacy `WKScriptMessageHandler`；Native→JS 响应由 native 用 `evaluateJavaScript` 调用 provider 的 `window._ccdaoSettle(nonce, payloadJson, token)` 回传，等价于 Kotlin 的 C-03 端口通道。**弃用 `WKScriptMessageHandlerWithReply`**：其 reply 通道在裸测试进程（macOS/iOS 模拟器）消息能进但回复不送达，而 legacy + evaluateJavaScript 模式与 SwiftWebviewBridge 同款、已验证可用。
+- **M1/M2 加固（相对 Kotlin 的显式偏离）**：native → JS 仅保留两个入口 `_ccdaoSettle`（响应）与 `_ccdaoNative`（状态推送），均校验桥接 token（`WebAppInterface.responseToken`，经 `loadProviderJs(token:)` 注入闭包）、冻结为不可写/不可删/不可枚举，且状态收进 IIFE 闭包、不再暴露可写的 `window._ccdaoProviderState`。页面 JS 无 token 且读不到挂起 nonce，无法伪造响应或 `accountsChanged` / `chainChanged` 事件。
 - provider JS 的 `requestQueue` 是 IIFE 私有闭包，Swift 侧**不能**在外部注入 settle 函数；因此 iOS 采用同一逻辑的 JS 变体（仅替换 `sendToNative` 的传输层），见 03 章。
 - Swift 6 严格并发下把 `WebAppInterface` / 中间件标为 `@MainActor`：`WKWebView` 本就要求主线程访问，用编译器强制替代 Kotlin 的 `Handler` 手工切线程；中间件内部的长任务用 `Task` 包裹。
 - 签名与 DID 能力抽象为协议（`WalletSigning` / `DidSDK`），宿主接线：本仓库 `SwiftVault` 提供私钥/秘钥，交易签名由宿主或后续 `SwiftWallet` 模块实现。
@@ -264,17 +265,18 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     }
 
     /// Native → JS 响应投递：evaluateJavaScript 调用 provider 的 `window._ccdaoSettle`。
+    /// 回传携带 responseToken，provider 闭包校验通过才 settle（M1）。
     private func deliver(_ payload: [String: Any]) {
         guard let webView else { return }
         let nonce = (payload["nonce"] as? String) ?? ""
         let script =
-            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(payload.jsonString)));"
+            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(payload.jsonString)), \(Self.jsQuote(self.responseToken)));"
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 }
 ```
 
-> 传输说明：JS→Native 用 legacy `WKScriptMessageHandler`（`window.webkit.messageHandlers._tw_.postMessage(json)` 到达 `userContentController(_:didReceive:)`）；Native→JS 由 `deliver` 经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson)` 回传。路由整体在 `@MainActor` 上执行。所有 handler 与 Kotlin 一样包 try/catch，把异常映射为 RPC 错误码回传。
+> 传输说明：JS→Native 用 legacy `WKScriptMessageHandler`（`window.webkit.messageHandlers._tw_.postMessage(json)` 到达 `userContentController(_:didReceive:)`）；Native→JS 由 `deliver` 经 `evaluateJavaScript` 调用 `window._ccdaoSettle(nonce, payloadJson, token)` 回传（token 鉴权，M1）。路由整体在 `@MainActor` 上执行。所有 handler 与 Kotlin 一样包 try/catch，把异常映射为 RPC 错误码回传。
 >
 > **回复约定（对 Kotlin 的显式改进）**：所有回复路径（含校验/解析失败）统一带 `nonce` 回传 `{nonce, result|error}` JSON 字符串（经 `_ccdaoSettle` 的 `JSON.parse` 还原）；无法取得 nonce 时（body 非字符串）依赖 JS 侧 `requestQueue` 超时兜底（见 03 章 3.2）。不再像 Kotlin 那样对非法请求只打日志不回复——那样 DApp Promise 会永久挂起。
 >
@@ -292,11 +294,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 > }
 > ```
 >
-> **回复形态（定稿）**：native 统一以 **JSON 字符串** 回传（`_ccdaoSettle(nonce, payloadJson)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志。不采用 WithReply 的字典直传（该通道在裸测试进程不送达）。
+> **回复形态（定稿）**：native 统一以 **JSON 字符串** 回传（`_ccdaoSettle(nonce, payloadJson, token)` 内 `JSON.parse`），与 Kotlin wire 格式严格一致，也便于统一日志。不采用 WithReply 的字典直传（该通道在裸测试进程不送达）。
 
 ## 5. NativeResponseChannel（Swift）
 
-Kotlin 用 WebMessagePort + `HANDSHAKE`；Swift 用 `evaluateJavaScript` + `window._ccdaoSettle` 回传，native 侧只负责「构造 payload」：
+Kotlin 用 WebMessagePort + `HANDSHAKE`；Swift 用 `evaluateJavaScript` + `window._ccdaoSettle`（带 token）回传，native 侧只负责「构造 payload」：
 
 ```swift
 enum NativeResponseChannel {
@@ -391,10 +393,11 @@ public actor CachingSecretProvider: SecretProvider {
 
 ```swift
 public enum DAppConnectSdk {
-    public static func loadProviderJs() -> String
-    public static func loadInitJs(chainIdHex: String, rpcUrl: String) -> String
-    public static func loadAddressJs(address: String, isSwtc: Bool) -> String
-    public static func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String) -> String
+    // token 为 WebAppInterface.responseToken（M1/M2）：注入 provider 闭包鉴权 native 回传
+    public static func loadProviderJs(token: String) -> String
+    public static func loadInitJs(chainIdHex: String, rpcUrl: String, token: String) -> String
+    public static func loadAddressJs(address: String, isSwtc: Bool, token: String) -> String
+    public static func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String, token: String) -> String
     public static func loadEip6963IconOverrideJs(iconDataUri: String) -> String
     public static func isSafeUrl(_ url: String) -> Bool
     public static func createEthMiddleware(

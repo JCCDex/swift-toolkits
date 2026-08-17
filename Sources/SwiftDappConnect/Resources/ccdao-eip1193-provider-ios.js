@@ -3,13 +3,24 @@
  *
  * 与 Android 版 ccdao-eip1193-provider.js 的唯一差异在传输层（C-03）：
  * - Android：window._tw_.postMessage(json)，响应经 WebMessagePort 握手回传
- * - iOS：window.webkit.messageHandlers._tw_.postMessage(json, replyHandler)，
- *   native 经 WKScriptMessageHandlerWithReply 的 reply 回调回传 {nonce, result|error}
+ * - iOS：window.webkit.messageHandlers._tw_.postMessage(json)，native 经
+ *   evaluateJavaScript 调 window._ccdaoSettle(nonce, payloadJson, token) 回传
  *
  * 对 Kotlin 的显式改进：
  * - 请求队列条目存 { callback, timer }，settleRequest 时 clearTimeout，防止 timer 泄漏
  * - 每个请求 60s 超时兜底：native 崩溃/无法回传时 Promise 不永久挂起
  * - _tw_ 不可用时统一回 { error: { code: -1, message: 'Bridge not available' } }
+ *
+ * 安全加固（M1/M2，相对 Kotlin 的显式偏离）：
+ * - 状态全部收进 IIFE 闭包：不再暴露可写的 window._ccdaoProviderState，
+ *   页面 JS 无法直接篡改 chainId / accounts / listeners
+ * - native → JS 的唯一入口 _ccdaoSettle / _ccdaoNative 均：
+ *   a) 校验桥接 token（由 DAppConnectSdk.loadProviderJs(token:) 注入闭包），
+ *      页面 JS 读不到 token，无法伪造 native 响应或状态推送；
+ *   b) 用 Object.defineProperty 冻结（不可写/不可删/不可枚举），
+ *      页面 JS 无法覆盖或删除回传入口做劫持；
+ *   c) 请求级 nonce 继续把响应绑定到唯一挂起请求。
+ *   token 缺失/为空时所有 native 回传 fail-closed（不影响出站请求）。
  */
 (function () {
     // 防止重复注入
@@ -17,16 +28,20 @@
         return;
     }
 
-    // 全局状态
-    if (!window._ccdaoProviderState) {
-        window._ccdaoProviderState = {
-            chainId: '0x1',
-            chainIdDecimal: 1,
-            accounts: [],
-            listeners: {}
-        };
+    // 桥接 token：由 DAppConnectSdk.loadProviderJs(token:) 注入；null/空 → fail-closed。
+    const BRIDGE_TOKEN = /*__CCDAO_BRIDGE_TOKEN__*/ null;
+
+    function bridgeAuth(token) {
+        return typeof BRIDGE_TOKEN === 'string' && BRIDGE_TOKEN.length > 0 && token === BRIDGE_TOKEN;
     }
-    const state = window._ccdaoProviderState;
+
+    // 闭包内状态（M2）：页面 JS 不可达、不可改。
+    const state = {
+        chainId: '0x1',
+        chainIdDecimal: 1,
+        accounts: [],
+        listeners: {}
+    };
 
     // 请求队列留在 IIFE 闭包内：不再挂 window，避免页面脚本伪造/劫持回调。
     const requestQueue = {};
@@ -42,25 +57,6 @@
         clearTimeout(entry.timer);
         entry.callback(response);
     }
-
-    // Native → JS 响应投递（替代 WithReply reply 通道）：
-    // native 经 evaluateJavaScript 调用本函数；页面内伪造 settle 只能影响自身请求，安全性等价。
-    window._ccdaoSettle = function (nonce, payloadJson) {
-        let msg;
-        try {
-            msg = JSON.parse(payloadJson);
-        } catch (_) {
-            return;
-        }
-        if (!msg || typeof msg.nonce !== 'string' || msg.nonce !== nonce) {
-            return;
-        }
-        if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
-            settleRequest(msg.nonce, { error: msg.error });
-        } else {
-            settleRequest(msg.nonce, { result: msg.result });
-        }
-    };
 
     // ipfs_personalSign 的首个参数是二进制（ArrayBuffer/TypedArray），
     // 直接 JSON.stringify 会丢失（ArrayBuffer→{}），统一归一化为普通字节数组传给原生。
@@ -130,7 +126,7 @@
         }
     }
 
-    // EIP-1193 Provider
+    // EIP-1193 Provider（getters 读闭包 state）
     const provider = {
         _ccdaoProvider: true,
         isMetaMask: true,
@@ -243,42 +239,96 @@
         }
     };
 
-    // 更新链 ID 的全局函数
-    window._updateChainId = function (newChainIdHex, newRpcUrl) {
-        const oldChainId = state.chainId;
-        state.chainId = newChainIdHex;
-        state.chainIdDecimal = parseInt(newChainIdHex, 16);
+    // ── native → JS 安全入口（M1/M2） ──
 
-        // 触发 chainChanged 事件
-        if (oldChainId !== newChainIdHex) {
-            provider.emit('chainChanged', newChainIdHex);
+    // _ccdaoSettle：native 响应投递。需正确 token + 挂起 nonce 才生效；
+    // 页面 JS 拿不到 token（闭包私有）且 nonce 不可读，无法伪造 native 响应。
+    function settleFromNative(nonce, payloadJson, token) {
+        if (!bridgeAuth(token)) {
+            return;
         }
+        let msg;
+        try {
+            msg = JSON.parse(payloadJson);
+        } catch (_) {
+            return;
+        }
+        if (!msg || typeof msg.nonce !== 'string' || msg.nonce !== nonce) {
+            return;
+        }
+        if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
+            settleRequest(msg.nonce, { error: msg.error });
+        } else {
+            settleRequest(msg.nonce, { result: msg.result });
+        }
+    }
 
-        // 更新 RPC URL（如果需要）
-        if (newRpcUrl) {
-            state.rpcUrl = newRpcUrl;
+    // _ccdaoNative：native 状态推送统一入口（init / setAddress / setChainId）。
+    // 页面 JS 无 token，无法伪造 accountsChanged / chainChanged 事件。
+    function applyNativeState(kind, payload, token) {
+        if (!bridgeAuth(token)) {
+            return;
         }
-    };
+        if (!payload || typeof payload !== 'object') {
+            return;
+        }
+        switch (kind) {
+            case 'init':
+                if (typeof payload.chainId === 'string') {
+                    state.chainId = payload.chainId;
+                    state.chainIdDecimal = parseInt(payload.chainId, 16);
+                }
+                if (typeof payload.rpcUrl === 'string') {
+                    state.rpcUrl = payload.rpcUrl;
+                }
+                break;
+            case 'setAddress': {
+                if (typeof payload.address !== 'string') {
+                    return;
+                }
+                const oldAddress = state.accounts[0];
+                state.accounts = [payload.address];
+                if (oldAddress !== payload.address) {
+                    provider.emit(payload.isSwtc ? 'swtcAccountsChanged' : 'accountsChanged', [payload.address]);
+                }
+                break;
+            }
+            case 'setChainId': {
+                if (typeof payload.chainIdHex !== 'string') {
+                    return;
+                }
+                const oldChainId = state.chainId;
+                state.chainId = payload.chainIdHex;
+                state.chainIdDecimal = parseInt(payload.chainIdHex, 16);
+                if (typeof payload.rpcUrl === 'string') {
+                    state.rpcUrl = payload.rpcUrl;
+                }
+                if (oldChainId !== payload.chainIdHex) {
+                    provider.emit('chainChanged', payload.chainIdHex);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
 
-    // 更新选中地址的全局函数（地址未变时不触发 accountsChanged）
-    window._updateSelectedAddress = function (address) {
-        if (!address) return;
-        const oldAddress = state.accounts[0];
-        state.accounts = [address];
-        if (oldAddress !== address) {
-            provider.emit('accountsChanged', [address]);
+    // 冻结为不可写/不可删/不可枚举：页面 JS 无法覆盖或删除回传入口。
+    function defineFrozen(name, fn) {
+        try {
+            Object.defineProperty(window, name, {
+                value: fn,
+                writable: false,
+                configurable: false,
+                enumerable: false
+            });
+        } catch (_) {
+            // 页面预先以不可配置属性占用该名字（注入时序异常）：保持原样，
+            // native 回传/推送将无法送达（fail-closed），不影响出站请求。
         }
-    };
-
-    // SWTC 账户变更：DApp 通过 window.ccdao.on('swtcAccountsChanged', ...) 监听
-    window._updateSwtcSelectedAddress = function (address) {
-        if (!address) return;
-        const oldAddress = state.accounts[0];
-        state.accounts = [address];
-        if (oldAddress !== address) {
-            provider.emit('swtcAccountsChanged', [address]);
-        }
-    };
+    }
+    defineFrozen('_ccdaoSettle', settleFromNative);
+    defineFrozen('_ccdaoNative', applyNativeState);
 
     // 设置 window.ethereum
     window.ethereum = provider;
