@@ -15,10 +15,15 @@
 - **无钱包**：显示「生成钱包」按钮与提示。
 - **已有钱包**：显示**地址列表**（地址缩写展示前后段如 `0xd65b…8bdb`，点击行切换当前地址、
   点「密钥」查看该地址完整私钥/助记词），并提供「新增钱包」按钮（再次生成新助记词派生新账户）。
-- **加载 DApp Demo**：全屏 WKWebView 加载本地 DApp 页面（`dapp.html`，英文内容），三个按钮：
+- **加载 DApp Demo**：全屏 WKWebView 加载本地 DApp 页面（`dapp.html`，英文内容），四个按钮：
   - `web3_clientVersion`：直接调 `window.ethereum.request(...)`
   - `web3_clientVersion (EIP-6963)`：监听 `eip6963:announceProvider` 按发现协议拿 provider 再调用
   - `eth_requestAccounts`：返回**当前选中地址**（在 App 里切换当前地址后重新调用即返回新地址）
+  - `eth_signTransaction (转账签名)`：对示例 ETH 转账（0 地址转 1 ETH）签名——DApp 发起请求，
+    原生经 **SwiftVault 取当前钱包私钥 → SwiftWallet 隐藏桥签名**，回传 raw signed tx 展示
+
+签名链路：`dapp.html` → `window.ethereum.request` → `_tw_` 通道 → `EthMiddleware.signTransaction`
+→ `DemoSecretProvider`（委托 `WalletService` 从 SwiftVault 解密）→ `SwiftWallet`（隐藏桥 JS 签名）。
 
 钱包数据（助记词/私钥）经 SwiftVault 加密持久化，重启 App 自动加载已有钱包；
 **当前选中地址持久化到 UserDefaults**，重启后恢复上次选择，而非默认第一个账户。

@@ -96,16 +96,25 @@ final class DemoAccountProvider: AccountProvider {
 
 // MARK: - 其余桩 Provider
 
-// 本 demo 的 DApp 只调用 web3_clientVersion / eth_requestAccounts（账户已由
-// DemoAccountProvider 提供），不访问节点/签名。以下桩仅满足中间件构造要求。
+// 本 demo 的 DApp 调用 web3_clientVersion / eth_requestAccounts / eth_signTransaction。
+// 账户由 DemoAccountProvider 提供；私钥由 DemoSecretProvider 委托 WalletService 从
+// SwiftVault 解密（DApp 签名流经中间件 → SecretProvider → SwiftVault）。
 
+/// 密钥 Provider：委托 WalletService 取 SwiftVault 中对应地址的私钥。
+/// demo 不做 per-origin 授权（真实 App 应在 SecretProvider 校验 origin↔地址授权）。
 final class DemoSecretProvider: SecretProvider {
-    func getPrivateKeyForAddress(_: String, origin _: String) async throws -> String? {
-        nil
+    private let keyProvider: @MainActor (String) async -> String?
+
+    init(keyProvider: @escaping @MainActor (String) async -> String?) {
+        self.keyProvider = keyProvider
     }
 
-    func getSecretForAddress(_: String, origin _: String) async throws -> String? {
-        nil
+    func getPrivateKeyForAddress(_ address: String, origin _: String) async throws -> String? {
+        await self.keyProvider(address)
+    }
+
+    func getSecretForAddress(_ address: String, origin _: String) async throws -> String? {
+        await self.keyProvider(address)
     }
 }
 

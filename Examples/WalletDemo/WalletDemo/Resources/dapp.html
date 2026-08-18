@@ -31,6 +31,7 @@
     <button onclick="callVersion()">web3_clientVersion</button>
     <button onclick="callVersionViaEip6963()">web3_clientVersion (EIP-6963)</button>
     <button onclick="requestAccounts()">eth_requestAccounts</button>
+    <button onclick="signTransfer()">eth_signTransaction (transfer signing)</button>
 
     <pre id="out">Click a button to see the result</pre>
 
@@ -91,6 +92,36 @@
                 .then(function (accounts) {
                     var current = (accounts && accounts.length > 0) ? accounts[0] : '(none)';
                     out().textContent = 'current address: ' + current;
+                })
+                .catch(function (e) {
+                    out().textContent = 'error: ' + ((e && e.message) || String(e));
+                });
+        }
+
+        // 转账签名：用钱包当前地址对一笔示例 ETH 转账签名，展示签名内容（raw signed tx）。
+        // 私钥由原生侧从 SwiftVault 解密、经 SwiftWallet 隐藏桥签名，DApp 只拿到签名结果。
+        function signTransfer() {
+            out().textContent = 'signing transfer...';
+            if (!window.ethereum) {
+                out().textContent = 'provider not injected';
+                return;
+            }
+            window.ethereum.request({ method: 'eth_requestAccounts' })
+                .then(function (accounts) {
+                    var from = (accounts && accounts.length > 0) ? accounts[0] : null;
+                    if (!from) {
+                        throw new Error('no account, generate a wallet first');
+                    }
+                    var tx = {
+                        from: from,
+                        to: '0x0000000000000000000000000000000000000000',
+                        value: '0xde0b6b3a7640000', // 1 ETH
+                        chainId: '0x1'
+                    };
+                    return window.ethereum.request({ method: 'eth_signTransaction', params: [tx] });
+                })
+                .then(function (signed) {
+                    out().textContent = 'signed raw tx:\n' + signed;
                 })
                 .catch(function (e) {
                     out().textContent = 'error: ' + ((e && e.message) || String(e));

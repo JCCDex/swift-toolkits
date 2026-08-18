@@ -121,6 +121,24 @@ final class WalletService: ObservableObject {
         )
     }
 
+    // MARK: - 供 DApp 签名流取钥（DemoSecretProvider 委托）
+
+    /// 返回地址对应的私钥（SwiftVault 解密；未解锁自动解锁），无则 nil。
+    /// DApp 侧 eth_signTransaction 等签名请求经中间件 → SecretProvider 走到这里。
+    func privateKey(for address: String) async -> String? {
+        guard
+            let data = try? await self.vault.getPrivateKey(address: address, password: self.demoPassword)
+        else {
+            return nil
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// SWTC secret（demo 与私钥同源存储）。
+    func secret(for address: String) async -> String? {
+        await self.privateKey(for: address)
+    }
+
     // MARK: - 私有
 
     private func makeAccount(address: String) -> WalletAccount {

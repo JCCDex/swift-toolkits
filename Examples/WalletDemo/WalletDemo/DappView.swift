@@ -40,9 +40,13 @@ struct DappView: UIViewRepresentable {
         try? SwiftWallet.shared.start()
 
         let accountProvider = DemoAccountProvider(state: wallet.state)
+        // 密钥 Provider：从 SwiftVault 取当前钱包私钥（DApp 的 eth_signTransaction 走这里）
+        let secretProvider = DemoSecretProvider { [weak wallet] address in
+            await wallet?.privateKey(for: address)
+        }
         let eth = DAppConnectSdk.createEthMiddleware(
             accountProvider: accountProvider,
-            secretProvider: DemoSecretProvider(),
+            secretProvider: secretProvider,
             nodeProvider: DemoNodeProvider(),
             initialChain: .eth,
             signing: SwiftWallet.shared
@@ -51,7 +55,7 @@ struct DappView: UIViewRepresentable {
         eth.setRequestAccountsCallback { _ in true }
         let swtc = DAppConnectSdk.createSwtcMiddleware(
             accountProvider: accountProvider,
-            secretProvider: DemoSecretProvider(),
+            secretProvider: secretProvider,
             nodeProvider: DemoNodeProvider(),
             signing: SwiftWallet.shared
         )
@@ -60,7 +64,7 @@ struct DappView: UIViewRepresentable {
             ethMiddleware: eth,
             swtcMiddleware: swtc,
             accountProvider: accountProvider,
-            secretProvider: DemoSecretProvider()
+            secretProvider: secretProvider
         )
         context.coordinator.interface = interface
         webView.navigationDelegate = context.coordinator
