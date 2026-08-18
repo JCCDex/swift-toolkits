@@ -1,5 +1,6 @@
 import Foundation
 import SwiftDappConnect
+import SwiftWallet
 
 // MARK: - Demo 钱包状态（地址列表 + 当前地址）
 
@@ -144,52 +145,5 @@ final class DemoNodeProvider: NodeProvider {
 
     func fetchSequence(address _: String) async throws -> Int64 {
         0
-    }
-}
-
-@MainActor
-final class DemoWalletSigning: WalletSigning {
-    func personalSign(privateKey _: String, message _: String) async throws -> String {
-        ""
-    }
-
-    func recoverPersonalSignature(message _: String, signature _: String) async throws -> String {
-        ""
-    }
-
-    func signTypedData(privateKey _: String, typedData _: String, version _: String) async throws -> String {
-        ""
-    }
-
-    func recoverTypedSignature(data _: String, signature _: String, version _: String) async throws -> String {
-        ""
-    }
-
-    func getEncryptionPublicKey(privateKey _: String) async throws -> String {
-        ""
-    }
-
-    func decrypt(privateKey _: String, encryptedData _: String) async throws -> String {
-        ""
-    }
-
-    func signEthTransaction(privateKey _: String, txParams _: [String: Any]) async throws -> String {
-        ""
-    }
-
-    func signSwtcTransaction(txParams _: [String: Any], secret _: String) async throws -> String {
-        ""
-    }
-
-    func multiSign(tx _: [String: Any], secret _: String) async throws -> String {
-        ""
-    }
-
-    func signMessage(from _: String, data _: String, secret _: String) async throws -> String {
-        ""
-    }
-
-    func buildSwtcNftTransfer(address _: String, to _: String, tokenId _: String, memo _: String) async throws -> [String: Any] {
-        [:]
     }
 }

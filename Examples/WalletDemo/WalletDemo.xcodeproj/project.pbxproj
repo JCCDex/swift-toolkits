@@ -16,6 +16,7 @@
 		8A67C84C6B3C87ADCF40AB50 /* SwiftVault in Frameworks */ = {isa = PBXBuildFile; productRef = 6A2CFE62973B5238598A67E6 /* SwiftVault */; };
 		8CA77E2F41E4C5F5A1723167 /* SwiftDappConnect in Frameworks */ = {isa = PBXBuildFile; productRef = 3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */; };
 		C0960BC9CCD6F67BB23283D5 /* SwiftWebviewBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */; };
+		D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */ = {isa = PBXBuildFile; productRef = 39ECC87252B0148CA959D8F8 /* SwiftWallet */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 				8A67C84C6B3C87ADCF40AB50 /* SwiftVault in Frameworks */,
 				C0960BC9CCD6F67BB23283D5 /* SwiftWebviewBridge in Frameworks */,
 				8CA77E2F41E4C5F5A1723167 /* SwiftDappConnect in Frameworks */,
+				D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -109,6 +111,7 @@
 				6A2CFE62973B5238598A67E6 /* SwiftVault */,
 				8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */,
 				3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */,
+				39ECC87252B0148CA959D8F8 /* SwiftWallet */,
 			);
 			productName = WalletDemo;
 			productReference = 73ECD42A31516053F6D1E423 /* WalletDemo.app */;
@@ -379,6 +382,10 @@
 		3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftDappConnect;
+		};
+		39ECC87252B0148CA959D8F8 /* SwiftWallet */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftWallet;
 		};
 		6A2CFE62973B5238598A67E6 /* SwiftVault */ = {
 			isa = XCSwiftPackageProductDependency;

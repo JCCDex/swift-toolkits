@@ -60,6 +60,20 @@ var targets: [Target] = [
         name: "SwiftDappConnectTests",
         dependencies: ["SwiftDappConnect"],
         path: "Tests/SwiftDappConnectTests"
+    ),
+    .target(
+        name: "SwiftWallet",
+        dependencies: [
+            .target(name: "SwiftWebviewBridge"),
+            // WalletSigning 协议定义在 SwiftDappConnect；SwiftWallet 作为其真实实现。
+            .target(name: "SwiftDappConnect")
+        ],
+        path: "Sources/SwiftWallet"
+    ),
+    .testTarget(
+        name: "SwiftWalletTests",
+        dependencies: ["SwiftWallet"],
+        path: "Tests/SwiftWalletTests"
     )
 ]
 
@@ -91,6 +105,10 @@ let package = Package(
         .library(
             name: "SwiftDappConnect",
             targets: ["SwiftDappConnect"]
+        ),
+        .library(
+            name: "SwiftWallet",
+            targets: ["SwiftWallet"]
         )
     ],
     dependencies: [

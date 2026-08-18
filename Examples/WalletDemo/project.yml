@@ -22,6 +22,8 @@ targets:
         product: SwiftWebviewBridge
       - package: SwiftToolkits
         product: SwiftDappConnect
+      - package: SwiftToolkits
+        product: SwiftWallet
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swifttoolkits.WalletDemo

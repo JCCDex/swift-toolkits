@@ -21,7 +21,7 @@
 2. **`signTransaction` 返回 blob**：JS 返回 `signedTx.blob`（SWTC）；`signEthTransaction` 返回十六进制序列化交易——两者都是 `String`，Swift 不做二次解析，直接透传。
 3. **`decrypt` 的 data 预处理**：wallet-bridge.js 对 `0x` 前缀的 data 先 hex 解码再 `JSON.parse`；Swift 层原样透传即可，不要预先解码。
 4. **`chains` 数组参数**：`hdWalletFromMnemonic(chains: [Int64])` 经 JSON 序列化为数组，JS 端 `chains.map(...)` 遍历；空数组 = 只返回根账户。
-5. **JS 缺口**：`buildSwtcCreateOrder` / `buildSwtcCancelOrder` 在 `wallet-bridge.js` 无实现——Swift 显式 `unsupported`（见 03 章），勿静默透传。
+5. **JS 缺口（已补齐）**：`buildSwtcCreateOrder` / `buildSwtcCancelOrder` 已按 Kotlin `webview-bridge` 同步到 Swift `wallet-bridge.js`（jingtum-lib 已含 `serializeCreateOrder`/`serializeCancelOrder`），Swift 直接透传（见 03 章）。
 6. **私钥/助记词 String 生命周期**：桥返回的 `String` 不可擦除；上层（SecretProvider）从 `SwiftVault` 取密后调用完即刻丢弃引用。
 
 ## 3. 测试策略
@@ -37,10 +37,10 @@
 
 ## 4. 实施清单
 
-- [ ] `Package.swift` 注册 `SwiftWallet` target（依赖 `SwiftWebviewBridge`）
-- [ ] `WalletModels.swift`：6 个 `Codable` 模型 + 单测
-- [ ] `SwiftWallet.swift`：生命周期 + 21 个类型化方法（JS 缺口两个显式 `unsupported`）
-- [ ] `WalletSigning` conformance + 中间件对接测试
-- [ ] 单测（FakeRuntime）与 iOS 冒烟测试
-- [ ] 更新仓库 README 与模块 README
-- [ ] 接入 `Examples/WalletDemo`：用 `SwiftWallet` 替换 `DemoWalletSigning` 桩
+- [x] `Package.swift` 注册 `SwiftWallet` target（依赖 `SwiftWebviewBridge` + `SwiftDappConnect`）
+- [x] `WalletModels.swift`：6 个 `Codable` 模型 + 单测
+- [x] `SwiftWallet.swift`：生命周期 + 23 个类型化方法（含补齐的 create/cancel order）
+- [x] `WalletSigning` conformance + 对接单测
+- [x] 单测（FakeWalletBridge，对应 Kotlin `installBridgeForTest`）
+- [x] 更新仓库 README 与模块 README
+- [x] 接入 `Examples/WalletDemo`：用 `SwiftWallet` 替换 `DemoWalletSigning` 桩

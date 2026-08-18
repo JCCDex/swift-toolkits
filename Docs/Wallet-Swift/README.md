@@ -2,7 +2,7 @@
 
 本文档是 `kotlin-toolkits` 中 `:wallet` 模块的 Swift 版本设计。目标是把 Kotlin 版「通过隐藏 WebView 调用钱包 JS 能力」以 Swift/iOS 惯用方式复刻：助记词生成/校验、子账户派生、地址派生与校验、签名与验签，并作为 `SwiftDappConnect` 的 `WalletSigning` 实现。
 
-> 状态：设计稿。文中 Swift 代码为设计示例，用于指导实现，尚未作为可编译 target 落库。
+> 状态：已实现（Swift 6.2，iOS 15+ / macOS 13+），`Sources/SwiftWallet` 落库；随 CI 双平台验证。JS 缺口（`buildSwtcCreateOrder` / `buildSwtcCancelOrder`）已按 Kotlin `webview-bridge` 补齐。
 
 ## 设计原则
 

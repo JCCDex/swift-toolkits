@@ -39,17 +39,15 @@ JS    ── window.JSBridge.onPromiseResult(id, JSON.stringify({result|error}))
 | `getEncryptionPublicKey` | privateKey | string | `getEncryptionPublicKey` |
 | `decrypt` | privateKey, data | string | `decrypt` |
 | `signEthTransaction` | privateKey, tx | string | `signEthTransaction` |
+| `buildSwtcCreateOrder` | address, amount, base, counter, sum, type, platform?, issuer? | string | `buildSwtcCreateOrder` |
+| `buildSwtcCancelOrder` | address, sequence | string | `buildSwtcCancelOrder` |
 
-## 3. JS 缺口（对 Kotlin 的显式偏离）
+## 3. JS 缺口（已补齐）
 
-Kotlin `WalletSdk` 暴露但 **`wallet-bridge.js` 未实现**的方法：
-
-| Kotlin 方法 | 状态 | 处置建议 |
-| --- | --- | --- |
-| `buildSwtcCreateOrder(address, amount, base, counter, sum, type, platform?, issuer?)` | JS 无此方法 | 方案 A：Swift 侧暂不提供（标记不支持，抛 `SwiftWalletError.unsupported`）；方案 B：后续在 `wallet-bridge.js` 补实现（需 jingtum-lib 的 order 序列化能力，先确认 Kotlin 侧 JS 版本是否有对应实现） |
-| `buildSwtcCancelOrder(address, sequence)` | JS 无此方法 | 同上 |
-
-> 移植时建议先在 Swift 侧显式 `unsupported`，避免静默「no such method」；待确认 Kotlin 桥 JS 是否在其它分支实现了这两个方法后再补齐。
+原缺口 `buildSwtcCreateOrder` / `buildSwtcCancelOrder`（Kotlin `WalletSdk` 暴露但 `wallet-bridge.js` 未实现）——
+Kotlin 侧 `webview-bridge` 已补实现（`serializeCreateOrder` / `serializeCancelOrder`，jingtum-lib 导出），
+Swift 侧 `Sources/SwiftWebviewBridge/Resources/bridge/wallet-bridge.js` 已同步补齐，与 Kotlin 版本方法集一致
+（`diff` 校验仅空行差异）。Swift 侧 `SwiftWallet.buildSwtcCreateOrder` / `buildSwtcCancelOrder` 直接透传。
 
 ## 4. 安全注意
 

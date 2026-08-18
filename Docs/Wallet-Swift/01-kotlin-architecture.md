@@ -46,8 +46,8 @@
 | --- | --- | --- |
 | `buildSwtcPayment(address, amount, to, token, memo)` | `buildSwtcPayment` | `String` |
 | `buildSwtcNftTransfer(address, to, tokenId, memo)` | `buildSwtcNftTransfer` | `String` |
-| `buildSwtcCreateOrder(address, amount, base, counter, sum, type, platform?, issuer?)` | **JS 缺口（见 03 章）** | `String` |
-| `buildSwtcCancelOrder(address, sequence)` | **JS 缺口（见 03 章）** | `String` |
+| `buildSwtcCreateOrder(address, amount, base, counter, sum, type, platform?, issuer?)` | `buildSwtcCreateOrder` | `String` |
+| `buildSwtcCancelOrder(address, sequence)` | `buildSwtcCancelOrder` | `String` |
 | `signSwtcTransaction(tx, secret)` | `signSwtcTransaction` | `String`（blob） |
 | `isValidAddress(address)` | `isValidAddress` | `Boolean` |
 | `signMessage(address, message, secret)` | `signMessage` | `String` |

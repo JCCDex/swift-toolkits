@@ -1,5 +1,6 @@
 import SwiftDappConnect
 import SwiftUI
+import SwiftWallet
 import WebKit
 
 /// DApp 容器：真实 WKWebView + SwiftDappConnect 注入的 EIP-1193 provider。
@@ -35,6 +36,8 @@ struct DappView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero)
+        // 签名后端：SwiftWallet（幂等启动，复用同一隐藏 WebView 桥）
+        try? SwiftWallet.shared.start()
 
         let accountProvider = DemoAccountProvider(state: wallet.state)
         let eth = DAppConnectSdk.createEthMiddleware(
@@ -42,7 +45,7 @@ struct DappView: UIViewRepresentable {
             secretProvider: DemoSecretProvider(),
             nodeProvider: DemoNodeProvider(),
             initialChain: .eth,
-            signing: DemoWalletSigning()
+            signing: SwiftWallet.shared
         )
         // demo 自动授权 eth_requestAccounts（真实 App 这里应弹用户确认）
         eth.setRequestAccountsCallback { _ in true }
@@ -50,7 +53,7 @@ struct DappView: UIViewRepresentable {
             accountProvider: accountProvider,
             secretProvider: DemoSecretProvider(),
             nodeProvider: DemoNodeProvider(),
-            signing: DemoWalletSigning()
+            signing: SwiftWallet.shared
         )
         let interface = DAppConnectSdk.createWebAppInterface(
             webView: webView,
