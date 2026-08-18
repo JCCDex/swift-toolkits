@@ -137,9 +137,9 @@ let repository = VaultRepository(
 )
 ```
 
-最小第三方集成示例：
+可运行的 iOS 集成示例（SwiftVault + SwiftWebviewBridge + SwiftDappConnect）：
 
-[Examples/MinimalIntegration/README.md](../../Examples/MinimalIntegration/README.md)
+[Examples/WalletDemo/README.md](../../Examples/WalletDemo/README.md)
 
 ## 设计文档
 

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>DApp Demo</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; padding: 20px; color: #111; }
+        h2 { margin-top: 0; }
+        button {
+            font-size: 15px; padding: 9px 14px;
+            border: none; border-radius: 8px;
+            background: #3b82f6; color: #fff; cursor: pointer;
+        }
+        button + button { margin-left: 6px; margin-top: 6px; }
+        button:active { opacity: 0.8; }
+        pre {
+            margin-top: 16px; padding: 12px;
+            background: #f4f4f5; border-radius: 8px;
+            white-space: pre-wrap; word-break: break-all;
+            font-size: 13px;
+        }
+        .muted { color: #6b7280; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h2>DApp Demo</h2>
+    <p class="muted">This page runs inside the wallet's WKWebView and talks to the wallet
+        through the injected EIP-1193 provider (window.ethereum / window.ccdao).</p>
+
+    <button onclick="callVersion()">web3_clientVersion</button>
+    <button onclick="callVersionViaEip6963()">web3_clientVersion (EIP-6963)</button>
+    <button onclick="requestAccounts()">eth_requestAccounts</button>
+
+    <pre id="out">Click a button to see the result</pre>
+
+    <script>
+        function out() { return document.getElementById('out'); }
+
+        function callVersion() {
+            out().textContent = 'calling...';
+            if (!window.ethereum) {
+                out().textContent = 'provider not injected';
+                return;
+            }
+            window.ethereum.request({ method: 'web3_clientVersion' })
+                .then(function (r) {
+                    out().textContent = 'result: ' + JSON.stringify(r);
+                })
+                .catch(function (e) {
+                    out().textContent = 'error: ' + ((e && e.message) || String(e));
+                });
+        }
+
+        // EIP-6963：不直接读 window.ethereum，而是监听 eip6963:announceProvider 事件
+        // 获取 provider（发现协议），再用它调用 web3_clientVersion。
+        function callVersionViaEip6963() {
+            out().textContent = 'calling via EIP-6963...';
+            var announced = null;
+            function onAnnounce(e) {
+                if (e && e.detail && e.detail.provider) {
+                    announced = e.detail.provider;
+                }
+            }
+            window.addEventListener('eip6963:announceProvider', onAnnounce);
+            window.dispatchEvent(new CustomEvent('eip6963:requestProvider')); // trigger re-announce
+            setTimeout(function () {
+                window.removeEventListener('eip6963:announceProvider', onAnnounce);
+                if (!announced || typeof announced.request !== 'function') {
+                    out().textContent = 'eip6963 error: no provider announced';
+                    return;
+                }
+                announced.request({ method: 'web3_clientVersion' })
+                    .then(function (r) {
+                        out().textContent = 'eip6963 result: ' + JSON.stringify(r);
+                    })
+                    .catch(function (e) {
+                        out().textContent = 'eip6963 error: ' + ((e && e.message) || String(e));
+                    });
+            }, 200);
+        }
+
+        // 请求账户：只展示当前选中地址（切换当前地址后重新调用即返回新地址）
+        function requestAccounts() {
+            out().textContent = 'calling eth_requestAccounts...';
+            if (!window.ethereum) {
+                out().textContent = 'provider not injected';
+                return;
+            }
+            window.ethereum.request({ method: 'eth_requestAccounts' })
+                .then(function (accounts) {
+                    var current = (accounts && accounts.length > 0) ? accounts[0] : '(none)';
+                    out().textContent = 'current address: ' + current;
+                })
+                .catch(function (e) {
+                    out().textContent = 'error: ' + ((e && e.message) || String(e));
+                });
+        }
+    </script>
+</body>
+</html>
