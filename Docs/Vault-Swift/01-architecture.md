@@ -126,4 +126,3 @@ public enum VaultError: Error, Equatable {
 ### 3.6 生物识别
 
 `updateBiometric(ciphertext:iv:)` / `getBiometric()` 只做**透传存取**：仓库不持有其密钥、不参与加解密，密文由上层（如 Keychain 或安全隔区派生密钥）生成，仓库仅保证与其它条目一样原子持久化。
-

@@ -1,0 +1,9 @@
+{
+  // 仓库级 markdownlint 配置（markdownlint-cli2）
+  // 与仓库既有文档风格保持一致，而非默认严格规则。
+  "config": {
+    "MD013": false, // 行长不限制：文档含长中文、代码与 URL
+    "MD060": false, // 表格列紧凑风格（仓库现有表格即如此）
+    "MD033": false // 允许行内 HTML（如需要）
+  }
+}

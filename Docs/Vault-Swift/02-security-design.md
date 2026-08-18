@@ -92,4 +92,3 @@ let ciphertext = sealedBox.ciphertext + sealedBox.tag  // 密文 + 16B tag
 - **双后端格式不同**：Tink 密文对 CryptoKit 不透明，切换后端意味着历史数据需迁移或重建。
 - **biometric 不参与本模块加密**：仓库仅存取密文，密钥策略由上层负责。
 - **改密清空 biometric**：`changePassword` 的新快照不含 biometric 字段，属于当前实现的有意行为。
-

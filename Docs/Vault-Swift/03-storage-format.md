@@ -85,4 +85,3 @@ message Vault {
 ## 5. 生成方式
 
 proto 由 SwiftProtobuf 插件生成（`swift-protobuf-config.json` 指定 `proto/private_key_vault.proto`，`visibility: Internal`，`fileNaming: DropPath`），生成类型仅模块内部可见，对外暴露的是快照模型与仓库 API。
-

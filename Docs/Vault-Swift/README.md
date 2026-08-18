@@ -73,4 +73,3 @@ let customVault = VaultRepository(
 | 存储 | `ProtobufVaultStoreDriver`：`Application Support/SwiftVault/vault.pb`，原子写入 |
 | 密码校验 | HMAC-SHA256 proof + 常量时间比较，不解持久化派生密钥 |
 | 擦除 | `Wipe.swift` 提供 `Data`/`[UInt8]`/`[Character]` 的清零扩展 |
-
