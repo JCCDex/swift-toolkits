@@ -8,7 +8,8 @@ Sources/SwiftDid/
 ├── Model/DidModels.swift     // Did / Profile / Nft / ProfileVC / VerificationMethod / DidEntity …
 ├── Model/CredentialModels.swift // UnifiedNftCredentialData / 校验结果 / VCID 结果 …
 ├── Model/NftModels.swift    // NFT 元数据 DTO：CredentialImageRequest / ResolvedCredentialImage /
-│                            //   NftMetadataFields / DidAvatarAsset（镜像 Kotlin :nft 模型，SwiftNft 复用）
+│                            //   NftMetadataFields / DidAvatarAsset / NftMeta（镜像 Kotlin :nft 模型，
+│                            //   阶段二随协议缝一并迁入 SwiftNft，见 Nft-Swift 02 §2）
 ├── Service/DidStore.swift    // DidStore 协议
 ├── Service/GRDBDidStore.swift // GRDB 实现（对应 Kotlin RoomDidStore）
 ├── Service/DidResolver.swift // IDidResolver 等价：resolve(did)（默认 = 桥调 didResolve），供 DidCoreService 注入/测试
@@ -416,7 +417,8 @@ public protocol DidNftResolution: AnyObject {
     // 头像候选（对齐 IDidAvatarCredentialSource / nftSdk.getAvatarCandidates）
     func getAvatarCandidates(account: WalletAccount) async -> [DidAvatarAsset]
     // 元数据预取缓存（Kotlin NftSdk.fetchAndCacheNftMeta；generateProfileVC 依赖，缺了「不裁剪」不成立）
-    func fetchAndCacheNftMeta(contract: String, tokenId: String, tokenUri: String) async
+    func fetchAndCacheNftMeta(contract: String, tokenId: String, tokenUri: String) async -> NftMeta?
+    // 返回 NftMeta?（对齐 Kotlin NftSdk 返回 Room 实体 NftMetaEntity?）；NftMeta 定义见 NftModels.swift
 
     // NFT 元数据面（Kotlin `NftSdk` 其余方法；预留，SwiftNft 未接入前返回 nil/空）
     func resolveCredentialImage(_ imageUrl: String?, metadataUri: String?) async -> String?

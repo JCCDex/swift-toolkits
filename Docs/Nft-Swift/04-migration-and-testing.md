@@ -1,0 +1,78 @@
+# 04 · 迁移与测试
+
+> 对齐依据：`kotlin-toolkits` commit `f77b59f`（`nft/src/test/java/com/jccdex/toolkits/nft/`）。本文的「坑」均来自源码实况核对，不再标注推断。
+
+## 1. Kotlin → Swift 逐项对照（NftSdk 14 公开方法）
+
+| Kotlin `NftSdk` | Swift `SwiftNft` | 说明 |
+| --- | --- | --- |
+| `suspend fun getAvatarCandidates(account): List<AvatarCandidate>` | `getAvatarCandidates(account: WalletAccount) async -> [DidAvatarAsset]` | 本地持仓表读候选；类型合并见 02 §2 |
+| `suspend fun resolveSwtcAvatar(vc): Nft?` | `resolveSwtcAvatar(vc: String) async -> Nft?` | 回退链 01 §4.2 |
+| `suspend fun resolveEthrAvatar(vc): Nft?` | `resolveEthrAvatar(vc: String) async -> Nft?` | 回退链 01 §4.3 |
+| `suspend fun ensureSwtcCredentialMetadata(vc)` | `ensureSwtcCredentialMetadata(_ vc: String) async` | VC tokenId/nftIssuer → 预取 |
+| `suspend fun fetchAndCacheNftMeta(contract, tokenId, tokenUri): NftMetaEntity?` | `fetchAndCacheNftMeta(contract:tokenId:tokenUri:) async -> NftMeta?` | 落 `nft_meta` 表（含 fullContent） |
+| `suspend fun resolveCredentialImage(imageUrl, metadataUri): String?` | `resolveCredentialImage(_:metadataUri:) async -> String?` | 重载 ①，`String?` |
+| `suspend fun resolveCredentialImage(request): ResolvedCredentialImage?` | `resolveCredentialImage(_ request:) async -> ResolvedCredentialImage?` | 重载 ②，`url`+`cacheKey` |
+| `suspend fun resolveCredentialImages(requests): List<ResolvedCredentialImage?>` | `resolveCredentialImages(_:) async -> [ResolvedCredentialImage?]` | 按解析键去重 |
+| `suspend fun fetchResolvedMetadataImage(metadataUrl): String?` | `fetchResolvedMetadataImage(_:) async -> String?` | 拉元数据提图（记忆化） |
+| `fun normalizeAssetUrl(rawUrl, baseUrl = null): String?` | `normalizeAssetUrl(_:baseUrl: = nil) -> String?` | **同步**纯函数 |
+| `fun extractResolvedMetadataImageUrl(metadataBody, metadataUri): String?` | `extractResolvedMetadataImageUrl(_:metadataUri:) -> String?` | **同步**纯函数 |
+| `fun isSupportedRemoteAssetUrl(url): Boolean` | `isSupportedRemoteAssetUrl(_:) -> Bool` | **同步**纯函数（http/https/data:） |
+| `fun extractSwtcMetadataUri(tokenInfosPayload): String?` | `extractSwtcMetadataUri(_ tokenInfosPayload: String?) -> String?` | **同步**纯函数（hex 解码） |
+| `suspend fun fetchMetadataFields(metadataUri): NftMetadataFields` | `fetchMetadataFields(_:) async -> NftMetadataFields` | **非 Optional**（对齐 NftSdk） |
+
+> 与 Kotlin 差异：`suspend` → `async throws`（非 Optional/同步纯函数除外）、Gson/org.json → `JSONDecoder`、Room → GRDB、`HttpURLConnection` → `URLSession`（行为对齐，见 02 §4）、`NftMetadataImageCache`（ConcurrentHashMap+Mutex）→ actor。
+
+## 2. 实现注意点 / 坑
+
+1. **DTO 归属迁移（对 Did 设计稿的显式修正）**：Kotlin 实况是 `:did → :nft`（`did/build.gradle.kts` `implementation(project(":nft"))`）；Did 设计稿写「SwiftNft 复用 SwiftDid 的 DTO」照做会得到反向依赖（拖入桥 + GRDB）。**两阶段执行**：阶段一 DTO 与协议缝在 SwiftDid（编译期可用）；阶段二 DTO **与 `DidNftResolution` 协议缝一并迁入 SwiftNft** + SwiftDid `public typealias`（含协议，见 02 §2 与坑 #19）。**别把 `Nft`/`DidAvatarAsset` 留在 SwiftDid**：DTO 与协议都在 SwiftNft 后，SwiftNft conform 无需访问 SwiftDid，依赖才无环。
+2. **合并偏离落地校验（双 Nft / AvatarCandidate↔DidAvatarAsset）**：Kotlin 中 `:did.Nft`↔`:nft.Nft`、`AvatarCandidate`↔`DidAvatarAsset` 字段完全一致（`toDidNft()`/`toDidAvatarAsset()` 逐字段拷贝）。Swift 合并为单类型前，**落地时做字段对照表校验**（8 字段逐项比对）；若上游后续给两类型加差异字段，立即拆回双类型。
+3. **Room → GRDB 四表**：`nft_meta`（自增 id + `(contract, tokenId)` UNIQUE）、`swtc_nfts`（`(ownerAddress, tokenId)` 复合 PK）、`evm_nft_items`（四列复合 PK）、`evm_nft_collections`（三列复合 PK）逐一镜像（`DatabaseMigrator` 建表）。**查询 LOWER() 归一化**（address/contract）照搬 DAO SQL（`observeEvmNftItems` 等）；`upsert` 用 **`INSERT ... ON CONFLICT(...) DO UPDATE`（`.upsert`）**，不用 `INSERT OR REPLACE`——REPLACE 删旧插新会让 `nft_meta` 自增 id 变化（Kotlin 为此手动 `copy(id=existing.id)`），且有四表行替换副作用。**`deleteSwtcNftsByOwner` 必须先 `preserveSwtcEntityAsMeta`**（有 `metadataUri` 的行写进 `nft_meta`，否则头像元数据随持仓删除丢失）。
+4. **SsrfGuard 的 DNS fail-closed 别做漏 + 修 DNS rebinding（TOCTOU）**：Swift 用 `getaddrinfo`/Network 框架解析 host，**解析失败 = 拒绝**（Kotlin 测试：`http://this-host-should-not-resolve.invalid/metadata` 拒绝）；回环/私网/链路本地拒绝（`localhost`、10/8、192.168/16、172.16/12、169.254/16、::1、fe80::/10、fc00::/7），并补 IPv4-mapped IPv6（`::ffff:a.b.c.d` 映射回 IPv4）、`0.0.0.0`/`255.255.255.255`、`100.64.0.0/10`；**公网 IP 放行**（8.8.8.8 通过——别误做成「裸 IP 全拒」）。**Kotlin 缺陷（勿照搬）**：`SsrfGuard.check` 解析一次、`openConnection` 再解析一次，攻击者可控域名可「校验公网、建连私网」绕过——Swift 必须 ① 解析**全部**地址、任一私网即拒；② 建连策略三选一（**HTTPS 不能简单「pin IP + Host 头」**，证书按主机名校验会失败）：a) `NWConnection` 连已校验 IP + TLS server-name（证书按原主机名校验）；b) 按主机名建连后复验对端实际 IP；c) 接受残余 TOCTOU 风险并写入文档。**⚠️ URLSession 不暴露对端实际 IP（无 peer-address API），方案 b 只对 NWConnection 可行**——用 URLSession 时只能在 a 与 c 之间选。`enabled` 旁路开关改 `internal` + `#if DEBUG`（勿做 public 可变全局）。
+5. **`fetchMetadataFields` 可空性**：`NftSdk` 非 Optional（失败返回 `NftMetadataFields(null,null,null)`）；但 Kotlin **`DidSdk` 包装方法返回 `NftMetadataFields?`**。Swift 协议缝沿用非 Optional（对齐 NftSdk），是显式偏离——若日后要严格镜像 `DidSdk`，改 Optional 会改协议缝，须先与 Did 设计稿同步。
+6. **缓存语义（成功才缓存）**：`NftMetadataImageCache` 只缓存**成功**结果；HTTP 500 等瞬时失败不缓存、下次可重试（Kotlin 测试 `resolveCredentialImage retries metadata fetch after a transient failure`：先 500 后 200，第一次 null、第二次成功、请求数 2）。Swift actor 实现别把失败结果写进字典。`nft_meta`/图片缓存**无 TTL**（对齐 Kotlin）；`removeAll()` 供宿主清理。
+7. **不跟随重定向**：元数据/图片拉取必须关闭重定向（**delegate-backed URLSession** `willPerformHTTPRedirection` 返回 nil；对齐 Kotlin `instanceFollowRedirects = false`）——**勿用 `URLSession.shared`**（无 delegate、会静默跟随，重定向是 SSRF 绕过路径）；**SWTC RPC 例外但须守重定向目标**：默认节点可跟随（对齐 Kotlin），节点可注入后 `willPerformHTTPRedirection` 里对**新 URL 再查 `SsrfGuard`**、失败即不跟随，否则恶意节点 302 到私网地址即绕过。测试覆盖：元数据 URL 302 → 失败；RPC 节点 302 到私网 → 拒绝跟随。
+8. **`data:` URL 支持（对齐 Kotlin）+ 上限增强 + 类型决策**：`isSupportedRemoteAssetUrl` 放行 `data:`（对齐 Kotlin 纯函数）；Swift 解码 `data:` 时加 2 MiB 上限（Kotlin 无上限属现状，Swift 增强防膨胀；上限适用于**本模块解码校验**，原样透传时由渲染侧负责）。**类型面（设计决策）**：`resolveCredentialImage` 直出前用**独立的 `isDataImageUrl` 检查**仅放行 `data:image/*`（公开 `isSupportedRemoteAssetUrl` 仍对齐 Kotlin、放行任意 `data:`）——只挡 HTML/JS，**挡不住 `image/svg+xml` 脚本**；宿主渲染第三方图片须用 `UIImage`/`CGImage`（不执行脚本）、勿用 `WKWebView`。
+9. **`normalizeRemoteAssetUrl` 细节别照旧草案**：① 无 base 的不可解析路径**返回原样**（不判 nil）；② http(s) 路径含 `/ipfs/` **强制换默认网关**（`canonicalizeHttpIpfsUrl`）——**网关可注入后该行为可能误伤第三方 URL**（如 `https://cdn.thirdparty.com/ipfs/xyz`），保持 Kotlin 行为或限定已知 IPFS 网关域名，二选一固化（见 03 §4.2）；③ 裸 CID（`Qm`/`bafy` 前缀）→ 网关；④ 以 `{`/`[` 开头的 payload → nil；⑤ 相对路径用 `URL(URL(base), raw)` **标准解析**（含协议相对 `//host/…`）；⑥ **可注入网关贯穿所有 normalize 调用点**：`normalizeRemoteAssetUrl`/`canonicalizeHttpIpfsUrl` 以及内部调 normalize 的 `extractMetadataImageUrl` 都带 `gateway` 参数（默认 defaultGateway），门面把 `config.ipfsGateway` 传入，否则「可注入网关」只对 `IpfsResolver.rewrite` 生效、ipfs:// 重写仍硬编码默认网关（见 02 §4）。
+10. **SWTC `erc_info` RPC**：POST `{"method":"erc_info","params":[{"tokenid":tokenId}]}`；`TokenInfos` 可能是数组**或字符串**（两种都处理）；`extractSwtcMetadataUri` 只认 hex 解码后 `InfoType == "tokenUri"` 的项；多节点 `firstNotNullOfOrNull`；可选证书 pinning（SHA-256/Base64，`PinnedTrustManager` 等价物——Swift 用 `URLSessionDelegate` 的 `didReceive challenge` 实现）。
+11. **`EthTokenUriResolver` 非 throw**：签名 `resolveEthrTokenUri(...) async -> String?`（失败返回 nil）；Swift 实现/宿主实现都别用 throw 通道。
+12. **`resolveCredentialImages` 去重**：按 `buildCredentialResolutionKey`（chainId|contract.lowercase()|tokenId|normalize(metadataUri)|normalize(imageUrl, metadataUri)）用 LinkedHashMap 等价物去重——**相同请求只拉一次**（Kotlin 测试锁定：2 个相同请求 → 1 次 server 请求、2 个相等结果）；空列表直接返回空。
+13. **日志不落 payload**：元数据 body 可能含头像/社交链接等隐私，日志只打 scheme/host（对齐 DappConnect「日志不打 payload」约定）。
+14. **与 SwiftDappConnect `NftProvider` 的边界别串**：`eth_requestNfts` / `swtc_requestNfts`（DApp 面持仓枚举、`{address,total,nfts}` 序列化）属宿主 `NftProvider`；SwiftNft 的存储/客户端可**支撑**宿主实现，但 M3（任意地址枚举）在 `NftProvider` 侧修（address ∈ 已授权账户），SwiftNft 侧无此面。
+15. **模型依赖**：`WalletAccount`/`ChainType` 在 Kotlin 属 `:core`，Swift 已存于 SwiftDappConnect（零运行时依赖），SwiftNft 依赖它仅取模型；`ChainType.evmChainId` 决定 EVM 候选链（nil → 空列表，对齐 Kotlin）。
+16. **`NftMetadataImageCache` 的 in-flight 去重别用裸 actor**：同 key 并发要只 fetch 一次（Kotlin 用 per-key Mutex），Swift 用 **per-key 的 `Task` 缓存**（`[String: Task<String?, Never>]`）——若只在 actor 方法内 `await fetch()`，会跨网络调用持有 actor、**所有 key 全局串行**；若把 fetch 放 actor 外，两个同 key 并发调用会各拉一次（无去重）。落地写清楚 in-flight 去重路径；**`removeAll()` 必须取消并丢弃 inflight 里所有 Task 并清空两字典**，否则切账户后旧请求继续回写缓存。**并发失败语义微偏离（显式接受，Swift 更优）**：Kotlin 的 Mutex 在并发失败（null 不缓存）时第二个调用者会**重新 fetch**（N 并发 = N 次拉取），Swift per-key Task 让并发调用者**共享同一个 null**（1 次拉取）——勿为「对齐 Kotlin」复刻重复拉取。
+17. **`resolveCredentialImages` 的 nil 去重语义**：Kotlin `getOrPut` 会把**失败（null）也缓存**进同批去重表，同批重复键的失败请求不重拉；Swift 用 `[String: ResolvedCredentialImage?]` 表达「按 key 是否存在去重」。**技术细节（勿踩）**：`dict[key]` 是 `ResolvedCredentialImage??`（双重 Optional），`if let v = dict[key]` 只解一层——key 存在且值为 nil 时**仍会命中**（`v == nil`），并没有「把 nil 误判成未命中」的问题；真正会踩的写法是：① 显式单层类型标注 `if let v: ResolvedCredentialImage = dict[key]`（强制解两层，nil 值判未命中）；② 任何拍扁双重 Optional 的写法（`dict[key] ?? nil` / `flatMap { $0 }`）；③ 用 `dict[key] == nil` 判断「未命中」（key 存在但值为 nil 时 `.some(nil) == nil` 为 false，语义反直觉）。**推荐仍用 `dict.index(forKey:)`**（见 02 §6 代码）——语义显式、不依赖双重 Optional 规则。
+18. **可注入 `rpcNodes`/`ipfsGateway` 的信任边界**：Kotlin 硬编码可信节点/网关故不查 SsrfGuard；Swift 增强为可注入，建连前对注入值做 `SsrfGuard.check`（http/https + 公网），否则「注入节点 + 跟随重定向」= SSRF。`enabled` 旁路开关改 `internal` + `#if DEBUG`，勿做 public 可变全局。
+19. **依赖环（对 02 §2 的补强）**：`DidNftResolution` 协议缝现定义在 SwiftDid；阶段二**必须随 DTO 一起迁入 SwiftNft**（14 方法签名不动），SwiftDid 用 `public typealias DidNftResolution = SwiftNft.DidNftResolution` 保公开拼写——否则 SwiftNft conform 该协议需 `import SwiftDid`，`SwiftDid → SwiftNft → SwiftDid` 成环。
+20. **`Sendable`（Swift 6 严格并发）**：`NftStore: AnyObject, Sendable`；`GRDBNftStore: NftStore, @unchecked Sendable`（DatabasePool 线程安全）。否则 `SwiftNft: Sendable` / `SwiftNftConfig: Sendable` 持有 `any NftStore` 编译不过。
+21. **对 Kotlin 小怪癖的显式修正**：① `hasLocal = !image.isNullOrBlank()`（Kotlin `image != null` 把空串算 true，勿照搬）；② `fetchAndCacheNftMeta` 失败路径记日志（scheme/host，不打 body），不静默吞错（Kotlin catch-all 返回 null 无日志）；③ `fetchMetadataFields` 对外非 Optional/.empty，内部保留 throwing/Result 版本或日志区分「网络失败」与「字段缺失」。
+22. **`SwtcChainNftClient` 抽协议 seam + 独立 session**：① 抽 `SwtcMetadataUriFetching` 协议、`SwiftNftConfig` 注入 `swtcChainNftClient`（nil → 用 rpcNodes/certificatePins 建默认实现；测试注入 Fake）——否则「Fake SwtcChainNftClient」测试落不了地（对齐 Kotlin 构造函数注入）；② 它**不复用 no-redirect 的 `NftHttpClient`**，自持 redirect-following + `willPerformHTTPRedirection` 里对新 URL 查 `SsrfGuard` 的 session（见坑 #7）。
+
+## 3. 测试策略
+
+| 层级 | 方式 | 覆盖 |
+| --- | --- | --- |
+| URL 纯函数 | `NftUrlUtilsTests`（macOS `swift test`） | `normalizeAssetUrl` KAT（Kotlin 向量：`ipfs://bafy123/avatar.png` → `https://ipfs.jccdex.cn/ipfs/bafy123/avatar.png`、`"assets/avatar.png"` + base → join、`/ipfs/` 前缀、裸 CID、`data:` 透传、JSON-looking 拒、无 base 原样、http `/ipfs/` 换网关、**自定义网关贯穿**：`normalizeRemoteAssetUrl`/`canonicalizeHttpIpfsUrl` 带 `gateway:` 时 `ipfs://` 与 `/ipfs/` 重写到自定义网关）；`isSupportedRemoteAssetUrl`（http/https/data: true；`ipfs://` false）；`extractResolvedMetadataImageUrl`（键顺序 image/image_url/imageUrl、`data` 解包、畸形 JSON）；`extractSwtcMetadataUri`（hex 向量 `746f6b656e557269`/`697066733a2f2f…`） |
+| 元数据解析 | `NftMetadataParserTests` | `fetchMetadataFields`（`data` 解包、相对图片 join、缺字段 → 空结构、失败不 throw） |
+| SSRF | `SsrfGuardTests` | 镜像 Kotlin `NftRemoteAssetResolverTest`：loopback/site-local/link-local 拒、**公网 IP 放行**、file:/javascript:/ftp 拒、非 http(s) scheme 拒、**未解析域名 fail-closed**、`enabled=false` 旁路；**全地址解析（任一私网即拒）**、IPv4-mapped IPv6、fc00::/7、建连策略（连 IP + TLS server-name 或建连后复验） |
+| 网络层 | Fake `NftHttpClient` + URLProtocol 少量用例 | `resolveCredentialImage` 四分支（内联 JSON 提图 / 直出 / metadataUri 即图片 URL / 拉元数据提图）；**瞬时失败重试**（500 → nil，再调成功）；`resolveCredentialImages` 去重（1 次请求）；**不跟随重定向**（302 → 失败）；**RPC 重定向目标被 `SsrfGuard` 拒绝**（302 到私网不跟随）；`data:` 超上限截断、非 `data:image/*` 拒 |
+| 缓存 | `NftMetadataImageCacheTests` | 成功记忆化、**失败不缓存（可重试）**、并发同 key 只 fetch 一次（**per-key Task in-flight 去重**）、`removeAll`（取消在途 Task + 清空两字典） |
+| 存储 | `GRDBNftStore`（内存 DatabasePool） | 四表建表迁移、upsert/observe/get/delete、复合 PK `ON CONFLICT DO UPDATE`（id 保留）、**LOWER() 归一化查询**、`deleteSwtcNftsByOwner` 的 preserveSwtcEntityAsMeta、collections 增删改 |
+| 头像回退链 | 内存库 + Fake `EthTokenUriResolver`/`SwtcMetadataUriFetching` | `resolveSwtcAvatar`（nft_meta 命中 / swtc_nfts 行 / erc_info 拉取 / 裸 Nft 四分支）、`resolveEthrAvatar`（resolver URI / nft_meta / evm_nft_items）、`getAvatarCandidates` SWTC/EVM 映射（tokenName = fundCodeName.ifBlank{fundCode}） |
+| SwiftDid 集成（阶段二） | `SwiftNft` 注入 `SwiftDid(nft:)` + Fake 桥 | `DidNftResolution` 14 方法 conformance、`generateSwtcNft`/`generateEthrNft` 回退链、`generateProfileVC` 预取 `fetchAndCacheNftMeta`、`getAvatarNftCredentials` 候选、typealias 后 `SwiftDid.NftMetadataFields` 拼写仍可用 |
+| 真实网络冒烟（iOS） | 复用 SwiftWebviewBridge 集成基建 | 真实网关拉取、真实 `erc_info` 节点（`https://srje115qd43qw2.swtc.top`）端到端 |
+
+> 单测全部走 Fake `NftHttpClient` + GRDB 内存库（macOS `swift test` 可跑）；真实 URLSession/网络用例放 iOS 模拟器（fastlane `ios_test`）。
+
+## 4. 实施清单
+
+- [ ] 字段对照表校验：`toDidNft()` / `toDidAvatarAsset()` 涉及的 8 字段逐项比对（合并偏离前提，坑 #2）
+- [ ] `Package.swift` 注册 `SwiftNft` target（依赖 SwiftDappConnect 取模型 + **GRDB**）
+- [ ] `Model/NftModels.swift`：Nft / DidAvatarAsset / NftMetadataFields / CredentialImageRequest / ResolvedCredentialImage / EthTokenUriResolver / NftMeta + 持仓实体（SwtcNftEntity / EvmNftItemEntity / EvmNftCollectionEntity）+ 单测
+- [ ] `Util/NftUrlUtils.swift`：normalizeRemoteAssetUrl(raw, base, gateway:) / isLoadableRemoteAssetUrl / extractMetadataImageUrl / extractSwtcMetadataUri / looksLikeImageAssetUrl + Kotlin 向量 KAT 单测（**含自定义网关贯穿用例**）
+- [ ] `Net/SsrfGuard.swift`（getaddrinfo DNS fail-closed；私网/回环/链路本地拒绝；公网 IP 放行；测试旁路开关）+ `Net/NftHttpClient.swift`（10s 超时、**不跟随重定向**、2 MiB 上限）+ `Net/SwtcChainNftClient.swift`（erc_info + 多节点 fallback + 可选 pinning + **重定向目标 SsrfGuard 守卫**）
+- [ ] `Store/NftStore.swift` 协议 + `GRDBNftStore`（四表迁移 / ValueObservation→AsyncStream / LOWER() 查询 / preserveSwtcEntityAsMeta）+ 单测
+- [ ] `Cache/NftMetadataImageCache.swift`（actor；**只缓存成功**；per-key Task in-flight 去重；removeAll 取消在途并清空）
+- [ ] `SwiftNft.swift` 门面：14 方法完整镜像（`fetchMetadataFields` 非 Optional、`fetchAndCacheNftMeta` 返回 `NftMeta?`、`resolveCredentialImages` 去重、`getAvatarCandidates` 本地持仓映射）
+- [ ] **阶段二**：DTO **与 `DidNftResolution` 协议缝一并迁入 SwiftNft**（防依赖环）；SwiftDid 加依赖 + `public typealias`（含协议）；`SwiftNft: DidNftResolution` conformance；`SwiftDid(nft:)` 接入与回退链单测
+- [ ] 接入 `Examples/WalletDemo`：`SwiftNft` 作为 DID 头像解析后端 + 持仓同步（若 demo 扩展示）
