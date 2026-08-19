@@ -68,7 +68,10 @@ enum SsrfGuard {
             0,
             NI_NUMERICHOST
         )
-        return rc == 0 ? String(cString: host) : nil
+        guard rc == 0 else { return nil }
+        let nulIndex = host.firstIndex(of: 0) ?? host.endIndex
+        let utf8Bytes = host[..<nulIndex].map { UInt8(bitPattern: $0) }
+        return String(decoding: utf8Bytes, as: UTF8.self)
     }
 
     // MARK: - 地址分类
@@ -99,15 +102,21 @@ enum SsrfGuard {
         if a == 192, b == 168 {
             return true
         } // 私网 192.168/16
+        if a == 198, b == 18 || b == 19 {
+            return true
+        } // 基准测试 198.18.0.0/15
+        if a == 192, b == 0, c == 0 {
+            return true
+        } // IETF 协议保留 192.0.0.0/24
         if a == 169, b == 254 {
             return true
         } // 链路本地 169.254/16
         if a == 100, (64 ... 127).contains(b) {
             return true
         } // CGNAT 100.64/10
-        if a == 255, b == 255, c == 255 {
+        if a >= 224 {
             return true
-        } // 255.255.255.255
+        } // 组播 224.0.0.0/4 + 保留 240.0.0.0/4（含 255.255.255.255）
         return false
     }
 
@@ -136,6 +145,9 @@ enum SsrfGuard {
             if value >= 0xFC00, value <= 0xFDFF {
                 return true
             } // ULA fc00::/7
+            if value >= 0xFF00 {
+                return true
+            } // 组播 ff00::/8
         }
         return false
     }

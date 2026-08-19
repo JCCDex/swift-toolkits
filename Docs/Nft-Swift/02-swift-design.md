@@ -157,9 +157,13 @@ public struct NftMeta: Codable, Sendable, Equatable {
 /// ⚠️ URLRequest.timeoutInterval 近似**空闲超时**（≈ Kotlin readTimeout，非「整请求」）；
 /// timeoutIntervalForResource 才是总时长；Kotlin 的 connectTimeout 在 URLSession 无直接等价——
 /// 若需等价 read-timeout，用流式读取 + 空闲超时，或接受总时长语义并写清。
+///
+/// **实现偏离（相对 Kotlin `fetchJson`）**：`fetchJson` 返回原始 `Data` 且**不做 JSON 解析校验**——
+/// 解析收敛到门面一次（Kotlin 在客户端解析 JsonObject，Swift 客户端校验会与门面重复解析；
+/// 门面解析失败即按「解析失败」处理，行为等价）。
 public protocol NftHttpClient: Sendable {
-    func fetchJson(_ url: URL) async throws -> [String: Any]?   // fetchJson 等价
-    func fetchText(_ url: URL) async throws -> String?          // fetchText 等价
+    func fetchJson(_ url: URL) async throws -> Data?   // GET JSON 元数据原始 body（不解析）
+    func fetchText(_ url: URL) async throws -> String? // GET 文本 body
 }
 
 public struct URLSessionNftHttpClient: NftHttpClient, Sendable {
@@ -168,17 +172,22 @@ public struct URLSessionNftHttpClient: NftHttpClient, Sendable {
     // 必须用 delegate-backed session：URLSession.shared 没有 delegate，挂不上
     // willPerformHTTPRedirection，会静默跟随重定向（重定向是 SSRF 绕过路径）。
     // 默认构造 NoRedirectDelegate 的 session（对齐 Kotlin instanceFollowRedirects = false）。
-    public init(session: URLSession = URLSessionNftHttpClient.noRedirectSession,
-                timeout: TimeInterval = 10) {
-        self.session = session
+    // ⚠️ 注入自定义 session 时，调用方必须保证其**不跟随重定向**（delegate 随 session 固定，
+    // 无法挂上 NoRedirectDelegate）——否则重定向是 SSRF 绕过路径（勿传 URLSession.shared）。
+    public init(session: URLSession? = nil,
+                timeout: TimeInterval = 10,
+                maxBodyBytes: Int = 2 * 1024 * 1024) {
+        self.session = session ?? Self.noRedirectSession
         self.timeout = timeout
+        self.maxBodyBytes = maxBodyBytes
     }
     public static let noRedirectSession = URLSession(
         configuration: .default,
         delegate: NoRedirectDelegate(),   // URLSessionTaskDelegate：willPerformHTTPRedirection → completionHandler(nil)
         delegateQueue: nil
     )
-    public func fetchJson(_ url: URL) async throws -> [String: Any]? { ... }
+    public var maxBodyBytes: Int
+    public func fetchJson(_ url: URL) async throws -> Data? { ... }
     public func fetchText(_ url: URL) async throws -> String? { ... }
 }
 
@@ -187,7 +196,9 @@ public struct URLSessionNftHttpClient: NftHttpClient, Sendable {
 /// - host 非空；DNS 解析失败 → fail-closed 拒绝（Swift 用 getaddrinfo / Network 框架解析）
 /// - 拒绝 loopback / site-local / link-local（127.0.0.0/8、10/8、172.16/12、192.168/16、169.254/16、
 ///   ::1、fe80::/10、fc00::/7 等），并补 IPv4-mapped IPv6（::ffff:a.b.c.d 映射回 IPv4 再判）、
-///   0.0.0.0 / 255.255.255.255、100.64.0.0/10（CGNAT）；公网 IP 放行（对齐 Kotlin 测试：8.8.8.8 通过）
+///   0.0.0.0 / 255.255.255.255、100.64.0.0/10（CGNAT）、198.18.0.0/15（基准测试）、192.0.0.0/24
+///   （IETF 协议保留）、224.0.0.0/4（组播）+ 240.0.0.0/4（保留）、IPv6 ff00::/8（组播）；
+///   公网 IP 放行（对齐 Kotlin 测试：8.8.8.8 通过）
 /// - **Swift 修正（DNS rebinding / TOCTOU）**：Kotlin check 时解析一次、建连再解析一次，攻击者可
 ///   「校验返回公网、建连返回私网」绕过。Swift 必须 ① 解析**全部**地址（getaddrinfo 全量），任一
 ///   私网/回环/链路本地即拒；② 建连策略三选一（**HTTPS 不能简单「pin IP + Host 头」**——证书按
@@ -365,15 +376,11 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     public func resolveCredentialImages(_ requests: [CredentialImageRequest]) async -> [ResolvedCredentialImage?] {
-        // buildCredentialResolutionKey 去重（对齐 Kotlin LinkedHashMap.getOrPut，nil 值也去重）
-        var resolvedByKey: [String: ResolvedCredentialImage?] = [:]
-        return requests.map { req in
-            let key = Self.resolutionKey(req)
-            if let idx = resolvedByKey.index(forKey: key) { return resolvedByKey[idx].value }
-            let r = await self.resolveCredentialImage(req)
-            resolvedByKey[key] = r   // 值为 nil 也落字典：同批重复键的失败请求不重拉（对齐 getOrPut）
-            return r
-        }
+        // buildCredentialResolutionKey 去重（对齐 Kotlin LinkedHashMap.getOrPut，nil 值也去重）；
+        // **有界并发（实现）**：不同 key 分批复用 ≤ maxConcurrency（4）个 Task，同 key 只解析一次、
+        // 结果按请求序回填——Kotlin 顺序执行、全量并行会让大批量瞬间打满连接/线程（见 04 坑 #23）。
+        let maxConcurrency = 4
+        // requestsByKey（key → 首个请求）去重 → 分批 withTaskGroup 解析 → order.map { resultsByKey[$0] ?? nil }
     }
 
     public func fetchResolvedMetadataImage(_ metadataUrl: String) async -> String? {
@@ -417,13 +424,13 @@ public actor NftMetadataImageCache {
 
 - **持久化缓存（`nft_meta`）**：`fetchAndCacheNftMeta` 写 GRDB 表（含 `fullContent`，对齐 Kotlin），`resolveSwtcAvatar`/`resolveEthrAvatar` 优先读它——持久化语义已由存储层保证，不另做内存缓存。
 - **TTL 说明（与 Kotlin 对齐）**：Kotlin 的 `nft_meta`/图片缓存**无 TTL**（`updatedAt` 仅记录时间）；Swift **一期不做 TTL**（对齐 Kotlin，避免行为漂移），宿主需要时可在 `NftStore` 实现里自行裁剪。图片记忆化缓存有 `removeAll()` 供清理。
-- **内存缓存上限**：`resolvedByMetadataUrl` 与 `inflight` **都要**加条数/LRU 上限（Kotlin 现状无上限；Swift 轻量增强），否则长生命周期按 metadataUrl 累积会无界增长；`removeAll()` 必须取消在途 Task 并清空两字典（见上）。
+- **内存缓存上限（实现：简单 LRU）**：`resolvedByMetadataUrl` 与 `inflight` **都要**加条数/LRU 上限（Kotlin 现状无上限；Swift 轻量增强），否则长生命周期按 metadataUrl 累积会无界增长；实现用 `accessOrder` 数组做命中刷新 + 插入淘汰（`touch` + `while count > maxEntries` 逐出最旧），`removeAll()` 必须取消在途 Task 并清空两字典与 `accessOrder`（见上）。
 - **并发失败语义（显式偏离，Swift 更优）**：Kotlin 的 per-key Mutex 在**并发失败**（null 不缓存）时第二个调用者会**重新 fetch**（N 个并发 = N 次拉取）；Swift per-key Task 让并发调用者**共享同一个 null**（1 次拉取）——勿为「对齐 Kotlin」复刻重复拉取（见 04 坑 #16）。
 
 ## 8. 并发与安全要点
 
 - **线程模型**：门面/网络/解析**自由线程**（非 @MainActor），与 `DidNftResolution` 协议缝一致；`NftStore`/`GRDBNftStore` 后台调度（GRDB DatabasePool）；`NftMetadataImageCache` 用 `actor`。不引入主线程 hop，避免 `resolveCredentialImages` 批量场景的线程切换开销。**`NftStore` 协议标 `Sendable`**（`GRDBNftStore` `@unchecked Sendable`），否则 Swift 6 严格并发下 `SwiftNft: Sendable` 编译不过（见 §5）。
-- **SSRF（对齐 Kotlin `SsrfGuard` 语义 + Swift 修正 DNS rebinding）**：所有拉取 URL 过 `SsrfGuard.check`——scheme http/https、host 非空、**DNS 解析失败 fail-closed**、拒绝回环/私网/链路本地（含 `localhost`、10/8、192.168/16、172.16/12、169.254/16、::1、fe80::/10、fc00::/7），并补 IPv4-mapped IPv6（`::ffff:a.b.c.d`）、`0.0.0.0`/`255.255.255.255`、`100.64.0.0/10`；**公网 IP 放行**（对齐 Kotlin 测试 8.8.8.8）。**Swift 修正（DNS rebinding / TOCTOU）**：Kotlin check 时解析一次、建连再解析一次，攻击者可「校验返回公网、建连返回私网」绕过；Swift 必须解析**全部**地址、任一私网即拒，建连策略三选一——**① Network.framework `NWConnection` 连已校验 IP + TLS server-name（证书仍按原主机名校验）；② 按主机名建连、连接建立后复验对端实际 IP；③ 明确接受残余 TOCTOU 风险并写入文档**（⚠️ 不能简单「pin IP + Host 头」，HTTPS 证书按主机名校验会失败，除非危险地 override server trust；**URLSession 无对端 IP API，方案 ② 仅 NWConnection 可行——用 URLSession 时只剩 ③（接受残余风险），要实现 ① 必须把拉取改用 `NWConnection` 承载**，详见 §4）。**默认取舍**：默认 `SwiftNftConfig.httpClient` 即 URLSession → 采用 ③（文档化残余风险）；威胁模型要求闭合 TOCTOU 时再切 `NWConnection` 实现 ①。`enabled` 旁路开关改 `internal` + `#if DEBUG`（非 public 可变全局）。
+- **SSRF（对齐 Kotlin `SsrfGuard` 语义 + Swift 修正 DNS rebinding）**：所有拉取 URL 过 `SsrfGuard.check`——scheme http/https、host 非空、**DNS 解析失败 fail-closed**、拒绝回环/私网/链路本地（含 `localhost`、10/8、192.168/16、172.16/12、169.254/16、::1、fe80::/10、fc00::/7），并补 IPv4-mapped IPv6（`::ffff:a.b.c.d`）、`0.0.0.0`/`255.255.255.255`、`100.64.0.0/10`（CGNAT）、`198.18.0.0/15`（基准测试）、`192.0.0.0/24`（IETF 协议保留）、`224.0.0.0/4` 组播 + `240.0.0.0/4` 保留、IPv6 `ff00::/8` 组播；**公网 IP 放行**（对齐 Kotlin 测试 8.8.8.8）。**Swift 修正（DNS rebinding / TOCTOU）**：Kotlin check 时解析一次、建连再解析一次，攻击者可「校验返回公网、建连返回私网」绕过；Swift 必须解析**全部**地址、任一私网即拒，建连策略三选一——**① Network.framework `NWConnection` 连已校验 IP + TLS server-name（证书仍按原主机名校验）；② 按主机名建连、连接建立后复验对端实际 IP；③ 明确接受残余 TOCTOU 风险并写入文档**（⚠️ 不能简单「pin IP + Host 头」，HTTPS 证书按主机名校验会失败，除非危险地 override server trust；**URLSession 无对端 IP API，方案 ② 仅 NWConnection 可行——用 URLSession 时只剩 ③（接受残余风险），要实现 ① 必须把拉取改用 `NWConnection` 承载**，详见 §4）。**默认取舍**：默认 `SwiftNftConfig.httpClient` 即 URLSession → 采用 ③（文档化残余风险）；威胁模型要求闭合 TOCTOU 时再切 `NWConnection` 实现 ①。`enabled` 旁路开关改 `internal` + `#if DEBUG`（非 public 可变全局）。
 - **不跟随重定向（对齐 Kotlin）**：元数据/图片拉取 `instanceFollowRedirects = false` → Swift **delegate-backed URLSession**（`willPerformHTTPRedirection` 返回 nil）；**勿用 `URLSession.shared`**（无 delegate、会静默跟随）。**SWTC RPC 例外但需守重定向目标**：默认节点可跟随（对齐 Kotlin `instanceFollowRedirects = true`），但节点可注入后，`willPerformHTTPRedirection` 里必须对**新 URL 再查 `SsrfGuard`**，失败即不跟随——否则恶意节点 302 到私网地址即绕过守卫。
 - **`data:` URL 支持（对齐 Kotlin）+ 决策收紧**：`isSupportedRemoteAssetUrl`（公开纯函数，对齐 Kotlin）仍放行任意 `data:`；解析路径在直出前用**独立的 `isDataImageUrl` 检查**仅放行 `data:image/*`（勿改动公开函数）——注意 `data:image/*` 只挡 HTML/JS，**挡不住 `image/svg+xml` 里的脚本**；`data:` 的 2 MiB 上限适用于**本模块解码校验**场景，原样透传时由渲染侧负责。**宿主渲染第三方图片必须用 `UIImage`/`CGImage` 解码（不执行脚本），勿用 `WKWebView`**。
 - **`fetchMetadataFields` 非 Optional 语义**：失败返回 `NftMetadataFields.empty`，**不 throw**（对齐 `NftSdk`）；内部保留 throwing/Result 版本或日志区分「网络失败」与「字段缺失」，避免 `.empty` 掩盖节点故障（与 Did 三态 `DidResolveOutcome` 同思路）。

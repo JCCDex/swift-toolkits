@@ -17,6 +17,7 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
 
     public var rpcNodes: [String]
     public var certificatePins: [String]
+    public var gateway: String // ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway
     public let timeout: TimeInterval
 
     private let session: URLSession
@@ -25,17 +26,21 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
     public init(
         rpcNodes: [String] = SwtcChainNftClient.defaultRpcNodes,
         certificatePins: [String] = [],
+        gateway: String = IpfsResolver.defaultGateway,
         timeout: TimeInterval = 15,
         session: URLSession? = nil
     ) {
         self.rpcNodes = rpcNodes
         self.certificatePins = certificatePins
+        self.gateway = IpfsResolver.normalizedGateway(gateway)
         self.timeout = timeout
         let delegate = SwtcURLSessionDelegate(certificatePins: certificatePins)
         self.delegate = delegate
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout * 2
+        // ⚠️ 注入自定义 session 时，调用方须保证其不跟随重定向且能执行 pinning（delegate 随 session 固定，
+        // 注入的 session 不会用本客户端创建的 delegate）——否则重定向守卫/证书 pinning 会静默失效。
         self.session = session ?? URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
     }
 
@@ -68,14 +73,14 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
             if json["error"] != nil {
                 return nil
             }
-            return Self.parseErcInfoMetadataUri(json)
+            return Self.parseErcInfoMetadataUri(json, gateway: self.gateway)
         } catch {
             return nil
         }
     }
 
     /// 响应解析：`result.TokenInfo.TokenInfos`（JSONArray 或字符串）→ `extractSwtcMetadataUri`。
-    static func parseErcInfoMetadataUri(_ response: [String: Any]) -> String? {
+    static func parseErcInfoMetadataUri(_ response: [String: Any], gateway: String = IpfsResolver.defaultGateway) -> String? {
         guard let result = response["result"] as? [String: Any],
               let tokenInfo = result["TokenInfo"] as? [String: Any],
               let tokenInfos = tokenInfo["TokenInfos"]
@@ -88,7 +93,7 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
         } else {
             Self.jsonString(tokenInfos) ?? ""
         }
-        return parseSwtcMetadataUri(tokenInfosJson)
+        return parseSwtcMetadataUri(tokenInfosJson, gateway: gateway)
     }
 
     private static func jsonString(_ value: Any) -> String? {

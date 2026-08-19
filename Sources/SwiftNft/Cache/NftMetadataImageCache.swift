@@ -11,6 +11,7 @@ import Foundation
 public actor NftMetadataImageCache {
     private var resolvedByMetadataUrl: [String: String] = [:]
     private var inflight: [String: Task<String?, Never>] = [:]
+    private var accessOrder: [String] = [] // 插入序/访问序，配合 maxEntries 做简单 LRU 淘汰
     private let maxEntries: Int
 
     public init(maxEntries: Int = 256) {
@@ -25,6 +26,7 @@ public actor NftMetadataImageCache {
         guard !key.isEmpty else { return nil }
 
         if let hit = resolvedByMetadataUrl[key] {
+            self.touch(key)
             return hit
         }
         if let task = inflight[key] {
@@ -38,11 +40,21 @@ public actor NftMetadataImageCache {
         let result = await task.value
         if let result {
             self.resolvedByMetadataUrl[key] = result
-            if self.resolvedByMetadataUrl.count > self.maxEntries, let oldest = resolvedByMetadataUrl.keys.first {
-                self.resolvedByMetadataUrl.removeValue(forKey: oldest) // 简单条数上限（非严格 LRU）
+            self.accessOrder.append(key)
+            while self.resolvedByMetadataUrl.count > self.maxEntries, let oldest = self.accessOrder.first {
+                self.accessOrder.removeFirst()
+                self.resolvedByMetadataUrl.removeValue(forKey: oldest)
             }
         }
         return result
+    }
+
+    /// 命中即刷新访问序（LRU 语义；O(n) 足够，条目数有上限）。
+    private func touch(_ key: String) {
+        if let index = self.accessOrder.firstIndex(of: key) {
+            self.accessOrder.remove(at: index)
+        }
+        self.accessOrder.append(key)
     }
 
     public func removeAll() {
@@ -51,5 +63,6 @@ public actor NftMetadataImageCache {
         }
         self.inflight.removeAll()
         self.resolvedByMetadataUrl.removeAll()
+        self.accessOrder.removeAll()
     }
 }

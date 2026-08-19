@@ -109,6 +109,29 @@ final class NftMetadataImageCacheTests: XCTestCase {
         let result = await cache.getOrFetch("https://example.com/meta.json") { "https://example.com/b.png" }
         XCTAssertEqual(result, "https://example.com/b.png")
     }
+
+    func testMaxEntriesEvictsLeastRecentlyUsed() async {
+        let cache = NftMetadataImageCache(maxEntries: 2)
+        _ = await cache.getOrFetch("https://a.com/1") { "1" }
+        _ = await cache.getOrFetch("https://a.com/2") { "2" }
+        _ = await cache.getOrFetch("https://a.com/1") { "1" } // touch 1 → 2 变为最旧
+        _ = await cache.getOrFetch("https://a.com/3") { "3" } // 淘汰 2
+
+        let counter = LockedCounter()
+        // 1 最近访问 → 命中（先断言——重插被淘汰的 2 会再挤掉当前最旧项，故之后不再断言 1）
+        let hot = await cache.getOrFetch("https://a.com/1") { counter.increment()
+            return "1b"
+        }
+        XCTAssertEqual(hot, "1", "最近访问的 1 命中缓存")
+        XCTAssertEqual(counter.value, 0, "命中不触发重新拉取")
+
+        // 2 已被 LRU 淘汰 → 重新拉取
+        let evicted = await cache.getOrFetch("https://a.com/2") { counter.increment()
+            return "2b"
+        }
+        XCTAssertEqual(evicted, "2b", "2 已被 LRU 淘汰，需重新拉取")
+        XCTAssertEqual(counter.value, 1)
+    }
 }
 
 /// 线程安全计数器（测试用）。

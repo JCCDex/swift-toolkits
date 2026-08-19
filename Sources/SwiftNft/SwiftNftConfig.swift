@@ -25,7 +25,7 @@ public struct SwiftNftConfig: Sendable {
         certificatePins: [String] = []
     ) {
         self.store = store
-        self.ipfsGateway = ipfsGateway
+        self.ipfsGateway = IpfsResolver.normalizedGateway(ipfsGateway)
         self.httpClient = httpClient
         self.ethTokenUriResolver = ethTokenUriResolver
         self.swtcChainNftClient = swtcChainNftClient
@@ -38,6 +38,6 @@ public struct SwiftNftConfig: Sendable {
         if let swtcChainNftClient {
             return swtcChainNftClient
         }
-        return SwtcChainNftClient(rpcNodes: self.rpcNodes, certificatePins: self.certificatePins)
+        return SwtcChainNftClient(rpcNodes: self.rpcNodes, certificatePins: self.certificatePins, gateway: self.ipfsGateway)
     }
 }

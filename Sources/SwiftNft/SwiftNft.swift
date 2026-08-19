@@ -33,52 +33,56 @@ public protocol DidNftResolution: AnyObject {
 public final class SwiftNft: DidNftResolution, Sendable {
     private let config: SwiftNftConfig
     private let imageCache = NftMetadataImageCache()
+    private let swtcClient: any SwtcMetadataUriFetching // 构建一次复用（勿每次解析新建 URLSession/delegate）
 
     private let logger = Logger(subsystem: "com.jccdex.toolkits.swiftnft", category: "SwiftNft")
 
     public init(config: SwiftNftConfig) {
+        // 网关 fail-closed：注入的 ipfsGateway 必须 http/https（normalizedGateway 已保证尾部 `/`）。
+        let lower = config.ipfsGateway.lowercased()
+        precondition(
+            lower.hasPrefix("http://") || lower.hasPrefix("https://"),
+            "SwiftNft: ipfsGateway must be an http(s) URL"
+        )
         self.config = config
+        self.swtcClient = config.resolvedSwtcChainNftClient()
     }
 
     // MARK: - 头像解析与候选（对齐 NftSdk 3.1）
 
     public func getAvatarCandidates(account: WalletAccount) async -> [DidAvatarAsset] {
-        do {
-            if account.chain == .swtc {
-                let rows = await Self.firstValue(self.config.store.observeSwtcNfts(ownerAddress: account.address)) ?? []
-                return rows.map { entity in
-                    let tokenName = entity.fundCodeName.isEmpty ? entity.fundCode : entity.fundCodeName
-                    return DidAvatarAsset(
-                        image: entity.image,
-                        name: entity.name ?? tokenName,
-                        contract: entity.issuer,
-                        tokenId: entity.tokenId,
-                        issuer: entity.issuer,
-                        tokenName: tokenName,
-                        chainId: nil,
-                        isSwtc: true
-                    )
-                }
-            } else {
-                guard let chainId = account.chain.evmChainId else { return [] }
-                let chainIdHex = "0x" + String(chainId, radix: 16)
-                let rows = await Self.firstValue(self.config.store.observeAllEvmNftItems(chainId: chainIdHex, ownerAddress: account.address)) ?? []
-                return rows.map { entity in
-                    DidAvatarAsset(
-                        image: entity.imageUrl,
-                        name: entity.title ?? "",
-                        contract: entity.contractAddress,
-                        tokenId: entity.tokenId,
-                        issuer: nil,
-                        tokenName: entity.title,
-                        chainId: chainId,
-                        isSwtc: false
-                    )
-                }
+        // 观察流（AsyncStream）不 throw：store 读取失败会被 GRDB 流吞掉，故此处无需 do/catch（catch 不可达）。
+        if account.chain == .swtc {
+            let rows = await Self.firstValue(self.config.store.observeSwtcNfts(ownerAddress: account.address)) ?? []
+            return rows.map { entity in
+                let tokenName = entity.fundCodeName.isEmpty ? entity.fundCode : entity.fundCodeName
+                return DidAvatarAsset(
+                    image: entity.image,
+                    name: entity.name ?? tokenName,
+                    contract: entity.issuer,
+                    tokenId: entity.tokenId,
+                    issuer: entity.issuer,
+                    tokenName: tokenName,
+                    chainId: nil,
+                    isSwtc: true
+                )
             }
-        } catch {
-            self.logFailure("getAvatarCandidates", host: account.address, error: error)
-            return []
+        } else {
+            guard let chainId = account.chain.evmChainId else { return [] }
+            let chainIdHex = "0x" + String(chainId, radix: 16)
+            let rows = await Self.firstValue(self.config.store.observeAllEvmNftItems(chainId: chainIdHex, ownerAddress: account.address)) ?? []
+            return rows.map { entity in
+                DidAvatarAsset(
+                    image: entity.imageUrl,
+                    name: entity.title ?? "",
+                    contract: entity.contractAddress,
+                    tokenId: entity.tokenId,
+                    issuer: nil,
+                    tokenName: entity.title,
+                    chainId: chainId,
+                    isSwtc: false
+                )
+            }
         }
     }
 
@@ -135,13 +139,10 @@ public final class SwiftNft: DidNftResolution, Sendable {
         guard !tokenId.isEmpty, !contract.isEmpty else { return nil }
 
         do {
-            let resolverUri = await config.ethTokenUriResolver?.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
-            let resolvedTokenUri = self.sanitizeUri(normalizeRemoteAssetUrl(resolverUri, baseUrl: nil, gateway: self.config.ipfsGateway))
-
-            // 1) nft_meta 命中
+            // 1) nft_meta 命中（本地 tokenUri 优先；仅当本地缺 tokenUri 时才调 resolver——惰性，省一次 eth_call）
             if let localMeta = try await config.store.getNftMeta(contract: contract, tokenId: tokenId) {
                 let localTokenUri = self.sanitizeUri(normalizeRemoteAssetUrl(localMeta.tokenUri, baseUrl: nil, gateway: self.config.ipfsGateway))
-                let uri = localTokenUri.isEmpty ? resolvedTokenUri : localTokenUri
+                let uri = localTokenUri.isEmpty ? await self.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId) : localTokenUri
                 return await Nft(
                     contract: contract, tokenId: tokenId, name: localMeta.name ?? "",
                     uri: uri, issuanceDate: issuance,
@@ -149,19 +150,20 @@ public final class SwiftNft: DidNftResolution, Sendable {
                     hasLocal: true, chainId: chainId
                 )
             }
-            // 2) evm_nft_items 兜底
+            // 2) evm_nft_items 兜底（resolver 优先级高于本地 metadata，仍须调用）
             let evmItem = try await config.store.getEvmNftItemByContractAndTokenId(
                 chainId: "0x" + String(chainId, radix: 16),
                 contractAddress: contract,
                 tokenId: tokenId
             )
             let fallbackMetadataUri = self.sanitizeUri(normalizeRemoteAssetUrl(evmItem?.metadata, baseUrl: nil, gateway: self.config.ipfsGateway))
+            let resolvedTokenUri = await self.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
             let uri = resolvedTokenUri.isEmpty ? fallbackMetadataUri : resolvedTokenUri
             return await Nft(
                 contract: contract, tokenId: tokenId, name: evmItem?.title ?? "",
                 uri: uri, issuanceDate: issuance,
                 image: self.resolveRemoteImageUrl(evmItem?.imageUrl, uri),
-                hasLocal: evmItem?.imageUrl != nil, chainId: chainId
+                hasLocal: !isBlank(evmItem?.imageUrl), chainId: chainId // 修正 Kotlin image != null（空串也算 true）
             )
         } catch {
             self.logFailure("resolveEthrAvatar", host: contract, error: error)
@@ -236,21 +238,47 @@ public final class SwiftNft: DidNftResolution, Sendable {
 
     public func resolveCredentialImages(_ requests: [CredentialImageRequest]) async -> [ResolvedCredentialImage?] {
         guard !requests.isEmpty else { return [] }
-        // 按 buildCredentialResolutionKey 去重（对齐 Kotlin LinkedHashMap.getOrPut：nil 值也去重）。
-        var resolvedByKey: [String: ResolvedCredentialImage?] = [:]
-        var results: [ResolvedCredentialImage?] = []
-        results.reserveCapacity(requests.count)
+        // 按 buildCredentialResolutionKey 去重（对齐 Kotlin LinkedHashMap.getOrPut：nil 值也去重）；
+        // **有界并发**（Swift 增强，见 02 §6）：同一 key 只解析一次，不同 key 分批复用
+        // ≤ maxConcurrency 个并发——Kotlin 顺序执行、全量并行会让大批量瞬间打满连接/线程。
+        let maxConcurrency = 4
+
+        var requestsByKey: [String: CredentialImageRequest] = [:]
+        var keysByRequest: [String] = []
+        keysByRequest.reserveCapacity(requests.count)
         for request in requests {
             let key = Self.buildCredentialResolutionKey(request, gateway: self.config.ipfsGateway)
-            if let index = resolvedByKey.index(forKey: key) {
-                results.append(resolvedByKey[index].value)
-                continue
+            keysByRequest.append(key)
+            if requestsByKey[key] == nil {
+                requestsByKey[key] = request
             }
-            let result = await resolveCredentialImage(request)
-            resolvedByKey[key] = result // 值为 nil 也落字典：同批重复键的失败请求不重拉
-            results.append(result)
         }
-        return results
+
+        let uniqueKeys = Array(requestsByKey.keys)
+        var resultsByKey: [String: ResolvedCredentialImage?] = [:]
+        resultsByKey.reserveCapacity(uniqueKeys.count)
+        for start in stride(from: 0, to: uniqueKeys.count, by: maxConcurrency) {
+            let end = min(start + maxConcurrency, uniqueKeys.count)
+            let batch = uniqueKeys[start ..< end]
+            let batchResults = await withTaskGroup(of: (String, ResolvedCredentialImage?).self) { group in
+                for key in batch {
+                    guard let request = requestsByKey[key] else { continue }
+                    group.addTask {
+                        let result = await self.resolveCredentialImage(request)
+                        return (key, result)
+                    }
+                }
+                var collected: [(String, ResolvedCredentialImage?)] = []
+                for await pair in group {
+                    collected.append(pair)
+                }
+                return collected
+            }
+            for (key, result) in batchResults {
+                resultsByKey[key] = result // 值为 nil 也落字典：同批重复键的失败请求不重拉
+            }
+        }
+        return keysByRequest.map { resultsByKey[$0] ?? nil }
     }
 
     public func fetchResolvedMetadataImage(_ metadataUrl: String) async -> String? {
@@ -279,7 +307,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     public func extractSwtcMetadataUri(_ tokenInfosPayload: String?) -> String? {
-        parseSwtcMetadataUri(tokenInfosPayload)
+        parseSwtcMetadataUri(tokenInfosPayload, gateway: self.config.ipfsGateway)
     }
 
     // MARK: - 内部：SWTC 元数据预取
@@ -293,7 +321,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
         let tokenUri: String? = if let uri = existing?.tokenUri, !isBlank(uri) {
             uri
         } else {
-            await self.config.resolvedSwtcChainNftClient().fetchMetadataUri(tokenId: tokenId)
+            await self.swtcClient.fetchMetadataUri(tokenId: tokenId)
         }
         guard let tokenUri else { return existing }
         return await self.fetchAndCacheNftMeta(contract: nftIssuer, tokenId: tokenId, tokenUri: tokenUri) ?? existing
@@ -327,17 +355,30 @@ public final class SwiftNft: DidNftResolution, Sendable {
                 return inline
             }
         }
-        // 2) imageUrl 规范化后可加载 → 直出
+        // 2) imageUrl 规范化后可加载 → 直出（data: 仅放行 data:image/*，其余不直出、继续后续步骤）
         if let resolved = normalizeRemoteAssetUrl(imageUrl, baseUrl: normalizedMetadataUri, gateway: config.ipfsGateway),
            isLoadableRemoteAssetUrl(resolved) {
-            return resolved
+            if resolved.lowercased().hasPrefix("data:") {
+                if isDataImageUrl(resolved) {
+                    return resolved
+                }
+            } else {
+                return resolved
+            }
         }
-        // 3) metadataUri 本身是图片 URL → 直出
+        // 3) metadataUri 本身是图片 URL → 直出（data: 同上，仅放行 data:image/*）
         if let normalizedMetadataUri, !isBlank(normalizedMetadataUri), looksLikeImageAssetUrl(normalizedMetadataUri) {
-            return normalizedMetadataUri
+            if normalizedMetadataUri.lowercased().hasPrefix("data:") {
+                if isDataImageUrl(normalizedMetadataUri) {
+                    return normalizedMetadataUri
+                }
+            } else {
+                return normalizedMetadataUri
+            }
         }
-        // 4) 拉元数据提图（记忆化缓存；data:image/* 之外的 data: 不放行）
-        guard let normalizedMetadataUri else { return nil }
+        // 4) 拉元数据提图（记忆化缓存；data: 元数据不可拉取——SSRF 拒 data:，且步骤 3 已处理
+        //    data:image/* 直出——提前短路，避免无效缓存键与（旁路测试下的）无谓拉取）
+        guard let normalizedMetadataUri, !normalizedMetadataUri.lowercased().hasPrefix("data:") else { return nil }
         let metadataImage = await imageCache.getOrFetch(normalizedMetadataUri) { [config] in
             guard let url = URL(string: normalizedMetadataUri), SsrfGuard.check(url) else { return nil }
             guard let body = try? await config.httpClient.fetchText(url) else { return nil }
@@ -439,6 +480,12 @@ public final class SwiftNft: DidNftResolution, Sendable {
         let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !looksLikeJsonPayload(trimmed) else { return "" }
         return trimmed
+    }
+
+    /// 惰性解析 EVM tokenURI（本地数据足够时不发起 eth_call）。
+    private func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String {
+        let uri = await config.ethTokenUriResolver?.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
+        return self.sanitizeUri(normalizeRemoteAssetUrl(uri, baseUrl: nil, gateway: self.config.ipfsGateway))
     }
 
     private func hostOf(_ url: String) -> String {

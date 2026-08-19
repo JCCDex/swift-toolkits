@@ -14,6 +14,13 @@ public enum IpfsResolver {
     public static func rewrite(_ raw: String, gateway: String = defaultGateway) -> String? {
         normalizeRemoteAssetUrl(raw, baseUrl: nil, gateway: gateway)
     }
+
+    /// 网关规范化：trim + 保证尾部 `/`（`gateway + path` 拼接的前提），空值回退默认网关。
+    public static func normalizedGateway(_ gateway: String) -> String {
+        let trimmed = gateway.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return self.defaultGateway }
+        return trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
+    }
 }
 
 // MARK: - 判定
@@ -185,7 +192,7 @@ func optString(_ dict: [String: Any], _ key: String) -> String {
 /// 从 `erc_info` 的 `TokenInfos` payload 提取元数据 URI（对齐 Kotlin `extractSwtcMetadataUri`；
 /// Kotlin 在 NftStore 里 import 别名 `parseSwtcMetadataUri`，Swift 直接用该名避免与门面方法重名）：
 /// 遍历数组，hex 解码 `InfoType == "tokenUri"` 项，hex 解码 `InfoData` 并规范化。
-func parseSwtcMetadataUri(_ tokenInfosPayload: String?) -> String? {
+func parseSwtcMetadataUri(_ tokenInfosPayload: String?, gateway: String = IpfsResolver.defaultGateway) -> String? {
     guard let payload = tokenInfosPayload, !payload.isEmpty,
           let data = payload.data(using: .utf8),
           let infos = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
@@ -197,7 +204,7 @@ func parseSwtcMetadataUri(_ tokenInfosPayload: String?) -> String? {
         let infoType = decodeHexToUtf8(optString(tokenInfo, "InfoType"))
         guard infoType == "tokenUri" else { continue }
         let infoData = decodeHexToUtf8(optString(tokenInfo, "InfoData"))
-        if let normalized = normalizeRemoteAssetUrl(infoData, baseUrl: nil) {
+        if let normalized = normalizeRemoteAssetUrl(infoData, baseUrl: nil, gateway: gateway) {
             return normalized
         }
     }

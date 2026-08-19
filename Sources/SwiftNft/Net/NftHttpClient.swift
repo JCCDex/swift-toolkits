@@ -10,7 +10,7 @@ import Foundation
 /// - SSRF 拒绝（`SsrfGuard` 校验失败）→ 返回 nil（同 Kotlin fetch 前 check）。
 /// 仅传输级错误（URLError 等）throw；其余失败统一 nil。
 public protocol NftHttpClient: Sendable {
-    /// GET JSON 元数据原始 body（不解析；解析由门面完成，避免 `[String: Any]` 跨隔离边界）。
+    /// GET JSON 元数据原始 body（**不做解析校验**；解析由门面完成一次——客户端校验会与门面重复解析）。
     func fetchJson(_ url: URL) async throws -> Data?
     /// GET 文本 body。
     func fetchText(_ url: URL) async throws -> String?
@@ -31,6 +31,8 @@ public struct URLSessionNftHttpClient: NftHttpClient {
         self.timeout = timeout
         self.maxBodyBytes = maxBodyBytes
         if let session {
+            // ⚠️ 注入自定义 session 时，调用方必须保证其**不跟随重定向**（delegate 随 session 固定，
+            // 无法挂上 NoRedirectDelegate）——否则重定向是 SSRF 绕过路径（勿传 URLSession.shared）。
             self.session = session
             self.delegate = nil
         } else {
@@ -43,9 +45,7 @@ public struct URLSessionNftHttpClient: NftHttpClient {
     }
 
     public func fetchJson(_ url: URL) async throws -> Data? {
-        guard let data = try await fetchData(url) else { return nil }
-        guard (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else { return nil }
-        return data
+        try await self.fetchData(url)
     }
 
     public func fetchText(_ url: URL) async throws -> String? {

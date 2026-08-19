@@ -176,6 +176,23 @@ final class SwiftNftTests: XCTestCase {
         XCTAssertEqual(nft?.image, "https://example.com/cached.png")
         XCTAssertEqual(nft?.uri, "https://example.com/cached.json", "本地 tokenUri 优先于 resolver URI")
         XCTAssertEqual(nft?.hasLocal, true)
+        XCTAssertEqual(self.resolver.callCount, 0, "本地 tokenUri 命中时惰性跳过 eth_call（对 Kotlin 的优化偏离）")
+    }
+
+    func testResolveEthrAvatarCallsResolverWhenLocalTokenUriMissing() async throws {
+        // 本地 nft_meta 无 tokenUri（uri 为空）→ 必须调 resolver 兜底。
+        self.resolver.setResult("https://example.com/token.json")
+        try await self.store.upsertNftMeta(NftMeta(
+            contract: "0xabcdef", tokenId: "1", name: "cached",
+            image: "https://example.com/cached.png", tokenUri: nil,
+            fullContent: #"{}"#, updatedAt: 1
+        ))
+        let vc = """
+        {"credentialSubject":{"tokenId":"1","contractAddress":"0xabcdef","chainId":1},"issuanceDate":"2025-01-01T00:00:00Z"}
+        """
+        let nft = await sdk.resolveEthrAvatar(vc: vc)
+        XCTAssertEqual(nft?.uri, "https://example.com/token.json")
+        XCTAssertEqual(self.resolver.callCount, 1, "本地缺 tokenUri 时必须调 resolver")
     }
 
     // MARK: fetchAndCacheNftMeta
@@ -224,6 +241,26 @@ final class SwiftNftTests: XCTestCase {
         XCTAssertEqual(self.http.textRequestCount, 0)
     }
 
+    func testResolveCredentialImageRejectsNonImageDataImageUrl() async {
+        // 设计决策：直出前仅放行 data:image/*（02 §8）；非图片 data: 不得直出、也不得触发网络。
+        let resolved = await sdk.resolveCredentialImage("data:text/html,<script>", metadataUri: nil)
+        XCTAssertNil(resolved, "非 data:image/* 的 imageUrl 不得直出")
+        XCTAssertEqual(self.http.textRequestCount, 0)
+    }
+
+    func testResolveCredentialImageRejectsNonImageDataMetadataUri() async {
+        let resolved = await sdk.resolveCredentialImage(nil, metadataUri: "data:text/html,<script>")
+        XCTAssertNil(resolved, "非 data:image/* 的 metadataUri 不得直出")
+        XCTAssertEqual(self.http.textRequestCount, 0)
+    }
+
+    func testResolveCredentialImageAllowsDataImageUrl() async {
+        let dataImage = "data:image/png;base64,iVBORw0KGgo="
+        let resolved = await sdk.resolveCredentialImage(dataImage, metadataUri: nil)
+        XCTAssertEqual(resolved, dataImage, "data:image/* 直出放行")
+        XCTAssertEqual(self.http.textRequestCount, 0)
+    }
+
     func testResolveCredentialImageExtractsInlineJsonImageUrl() async {
         let inline = #"{"image":"https://example.com/inline.png"}"#
         let resolved = await sdk.resolveCredentialImage(inline, metadataUri: "https://example.com/meta.json")
@@ -260,6 +297,24 @@ final class SwiftNftTests: XCTestCase {
         XCTAssertEqual(resolved.count, 2)
         XCTAssertEqual(resolved[0], resolved[1])
         XCTAssertEqual(self.http.textRequestCount, 1, "相同请求只拉一次（对齐 Kotlin getOrPut 去重）")
+    }
+
+    func testResolveCredentialImagesParallelMixedKeysPreservesOrderAndDedup() async {
+        self.http.enqueueText(#"{"image":"https://example.com/a.png"}"#, for: "https://example.com/meta-a.json")
+        self.http.enqueueText(#"{"image":"https://example.com/b.png"}"#, for: "https://example.com/meta-b.json")
+        let a = CredentialImageRequest(imageUrl: nil, metadataUri: "https://example.com/meta-a.json",
+                                       chainId: 1, contractAddress: "issuer", tokenId: "1")
+        let b = CredentialImageRequest(imageUrl: nil, metadataUri: "https://example.com/meta-b.json",
+                                       chainId: 1, contractAddress: "issuer", tokenId: "2")
+
+        let resolved = await sdk.resolveCredentialImages([a, b, a, b])
+
+        XCTAssertEqual(resolved.count, 4)
+        XCTAssertEqual(resolved[0]?.url, "https://example.com/a.png")
+        XCTAssertEqual(resolved[1]?.url, "https://example.com/b.png")
+        XCTAssertEqual(resolved[2], resolved[0], "重复 key 复用同一解析结果")
+        XCTAssertEqual(resolved[3], resolved[1])
+        XCTAssertEqual(self.http.textRequestCount, 2, "两个唯一 key 各拉一次（有界并发 + 去重）")
     }
 
     func testResolveCredentialImagesEmptyReturnsEmpty() async {
@@ -315,6 +370,21 @@ final class SwiftNftTests: XCTestCase {
         [ { "TokenInfo": { "InfoType": "746f6b656e557269", "InfoData": "697066733a2f2f626166792d746573742f6d6574612e6a736f6e" } } ]
         """
         XCTAssertEqual(self.sdk.extractSwtcMetadataUri(payload), "\(self.gateway)bafy-test/meta.json")
+    }
+
+    func testExtractSwtcMetadataUriUsesInjectedGateway() {
+        // 网关贯穿：SWTC 元数据 URI 的 ipfs→网关重写必须用注入网关（04 坑 #9⑥）；无尾斜杠也应规范化。
+        let custom = SwiftNft(config: SwiftNftConfig(
+            store: self.store,
+            ipfsGateway: "https://gateway.example.com/ipfs",
+            httpClient: self.http,
+            ethTokenUriResolver: self.resolver,
+            swtcChainNftClient: self.swtc
+        ))
+        let payload = """
+        [ { "TokenInfo": { "InfoType": "746f6b656e557269", "InfoData": "697066733a2f2f626166792d746573742f6d6574612e6a736f6e" } } ]
+        """
+        XCTAssertEqual(custom.extractSwtcMetadataUri(payload), "https://gateway.example.com/ipfs/bafy-test/meta.json")
     }
 
     // MARK: ensureSwtcCredentialMetadata
@@ -414,12 +484,20 @@ final class FakeSwtcMetadataUriFetching: SwtcMetadataUriFetching, @unchecked Sen
 final class FakeEthTokenUriResolver: EthTokenUriResolver, @unchecked Sendable {
     private let lock = NSLock()
     private var result: String?
+    private var _callCount = 0
+
+    var callCount: Int {
+        self.lock.withLock { self._callCount }
+    }
 
     func setResult(_ result: String?) {
         self.lock.withLock { self.result = result }
     }
 
     func resolveEthrTokenUri(contract _: String, tokenId _: String, chainId _: Int64) async -> String? {
-        self.lock.withLock { self.result }
+        self.lock.withLock {
+            self._callCount += 1
+            return self.result
+        }
     }
 }

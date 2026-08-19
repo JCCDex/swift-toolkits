@@ -34,6 +34,13 @@ final class SsrfGuardTests: XCTestCase {
         XCTAssertFalse(self.check("http://100.127.255.254/metadata"))
     }
 
+    func testRejectsMulticastAndReservedIPv4() {
+        XCTAssertFalse(self.check("http://224.0.0.1/metadata")) // 组播 224.0.0.0/4
+        XCTAssertFalse(self.check("http://240.0.0.1/metadata")) // 保留 240.0.0.0/4
+        XCTAssertFalse(self.check("http://198.18.0.1/metadata")) // 基准测试 198.18.0.0/15
+        XCTAssertFalse(self.check("http://192.0.0.1/metadata")) // IETF 协议保留
+    }
+
     func testRejectsZeroAndBroadcast() {
         XCTAssertFalse(self.check("http://0.0.0.0/metadata"))
         XCTAssertFalse(self.check("http://255.255.255.255/metadata"))
@@ -93,6 +100,10 @@ final class SsrfGuardTests: XCTestCase {
         XCTAssertFalse(self.check("http://[fec0::1]/metadata"))
         XCTAssertFalse(self.check("http://[fc00::1]/metadata"))
         XCTAssertFalse(self.check("http://[fd00::1]/metadata"))
+    }
+
+    func testRejectsIPv6Multicast() {
+        XCTAssertFalse(self.check("http://[ff02::1]/metadata"))
     }
 
     // MARK: 测试旁路开关（对齐 Kotlin enabled=false）
