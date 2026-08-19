@@ -74,6 +74,25 @@ var targets: [Target] = [
         name: "SwiftWalletTests",
         dependencies: ["SwiftWallet"],
         path: "Tests/SwiftWalletTests"
+    ),
+    .target(
+        name: "SwiftNft",
+        dependencies: [
+            // 仅取 WalletAccount / ChainType 模型（SwiftDappConnect 零运行时依赖，对应 Kotlin :core）。
+            .target(name: "SwiftDappConnect"),
+            // Room → GRDB（四表：nft_meta / swtc_nfts / evm_nft_items / evm_nft_collections，见 Nft-Swift 02 §5）。
+            .product(name: "GRDB", package: "GRDB.swift")
+        ],
+        path: "Sources/SwiftNft"
+    ),
+    .testTarget(
+        name: "SwiftNftTests",
+        dependencies: [
+            "SwiftNft",
+            .target(name: "SwiftDappConnect"), // 测试用 WalletAccount/ChainType
+            .product(name: "GRDB", package: "GRDB.swift") // 测试用内存 DatabasePool
+        ],
+        path: "Tests/SwiftNftTests"
     )
 ]
 
@@ -109,12 +128,18 @@ let package = Package(
         .library(
             name: "SwiftWallet",
             targets: ["SwiftWallet"]
+        ),
+        .library(
+            name: "SwiftNft",
+            targets: ["SwiftNft"]
         )
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.38.0"),
         .package(url: "https://github.com/tmthecoder/Argon2Swift.git", branch: "main"),
-        .package(url: "https://github.com/nicklockwood/SwiftFormat.git", from: "0.56.0")
+        .package(url: "https://github.com/nicklockwood/SwiftFormat.git", from: "0.56.0"),
+        // 对应 Kotlin :nft 的 Room（room-runtime / room-ktx）。
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],
     targets: targets
 )
