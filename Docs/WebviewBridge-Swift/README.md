@@ -2,7 +2,7 @@
 
 本文档是 `kotlin-toolkits` 中 `:webview-bridge` 模块的 Swift 版本设计。目标是把 Kotlin 版「隐藏 WebView 运行时 + JS Promise 通信能力」以 Swift/iOS 惯用方式复刻，供 `did`、`wallet` 等 SDK 复用。
 
-> 状态：设计稿。文中 Swift 代码为设计示例，用于指导实现，尚未作为可编译 target 落库。
+> 状态：**已实现落库**（`Sources/SwiftWebviewBridge/`；对齐 `kotlin-toolkits` 源码，2026-08）。设计稿按 Kotlin 源码逐项对齐，实现级补充与偏离见 04 §5（实现回写表）。
 
 ## 设计原则
 

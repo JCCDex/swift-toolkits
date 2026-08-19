@@ -2,7 +2,7 @@
 
 本文档是 `kotlin-toolkits` 中 `:nft` 模块的 Swift 版本设计。目标是把 Kotlin 版「NFT 元数据解析与缓存、本地 NFT 持仓存储、DID 头像/凭证图片解析」能力以 Swift/iOS 惯用方式复刻为 **`SwiftNft`** 模块，并作为 `SwiftDid` 的 `DidNftResolution` 接入点实现（对齐 Kotlin `DidSdk(nftSdk: NftSdk? = null)` 的可选接入语义）。
 
-> 状态：设计稿（已按 `kotlin-toolkits` 源码对齐，commit `f77b59f`，2026-08-18）。文中 Swift 代码为设计示例，用于指导实现，尚未作为可编译 target 落库。Kotlin 源码路径：`nft/src/main/java/com/jccdex/toolkits/nft/`（`NftSdk.kt` / `model/NftModels.kt` / `remote/*` / `storage/room/*`）。
+> 状态：**已实现落库**（`Sources/SwiftNft/`，commit `1c42534` 起；对齐 `kotlin-toolkits` 源码 commit `f77b59f`，2026-08-18）。设计稿按 Kotlin 源码逐项对齐，实现级补充与偏离见 04 §5（实现回写表）。Kotlin 源码路径：`nft/src/main/java/com/jccdex/toolkits/nft/`（`NftSdk.kt` / `model/NftModels.kt` / `remote/*` / `storage/room/*`）。
 >
 > 对齐结论速览：`NftSdk` 14 个公开方法签名、`Nft`/`AvatarCandidate`/`NftMetadataFields`/`CredentialImageRequest`/`ResolvedCredentialImage`/`IEthTokenUriResolver` 字段、Room 四表（`nft_meta`/`swtc_nfts`/`evm_nft_items`/`evm_nft_collections`）、`SsrfGuard` 语义、`normalizeRemoteAssetUrl` 规则、SWTC `erc_info` RPC 协议均已逐一对齐（详见 01/03 章）。
 
@@ -23,7 +23,7 @@
 | [03-protocol-and-js.md](03-protocol-and-js.md) | 元数据协议：ERC-721 元数据 JSON、SWTC `erc_info` RPC（hex InfoType/InfoData）、IPFS 网关重写、`normalizeRemoteAssetUrl` 规则、`SsrfGuard` 安全 |
 | [04-migration-and-testing.md](04-migration-and-testing.md) | Kotlin → Swift 逐项对照、实现坑（Room→GRDB / SSRF-DNS / data: 支持 / 缓存语义）、测试策略与实施清单 |
 
-## 快速接入（设计预览）
+## 快速接入
 
 ```swift
 import SwiftNft
@@ -81,4 +81,4 @@ let meta: NftMeta? = await nft.fetchAndCacheNftMeta(contract: "issuer", tokenId:
 | NFT 元数据解析/缓存、头像/凭证图片解析、**本地持仓存储**（四表 + 同步 API） | **SwiftNft**（本设计稿） | 镜像 Kotlin `:nft` 的 `NftSdk` + `NftStore` |
 | `eth_requestNfts` / `swtc_requestNfts`（DApp 面持仓枚举） | SwiftDappConnect `NftProvider`（宿主实现） | 模型 `EvmNftResult` / `SwtcNftResult` 已在 SwiftDappConnect；`nftProvider` 未配置返回空结构 `{address, total:0, nfts:[]}`；宿主可用 SwiftNft 的存储/客户端支撑实现 |
 | SWTC NFT 转账（`sendNftTransactionWithPassword`） | SwiftWallet + SwiftDappConnect `SwtcMiddleware` | `buildSwtcNftTransfer`（`serialize721Payment`）已实现；原生路径用 `WebOrigin.walletInternal` 哨兵（M-18） |
-| NFT 元数据 DTO（阶段一） | SwiftDid `Model/NftModels.swift` | 阶段二迁入 SwiftNft（见 02 §2） |
+| NFT 元数据 DTO | **SwiftNft**（`Model/NftModels.swift`，含 `IEthTokenUriResolver` 协议） | 阶段二已从 SwiftDid 迁入（含 `DidNftResolution` 协议缝，防依赖环，见 02 §2）；SwiftDid 以 `public typealias` 保持公开拼写 |

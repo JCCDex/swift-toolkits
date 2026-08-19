@@ -2,7 +2,7 @@
 
 本文档是 `kotlin-toolkits` 中 `:dapp-connect` 模块的 Swift 版本设计。目标是把 Kotlin 版「供 WebView 与 DApp 通过 `window.ethereum` / `window.ccdao` 进行连接、签名和交易」的能力以 Swift/iOS 惯用方式复刻：中间件层（EVM / SWTC）、账户/密钥/节点/NFT 提供者接口，以及 EIP-1193 provider JS 注入。
 
-> 状态：设计稿。文中 Swift 代码为设计示例，用于指导实现，尚未作为可编译 target 落库。
+> 状态：**已实现落库**（`Sources/SwiftDappConnect/`；对齐 `kotlin-toolkits` 源码，2026-08）。设计稿按 Kotlin 源码逐项对齐，实现级补充与偏离见 04 §5（实现回写表）。
 
 ## 设计原则
 

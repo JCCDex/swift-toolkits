@@ -1,6 +1,6 @@
 # WalletDemo
 
-演示 `swift-toolkits` 三个模块的组合使用：
+演示 `swift-toolkits` 五个模块的组合使用：
 
 | 模块 | 在 demo 中的角色 |
 | --- | --- |
@@ -90,9 +90,11 @@ Examples/WalletDemo/
 ├── WalletDemo.xcodeproj         # 生成的工程（xcodegen generate 可再生成）
 └── WalletDemo/
     ├── WalletDemoApp.swift      # App 入口
-    ├── ContentView.swift        # 主界面：地址列表/切换当前地址、按地址查看密钥、DApp 入口
+    ├── ContentView.swift        # 主界面：地址列表/切换当前地址、按地址查看密钥、DApp/DID 头像入口
     ├── WalletService.swift      # SwiftVault + SwiftWebviewBridge 组合（生成/新增钱包、按地址查看密钥）
     ├── DemoProviders.swift      # DemoWalletState（地址列表/当前地址）+ DAppConnect 中间件桩 Provider
     ├── DappView.swift           # WKWebView + SwiftDappConnect 注入（含 eth_requestAccounts）
+    ├── DidAvatarService.swift   # DID 头像服务：SwiftDid 解析 + SwiftNft 元数据/图片 + 三层缓存
+    ├── DidAvatarView.swift      # DID 头像二级全屏页（AsyncImage + 本地文件直出）
     └── Resources/dapp.html      # DApp 页面（英文）：web3_clientVersion ×2 + eth_requestAccounts
 ```
