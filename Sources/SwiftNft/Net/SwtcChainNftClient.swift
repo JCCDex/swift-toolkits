@@ -19,6 +19,7 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
     public var certificatePins: [String]
     public var gateway: String // ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway
     public let timeout: TimeInterval
+    public let maxBodyBytes: Int // RPC 响应体上限（防恶意/被黑节点超大响应；post-download 检查）
 
     private let session: URLSession
     private let delegate: SwtcURLSessionDelegate
@@ -28,12 +29,14 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
         certificatePins: [String] = [],
         gateway: String = IpfsResolver.defaultGateway,
         timeout: TimeInterval = 15,
+        maxBodyBytes: Int = 2 * 1024 * 1024,
         session: URLSession? = nil
     ) {
         self.rpcNodes = rpcNodes
         self.certificatePins = certificatePins
         self.gateway = IpfsResolver.normalizedGateway(gateway)
         self.timeout = timeout
+        self.maxBodyBytes = maxBodyBytes
         let delegate = SwtcURLSessionDelegate(certificatePins: certificatePins)
         self.delegate = delegate
         let configuration = URLSessionConfiguration.default
@@ -69,6 +72,7 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode), !data.isEmpty else { return nil }
+            guard data.count <= self.maxBodyBytes else { return nil } // RPC 响应体上限
             guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
             if json["error"] != nil {
                 return nil
@@ -106,6 +110,9 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
 /// RPC 专属 delegate：
 /// - `willPerformHTTPRedirection`：对重定向目标再查 `SsrfGuard`，失败即不跟随（防 302 到私网）；
 /// - `didReceive challenge`：`certificatePins` 非空时做 SHA-256 公钥 pinning，空时默认处理。
+///   ⚠️ 口径偏离 Kotlin `PinnedTrustManager`：此处 hash **原始公钥字节**（`SecKeyCopyExternalRepresentation`，
+///   EC 裸点 / RSA PKCS#1），而 Kotlin hash `cert.publicKey.encoded`（SPKI DER）——两者字节不同、pin 哈希**不互通**。
+///   宿主须按本模块口径（raw key）生成 pin；若需沿用 Kotlin 既有 SPKI pin，须改 SPKI 提取（ASN.1）。
 final class SwtcURLSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let certificatePins: [String]
 
@@ -149,7 +156,7 @@ final class SwtcURLSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
             guard let key = SecCertificateCopyKey(certificate),
                   let keyData = SecKeyCopyExternalRepresentation(key, nil) as Data?
             else { continue }
-            let digest = SHA256.hash(data: keyData)
+            let digest = SHA256.hash(data: keyData) // 原始公钥字节，非 SPKI DER（见类注释：与 Kotlin pin 不互通）
             let pin = "sha256/" + Data(digest).base64EncodedString()
             if self.certificatePins.contains(pin) {
                 return (.useCredential, URLCredential(trust: trust))

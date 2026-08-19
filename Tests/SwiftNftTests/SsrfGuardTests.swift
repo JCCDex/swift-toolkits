@@ -41,6 +41,12 @@ final class SsrfGuardTests: XCTestCase {
         XCTAssertFalse(self.check("http://192.0.0.1/metadata")) // IETF 协议保留
     }
 
+    func testRejectsDocumentationTestNets() {
+        XCTAssertFalse(self.check("http://192.0.2.1/metadata")) // TEST-NET-1 192.0.2.0/24
+        XCTAssertFalse(self.check("http://198.51.100.1/metadata")) // TEST-NET-2 198.51.100.0/24
+        XCTAssertFalse(self.check("http://203.0.113.1/metadata")) // TEST-NET-3 203.0.113.0/24
+    }
+
     func testRejectsZeroAndBroadcast() {
         XCTAssertFalse(self.check("http://0.0.0.0/metadata"))
         XCTAssertFalse(self.check("http://255.255.255.255/metadata"))

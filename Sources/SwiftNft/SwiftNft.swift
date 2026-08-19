@@ -38,14 +38,18 @@ public final class SwiftNft: DidNftResolution, Sendable {
     private let logger = Logger(subsystem: "com.jccdex.toolkits.swiftnft", category: "SwiftNft")
 
     public init(config: SwiftNftConfig) {
-        // 网关 fail-closed：注入的 ipfsGateway 必须 http/https（normalizedGateway 已保证尾部 `/`）。
-        let lower = config.ipfsGateway.lowercased()
-        precondition(
-            lower.hasPrefix("http://") || lower.hasPrefix("https://"),
-            "SwiftNft: ipfsGateway must be an http(s) URL"
-        )
-        self.config = config
-        self.swtcClient = config.resolvedSwtcChainNftClient()
+        // 网关校验：注入的 ipfsGateway 必须 http/https（normalizedGateway 已保证尾部 `/`）。
+        // 非法值回退默认网关，而非 precondition crash 宿主（配置错误不应崩 App）。
+        var resolved = config
+        let lower = resolved.ipfsGateway.lowercased()
+        if !(lower.hasPrefix("http://") || lower.hasPrefix("https://")) {
+            resolved.ipfsGateway = IpfsResolver.defaultGateway
+        }
+        self.config = resolved
+        self.swtcClient = resolved.resolvedSwtcChainNftClient()
+        if config.ipfsGateway != resolved.ipfsGateway {
+            self.logger.warning("SwiftNft: ipfsGateway 非法（非 http/https），已回退默认网关")
+        }
     }
 
     // MARK: - 头像解析与候选（对齐 NftSdk 3.1）
@@ -55,7 +59,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
         if account.chain == .swtc {
             let rows = await Self.firstValue(self.config.store.observeSwtcNfts(ownerAddress: account.address)) ?? []
             return rows.map { entity in
-                let tokenName = entity.fundCodeName.isEmpty ? entity.fundCode : entity.fundCodeName
+                let tokenName = isBlank(entity.fundCodeName) ? entity.fundCode : entity.fundCodeName
                 return DidAvatarAsset(
                     image: entity.image,
                     name: entity.name ?? tokenName,
@@ -385,9 +389,10 @@ public final class SwiftNft: DidNftResolution, Sendable {
             return extractMetadataImageUrlFromBody(body, metadataUri: normalizedMetadataUri, gateway: config.ipfsGateway)
         }
         guard let metadataImage else { return nil }
-        if isDataImageUrl(metadataImage) {
-            return metadataImage
-        } // 直出仅放行 data:image/*
+        if metadataImage.lowercased().hasPrefix("data:") {
+            // 直出仅放行 data:image/*（与 step 2/3 同口径）；否则 data:text/html 会经 isLoadableRemoteAssetUrl 漏出
+            return isDataImageUrl(metadataImage) ? metadataImage : nil
+        }
         if let resolved = normalizeRemoteAssetUrl(metadataImage, baseUrl: normalizedMetadataUri, gateway: config.ipfsGateway),
            isLoadableRemoteAssetUrl(resolved) {
             return resolved
@@ -499,9 +504,10 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     private func logFailure(_ message: String, host: String, error: Error? = nil) {
-        // 只打 scheme/host，不打 body（元数据可能含隐私；对齐 DappConnect「日志不打 payload」约定）。
-        if let error {
-            self.logger.error("\(message, privacy: .public) host=\(host, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        // 只打 scheme/host 与错误码，不打 body / localizedDescription——
+        // GRDB/URLError 的 localizedDescription 可能含 SQL/绑定值/URL 等 payload（对齐「日志不打 payload」）。
+        if let nsError = error as NSError? {
+            self.logger.error("\(message, privacy: .public) host=\(host, privacy: .public) errDomain=\(nsError.domain, privacy: .public) errCode=\(nsError.code, privacy: .public)")
         } else {
             self.logger.error("\(message, privacy: .public) host=\(host, privacy: .public)")
         }

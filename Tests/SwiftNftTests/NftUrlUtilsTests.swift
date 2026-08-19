@@ -95,11 +95,11 @@ final class NftUrlUtilsTests: XCTestCase {
         XCTAssertFalse(isDataImageUrl(nil))
     }
 
-    // MARK: extractResolvedMetadataImageUrl
+    // MARK: extractMetadataImageUrlFromBody（原公开 2 参便捷版已并入门面，纯函数走内部版）
 
     func testExtractResolvedMetadataImageUrl() {
         XCTAssertEqual(
-            extractResolvedMetadataImageUrl(#"{"image":"./nft/avatar.png"}"#, metadataUri: "https://example.com/meta.json"),
+            extractMetadataImageUrlFromBody(#"{"image":"./nft/avatar.png"}"#, metadataUri: "https://example.com/meta.json"),
             "https://example.com/nft/avatar.png"
         )
     }
@@ -107,20 +107,20 @@ final class NftUrlUtilsTests: XCTestCase {
     func testExtractImageKeyOrderImageFirst() {
         // 键顺序：image → image_url → imageUrl
         let body = #"{"image_url":"https://a.png","image":"https://b.png"}"#
-        XCTAssertEqual(extractResolvedMetadataImageUrl(body, metadataUri: "https://example.com/meta.json"), "https://b.png")
+        XCTAssertEqual(extractMetadataImageUrlFromBody(body, metadataUri: "https://example.com/meta.json"), "https://b.png")
     }
 
     func testExtractDataUnwrap() {
         let body = #"{"data":{"name":"avatar","description":"hello","image":"./images/avatar.png"}}"#
         XCTAssertEqual(
-            extractResolvedMetadataImageUrl(body, metadataUri: "https://example.com/meta.json"),
+            extractMetadataImageUrlFromBody(body, metadataUri: "https://example.com/meta.json"),
             "https://example.com/images/avatar.png"
         )
     }
 
     func testExtractMalformedJsonReturnsNil() {
-        XCTAssertNil(extractResolvedMetadataImageUrl("not-json", metadataUri: "https://example.com/meta.json"))
-        XCTAssertNil(extractResolvedMetadataImageUrl(#"{"no_image":true}"#, metadataUri: "https://example.com/meta.json"))
+        XCTAssertNil(extractMetadataImageUrlFromBody("not-json", metadataUri: "https://example.com/meta.json"))
+        XCTAssertNil(extractMetadataImageUrlFromBody(#"{"no_image":true}"#, metadataUri: "https://example.com/meta.json"))
     }
 
     func testExtractMetadataFields() {

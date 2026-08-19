@@ -121,11 +121,6 @@ func resolveRelativeAssetUrl(_ baseUrl: String?, _ rawValue: String) -> String {
 
 // MARK: - 元数据提取
 
-/// 从元数据 JSON body 提取图片 URL（便捷版，用默认网关；落地用注入网关请走 `extractMetadataImageUrlFromBody`）。
-public func extractResolvedMetadataImageUrl(_ metadataBody: String, metadataUri: String) -> String? {
-    extractMetadataImageUrlFromBody(metadataBody, metadataUri: metadataUri)
-}
-
 /// 从元数据 JSON body 提取图片 URL（对齐 Kotlin `extractMetadataImageUrl`，带 gateway 参数）：
 /// `data` 键解包 → 键顺序 `image`/`image_url`/`imageUrl` → 首个非空且可规范化。
 func extractMetadataImageUrlFromBody(

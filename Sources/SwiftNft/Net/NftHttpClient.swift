@@ -67,10 +67,19 @@ public struct URLSessionNftHttpClient: NftHttpClient {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = self.timeout
-        let (data, response) = try await session.data(for: request)
+        // 流式读取 + 硬上限：超过 maxBodyBytes 即中止（for-await 提前退出会取消底层 task），
+        // 避免 data(for:) 先全量缓冲进内存、再检查 size 的「下载期内存不受限」问题。
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else { return nil }
-        guard !data.isEmpty, data.count <= self.maxBodyBytes else { return nil }
-        return data
+        var data = Data()
+        data.reserveCapacity(min(self.maxBodyBytes, 64 * 1024))
+        for try await byte in bytes {
+            if data.count >= self.maxBodyBytes {
+                return nil // 超限即中止
+            }
+            data.append(byte)
+        }
+        return data.isEmpty ? nil : data
     }
 }
 

@@ -108,6 +108,15 @@ enum SsrfGuard {
         if a == 192, b == 0, c == 0 {
             return true
         } // IETF 协议保留 192.0.0.0/24
+        if a == 192, b == 0, c == 2 {
+            return true
+        } // TEST-NET-1 192.0.2.0/24（文档段）
+        if a == 198, b == 51, c == 100 {
+            return true
+        } // TEST-NET-2 198.51.100.0/24（文档段）
+        if a == 203, b == 0, c == 113 {
+            return true
+        } // TEST-NET-3 203.0.113.0/24（文档段）
         if a == 169, b == 254 {
             return true
         } // 链路本地 169.254/16
