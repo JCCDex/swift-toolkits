@@ -25,15 +25,19 @@ DApp Connect：Swift 移植设计、快速接入、通信协议与安全说明�
 
 ## SwiftNft
 
-NFT 元数据解析与缓存、本地 NFT 持仓存储（GRDB 四表）、DID 头像/凭证图片解析；随包提供 EVM `tokenURI` eth_call 默认解析器（RPC 端点由宿主经 `rpcUrlsForChain` 注入，模块不内置）与 SWTC `erc_info` 客户端。设计文档（对齐 Kotlin `:nft`、GRDB 迁移、协议与安全）详见：
+NFT 元数据解析与缓存、本地 NFT 持仓存储（GRDB 四表）、DID 头像/凭证图片解析；随包提供 EVM `tokenURI` eth_call 默认解析器（RPC 端点由宿主经 `rpcUrlsForChain` 注入，模块不内置）与 SWTC `erc_info` 客户端。快速接入与 API 详见：
 
-[Docs/Nft-Swift/README.md](Docs/Nft-Swift/README.md)
+[SwiftNft/README.md](Sources/SwiftNft/README.md)
+
+设计文档（对齐 Kotlin `:nft`、GRDB 迁移、协议与安全）：[Docs/Nft-Swift/README.md](Docs/Nft-Swift/README.md)
 
 ## SwiftDid
 
-DID 文档解析/管理、Profile/头像 VC、NFT 凭证签发与验证、pending 对账（GRDB 持久化）；经 `SwiftNft` 接入头像解析，并实现 `SwiftDappConnect.DidSDK`。设计文档（对齐 Kotlin `:did`、桥协议、GRDB 迁移）详见：
+DID 文档解析/管理、Profile/头像 VC、NFT 凭证签发与验证、pending 对账（GRDB 持久化）；经 `SwiftNft` 接入头像解析，并实现 `SwiftDappConnect.DidSDK`。快速接入与 API 详见：
 
-[Docs/Did-Swift/README.md](Docs/Did-Swift/README.md)
+[SwiftDid/README.md](Sources/SwiftDid/README.md)
+
+设计文档（对齐 Kotlin `:did`、桥协议、GRDB 迁移）：[Docs/Did-Swift/README.md](Docs/Did-Swift/README.md)
 
 ## 示例 App：WalletDemo
 
