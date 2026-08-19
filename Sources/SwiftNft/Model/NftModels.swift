@@ -120,7 +120,7 @@ public struct ResolvedCredentialImage: Codable, Sendable, Equatable {
 }
 
 /// EVM `tokenURI(uint256)` 解析器（RPC 由宿主实现，模块不内置 eth_call；非 throw，失败返回 nil）。
-public protocol EthTokenUriResolver: Sendable {
+public protocol IEthTokenUriResolver: Sendable {
     func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String?
 }
 

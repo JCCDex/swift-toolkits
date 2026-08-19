@@ -9,14 +9,15 @@ Sources/SwiftNft/
 ├── SwiftNft.swift               // 门面：14 方法镜像 NftSdk（薄封装 NftStore）
 ├── SwiftNftConfig.swift         // store / ipfsGateway / httpClient / ethTokenUriResolver / rpcNodes / pins
 ├── Model/NftModels.swift        // Nft / AvatarCandidate / NftMetadataFields / CredentialImageRequest /
-│                                //   ResolvedCredentialImage / EthTokenUriResolver / DidAvatarAsset / NftMeta
+│                                //   ResolvedCredentialImage / IEthTokenUriResolver / DidAvatarAsset / NftMeta
 ├── Store/NftStore.swift         // 协议：持仓 CRUD/观察（纯存储；解析/编排逻辑归属 SwiftNft 门面，见 §5）
 ├── Store/GRDBNftStore.swift     // GRDB 实现：nft_meta / swtc_nfts / evm_nft_items / evm_nft_collections 四表
 ├── Util/NftUrlUtils.swift       // normalizeRemoteAssetUrl(raw, base, gateway:) / isLoadableRemoteAssetUrl /
 │                                //   extractMetadataImageUrl / extractSwtcMetadataUri / looksLikeImageAssetUrl
 ├── Net/NftHttpClient.swift      // 协议 + URLSession 实现（fetchJson/fetchText；不跟随重定向）
 ├── Net/SsrfGuard.swift          // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网 IP 放行）
-├── Net/SwtcChainNftClient.swift // SWTC erc_info RPC（rpcNodes + 可选证书 pinning）
+├── Net/SwtcNftClient.swift      // SWTC erc_info RPC（rpcNodes + 可选证书 pinning）
+├── Net/EthTokenUriResolver.swift // EVM tokenURI eth_call 默认实现（RPC URL 由 init(rpcUrlsForChain:) 注入，不内置）
 └── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（只缓存成功结果）
 ```
 
@@ -58,7 +59,7 @@ public typealias CredentialImageRequest = SwiftNft.CredentialImageRequest
 public typealias ResolvedCredentialImage = SwiftNft.ResolvedCredentialImage
 public typealias DidAvatarAsset = SwiftNft.DidAvatarAsset   // AvatarCandidate 已合并入此类型（见下）
 public typealias NftMeta = SwiftNft.NftMeta                 // fetchAndCacheNftMeta 的返回类型，缝签名引用
-public typealias EthTokenUriResolver = SwiftNft.EthTokenUriResolver
+public typealias IEthTokenUriResolver = SwiftNft.IEthTokenUriResolver
 public typealias DidNftResolution = SwiftNft.DidNftResolution   // 协议缝随 DTO 一并迁入（见下）
 ```
 
@@ -129,8 +130,9 @@ public struct ResolvedCredentialImage: Codable, Sendable, Equatable {
     public let cacheKey: String
 }
 
-// tokenURI 解析（RPC 宿主实现；模块不内置 eth_call）
-public protocol EthTokenUriResolver: Sendable {
+// tokenURI 解析：可注入接口（宿主可自实现）；模块同时随包提供 eth_call 默认实现
+// EthTokenUriResolver（见 §4.2；RPC URL 由 init(rpcUrlsForChain:) 注入，不内置端点）
+public protocol IEthTokenUriResolver: Sendable {
     func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String?
 }
 
@@ -218,7 +220,7 @@ internal enum SsrfGuard {
     static func check(_ url: URL) -> Bool { ... }
 }
 
-/// SWTC 链上元数据 URI（对齐 SwtcChainNftClient）：
+/// SWTC 链上元数据 URI（对齐 SwtcNftClient）：
 /// POST {"method":"erc_info","params":[{"tokenid": tokenId}]}，rpcNodes 逐个尝试首个成功返回；
 /// 15s 超时；RPC 节点可信可跟随重定向；可选证书 pinning（sha256/Base64）。
 /// ⚠️ 可注入 + 安全边界：
@@ -227,11 +229,11 @@ internal enum SsrfGuard {
 /// ② **不复用 `NftHttpClient`**（那是 no-redirect）：本客户端自持 redirect-following 且
 ///    `willPerformHTTPRedirection` 里对新 URL 再查 `SsrfGuard`（失败不跟随）的 delegate session；
 /// ③ 抽协议 seam `SwtcMetadataUriFetching` 供注入 Fake（对齐 Kotlin 构造函数注入 swtcChainNftClient），
-///    否则测试策略「Fake SwtcChainNftClient」落不了地。
+///    否则测试策略「Fake SwtcNftClient」落不了地。
 public protocol SwtcMetadataUriFetching: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
 }
-public struct SwtcChainNftClient: SwtcMetadataUriFetching {
+public struct SwtcNftClient: SwtcMetadataUriFetching {
     public static let defaultRpcNodes = ["https://srje115qd43qw2.swtc.top"]
     public var rpcNodes: [String]
     public var certificatePins: [String]       // 默认空（不 pin）
@@ -253,6 +255,32 @@ public enum IpfsResolver {
 ```
 
 > **Swift 增强（对 Kotlin 的显式偏离）**：Kotlin 把网关与 RPC 节点**硬编码**（`DEFAULT_IPFS_GATEWAY_BASE_URL` / `DEFAULT_RPC_NODES`）；Swift 经 `SwiftNftConfig` 注入，默认值保持与 Kotlin 相同（行为对齐），宿主可换网关/节点（缓解 `security-review.md` D5 类单点问题）。
+
+### 4.2 EVM tokenURI 默认实现（EthTokenUriResolver）
+
+> Kotlin 的 eth_call 默认解析器在 **app 侧**（`com.android.jdid.repository.DefaultEthTokenUriResolver`），`:nft` 只定义注入接口。按用户要求（2026-08 实现回写 #31），SwiftNft **随包提供默认实现**，宿主可注入自实现替代；RPC 端点一律由 init 注入、模块不内置任何 URL。
+
+```swift
+/// 根据 chainId 返回该链的 RPC URL（nil = 无可用节点 → 解析返回 nil）。
+/// 对齐 Kotlin `defaultRpcUrlsForChain(chainId)`（app 侧内置）——Swift 由宿主经 init 注入。
+public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
+
+/// eth_call tokenURI 解析（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`）。
+/// 对齐 Kotlin `DefaultEthTokenUriResolver`：
+/// - calldata 只拼 `0xc87b56dd` + 32 字节 tokenId（十进制 → 任意长度 hex，逐位 /256；
+///   超 32 字节拒）；合约地址走 eth_call 的 `to` 字段，**不进 calldata**；
+/// - ABI string 解码假定 offset = 32：第 2 个 32 字节字为长度，数据从第 128 hex 位起，
+///   尾随垃圾截断、畸形/超短拒；
+/// - URI 过 `normalizeRemoteAssetUrl(raw) ?: raw`（ipfs:// → 默认网关）；
+/// - 单节点 eth_call：`rpcUrlsForChain(chainId)` 返回 nil → nil，非 throw。
+public final class EthTokenUriResolver: IEthTokenUriResolver {
+    public init(rpcUrlsForChain: @escaping ChainRpcUrlsProvider) { ... }  // 端点宿主注入，不内置
+    public func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? { ... }
+}
+```
+
+- **安全边界**：RPC 节点与网关同属「注入信任面」——建连走宿主提供的 URL；本实现用 `URLSession.shared` 跟随重定向（对齐 Kotlin `instanceFollowRedirects=true`：RPC 节点可信）。若宿主注入不可信节点，应自实现 resolver（可配 `SsrfGuard`）。
+- **单测**（`EthTokenUriResolverTests`，macOS `swift test`）：calldata KAT（`"4"` → `0xc87b56dd` + 63 个 0 + `04`；`2^256-1` → 64 位全 `f`；超长/非数字拒）、`decodeAbiString` 向量（`"hi"`、URI、畸形/超短/空拒、尾随垃圾截断）、`normalizeTokenMetadataUri`（ipfs:// → 网关、http 原样、空白 → nil）。
 
 ## 5. 存储（GRDB 替代 Room）
 
@@ -318,9 +346,9 @@ public struct SwiftNftConfig: Sendable {
     public var store: any NftStore                     // 对应 Kotlin NftStore（Room）
     public var ipfsGateway: String = IpfsResolver.defaultGateway   // 默认对齐 Kotlin，可注入（贯穿 ipfs→网关重写，见 §4）
     public var httpClient: any NftHttpClient = URLSessionNftHttpClient()
-    public var ethTokenUriResolver: (any EthTokenUriResolver)?     // 对应 Kotlin 构造参数
+    public var ethTokenUriResolver: (any IEthTokenUriResolver)?    // 对应 Kotlin 构造参数；宿主可注入模块默认 EthTokenUriResolver
     public var swtcChainNftClient: (any SwtcMetadataUriFetching)? = nil  // 注入时**优先于** rpcNodes/certificatePins（后两者被忽略）；nil → 用 rpcNodes/pins 建默认实现；测试注入 Fake
-    public var rpcNodes: [String] = SwtcChainNftClient.defaultRpcNodes
+    public var rpcNodes: [String] = SwtcNftClient.defaultRpcNodes
     public var certificatePins: [String] = []
 }
 

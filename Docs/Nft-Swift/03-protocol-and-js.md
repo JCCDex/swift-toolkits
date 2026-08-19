@@ -9,14 +9,14 @@
 与 `did-bridge.js` 的关系（跨模块）：
 
 - **VC 签发**：DID 头像/NFT 凭证（VC）由 `did-bridge.js` 的 `issueVC` 签发（`@context` 走内联 NFT 术语集 `nftContextFor(brand, contextType)`，如 `CCDAO_NFT_OWNERSHIP_CONTEXT` / `JDID_NFT_USAGE_AUTHORIZATION_CONTEXT`，见 `SwiftWebviewBridge/Resources/bridge/did-bridge.js`）。
-- **VC 消费**：SwiftNft 只**消费** VC 里携带的字段（`resolveSwtcAvatar`/`resolveEthrAvatar` 读 `credentialSubject.tokenId` / `nftIssuer` / `contractAddress` / `chainId` / `tokenName` + `issuanceDate`），**不参与签发**；元数据 URI 本体来自链上 `erc_info` 或本地 `swtc_nfts.metadataUri`（SWTC）、宿主 `EthTokenUriResolver`（EVM），不经 JS。
+- **VC 消费**：SwiftNft 只**消费** VC 里携带的字段（`resolveSwtcAvatar`/`resolveEthrAvatar` 读 `credentialSubject.tokenId` / `nftIssuer` / `contractAddress` / `chainId` / `tokenName` + `issuanceDate`），**不参与签发**；元数据 URI 本体来自链上 `erc_info` 或本地 `swtc_nfts.metadataUri`（SWTC）、宿主 `IEthTokenUriResolver`（EVM），不经 JS。
 
 ## 2. ERC-721（EVM）元数据协议
 
 ### 2.1 tokenURI
 
-- `:nft` 模块**不内置 eth_call**：`EthTokenUriResolver` 是注入接口（`resolveEthrTokenUri(contract, tokenId, chainId): String?`，非 throw，失败返回 nil）。
-- 宿主实现参考：ERC-721 `tokenURI(uint256)` ABI（selector `0xc87b56dd`）eth_call，返回字符串元数据 URI；常见形式 `https://.../*.json` / `ipfs://<CID>` / `data:application/json;base64,...`（后两者由 SwiftNft 的 `normalizeRemoteAssetUrl` / `isLoadableRemoteAssetUrl` 处理）。
+- `IEthTokenUriResolver` 是可注入接口（`resolveEthrTokenUri(contract, tokenId, chainId): String?`，非 throw，失败返回 nil）；SwiftNft 同时**随包提供默认实现** `EthTokenUriResolver`（eth_call：ERC-721 `tokenURI(uint256)` selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数（对齐 Kotlin app 侧 `defaultRpcUrlsForChain` / `AppEndpoints.RPC_*` 语义，见 02 §4.2）。
+- 返回的元数据 URI 常见形式 `https://.../*.json` / `ipfs://<CID>` / `data:application/json;base64,...`（后两者由 SwiftNft 的 `normalizeRemoteAssetUrl` / `isLoadableRemoteAssetUrl` 处理）。
 
 ### 2.2 元数据 JSON（源码实况）
 

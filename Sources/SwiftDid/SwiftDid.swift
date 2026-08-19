@@ -6,7 +6,7 @@ import SwiftNft
 
 //
 // `Nft` / `NftMetadataFields` / `CredentialImageRequest` / `ResolvedCredentialImage` / `DidAvatarAsset` /
-// `EthTokenUriResolver` / `NftMeta` / `DidNftResolution` 已迁入 SwiftNft，本模块经 `import SwiftNft`
+// `IEthTokenUriResolver` / `NftMeta` / `DidNftResolution` 已迁入 SwiftNft，本模块经 `import SwiftNft`
 // **直接使用非限定名**（`SwiftNft.Nft` 限定拼写不可用——模块名与门面类同名 `SwiftNft.SwiftNft`，
 // 类型位置会解析到类；消费者 `import SwiftNft` 后用 `Nft` 即可，行为与 typealias 等价）。
 
@@ -263,7 +263,7 @@ public final class SwiftDid: DidSDK {
             // didStat 失败 = 发布失败（Swift 修正 #2，不重试）
             guard let previousCid = await self.readDidStatCid(did) else { return false }
 
-            var didDoc: [String: Any] = [
+            let didDoc: [String: Any] = [
                 "version": "1.0.0",
                 "verificationMethods": [
                     [
@@ -308,7 +308,7 @@ public final class SwiftDid: DidSDK {
 
     public func updateDidNickname(privateKey: String, did: String, nickname: String, currentDoc: String) async -> Bool {
         do {
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
             var json = doc
             let services = DidDocumentEditor.services(from: json)
             let previousCid = await self.readDidStatCid(did)
@@ -340,7 +340,7 @@ public final class SwiftDid: DidSDK {
 
     public func updateDidAvatar(privateKey: String, did: String, currentDoc: String, selectedAvatar: DidAvatarCredential) async -> Bool {
         do {
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
             var json = doc
             let services = DidDocumentEditor.services(from: json)
             let previousCid = await self.readDidStatCid(did)
@@ -396,7 +396,7 @@ public final class SwiftDid: DidSDK {
         do {
             guard credentialData.ownerDid == did else { throw SwiftDidError.invalidPayload }
             try DidCredentialHelper.validateCredentialData(credentialData)
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
             let vcId = DidCredentialHelper.generateVcId(credentialData)
             let vcJson = try await self.generateNftVc(privateKey: privateKey, ownerDid: did, credentialData: credentialData)
             var json = doc
@@ -417,7 +417,7 @@ public final class SwiftDid: DidSDK {
     public func deleteCredentialFromDid(privateKey: String, did: String, currentDoc: String, credentialId: String) async -> DidWriteResult {
         do {
             guard !credentialId.isEmpty else { throw SwiftDidError.invalidPayload }
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
             var json = doc
             let credentials = DidDocumentEditor.credentials(from: json)
             guard let updatedCredentials = DidDocumentEditor.removingCredential(credentials, byId: credentialId) else {
@@ -459,7 +459,7 @@ public final class SwiftDid: DidSDK {
             guard !credentialId.isEmpty else { throw SwiftDidError.invalidPayload }
             let vcResult = try await self.verifyCredential(credentialJson)
             guard vcResult.verified else { throw SwiftDidError.invalidCredential }
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
             var json = doc
             let credentials = DidDocumentEditor.credentials(from: json)
             json["credentials"] = DidDocumentEditor.upsertCredential(credentials, incoming: incoming, byId: credentialId)
@@ -476,7 +476,7 @@ public final class SwiftDid: DidSDK {
     public func updatePreferredAvatar(privateKey: String, did: String, currentDoc: String, credentialId: String) async -> DidWriteResult {
         do {
             guard !credentialId.isEmpty else { throw SwiftDidError.invalidPayload }
-            guard var doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
+            guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
             let credentials = DidDocumentEditor.credentials(from: doc)
             let found = credentials.contains { element in
                 (element as? [String: Any]).map { DidJson.optString($0, "id") == credentialId } ?? false

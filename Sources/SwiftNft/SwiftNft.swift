@@ -46,7 +46,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
             resolved.ipfsGateway = IpfsResolver.defaultGateway
         }
         self.config = resolved
-        self.swtcClient = resolved.resolvedSwtcChainNftClient()
+        self.swtcClient = resolved.resolvedSwtcNftClient()
         if config.ipfsGateway != resolved.ipfsGateway {
             self.logger.warning("SwiftNft: ipfsGateway 非法（非 http/https），已回退默认网关")
         }

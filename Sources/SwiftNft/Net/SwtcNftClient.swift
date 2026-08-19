@@ -2,17 +2,17 @@ import CryptoKit
 import Foundation
 import Security
 
-/// SWTC 链上元数据 URI 拉取抽象（可注入 Fake；对齐 Kotlin 构造函数注入 `swtcChainNftClient`）。
+/// SWTC 链上元数据 URI 拉取抽象（可注入 Fake；对齐 Kotlin 构造函数注入 `SwtcNftClient`）。
 public protocol SwtcMetadataUriFetching: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
 }
 
-/// SWTC `erc_info` RPC 客户端（对齐 Kotlin `SwtcChainNftClient`）：
+/// SWTC `erc_info` RPC 客户端（对齐 Kotlin `SwtcNftClient`）：
 /// - POST `{"method":"erc_info","params":[{"tokenid": tokenId}]}`，rpcNodes 逐个尝试、首个成功即返回；
 /// - 15s 超时；**RPC 节点可信可跟随重定向，但重定向目标必须过 `SsrfGuard`**（否则注入节点 302 到私网即绕过）；
 /// - 建连前对注入节点做 `SsrfGuard.check`（http/https + 公网）——Swift 可注入，信任边界比 Kotlin 大；
 /// - 可选证书 pinning（SHA-256/Base64，`sha256/...` 格式）。
-public struct SwtcChainNftClient: SwtcMetadataUriFetching {
+public struct SwtcNftClient: SwtcMetadataUriFetching {
     public static let defaultRpcNodes = ["https://srje115qd43qw2.swtc.top"]
 
     public var rpcNodes: [String]
@@ -25,7 +25,7 @@ public struct SwtcChainNftClient: SwtcMetadataUriFetching {
     private let delegate: SwtcURLSessionDelegate
 
     public init(
-        rpcNodes: [String] = SwtcChainNftClient.defaultRpcNodes,
+        rpcNodes: [String] = SwtcNftClient.defaultRpcNodes,
         certificatePins: [String] = [],
         gateway: String = IpfsResolver.defaultGateway,
         timeout: TimeInterval = 15,

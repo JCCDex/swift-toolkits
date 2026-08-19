@@ -481,7 +481,7 @@ final class FakeSwtcMetadataUriFetching: SwtcMetadataUriFetching, @unchecked Sen
 }
 
 /// Fake EVM tokenURI 解析器。
-final class FakeEthTokenUriResolver: EthTokenUriResolver, @unchecked Sendable {
+final class FakeEthTokenUriResolver: IEthTokenUriResolver, @unchecked Sendable {
     private let lock = NSLock()
     private var result: String?
     private var _callCount = 0

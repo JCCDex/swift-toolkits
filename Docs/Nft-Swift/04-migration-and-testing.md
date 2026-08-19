@@ -35,7 +35,7 @@
 8. **`data:` URL 支持（对齐 Kotlin）+ 上限增强 + 类型决策**：`isSupportedRemoteAssetUrl` 放行 `data:`（对齐 Kotlin 纯函数）；Swift 解码 `data:` 时加 2 MiB 上限（Kotlin 无上限属现状，Swift 增强防膨胀；上限适用于**本模块解码校验**，原样透传时由渲染侧负责）。**类型面（设计决策）**：`resolveCredentialImage` 直出前用**独立的 `isDataImageUrl` 检查**仅放行 `data:image/*`（公开 `isSupportedRemoteAssetUrl` 仍对齐 Kotlin、放行任意 `data:`）——只挡 HTML/JS，**挡不住 `image/svg+xml` 脚本**；宿主渲染第三方图片须用 `UIImage`/`CGImage`（不执行脚本）、勿用 `WKWebView`。
 9. **`normalizeRemoteAssetUrl` 细节别照旧草案**：① 无 base 的不可解析路径**返回原样**（不判 nil）；② http(s) 路径含 `/ipfs/` **强制换默认网关**（`canonicalizeHttpIpfsUrl`）——**网关可注入后该行为可能误伤第三方 URL**（如 `https://cdn.thirdparty.com/ipfs/xyz`），保持 Kotlin 行为或限定已知 IPFS 网关域名，二选一固化（见 03 §4.2）；③ 裸 CID（`Qm`/`bafy` 前缀）→ 网关；④ 以 `{`/`[` 开头的 payload → nil；⑤ 相对路径用 `URL(URL(base), raw)` **标准解析**（含协议相对 `//host/…`）；⑥ **可注入网关贯穿所有 normalize 调用点**：`normalizeRemoteAssetUrl`/`canonicalizeHttpIpfsUrl` 以及内部调 normalize 的 `extractMetadataImageUrl` 都带 `gateway` 参数（默认 defaultGateway），门面把 `config.ipfsGateway` 传入，否则「可注入网关」只对 `IpfsResolver.rewrite` 生效、ipfs:// 重写仍硬编码默认网关（见 02 §4）。
 10. **SWTC `erc_info` RPC**：POST `{"method":"erc_info","params":[{"tokenid":tokenId}]}`；`TokenInfos` 可能是数组**或字符串**（两种都处理）；`extractSwtcMetadataUri` 只认 hex 解码后 `InfoType == "tokenUri"` 的项；多节点 `firstNotNullOfOrNull`；可选证书 pinning（SHA-256/Base64，Swift 用 `URLSessionDelegate` 的 `didReceive challenge` 实现）。**⚠️ pin 口径偏离 Kotlin**：Swift hash 原始公钥字节（`SecKeyCopyExternalRepresentation`），Kotlin hash SPKI DER（`cert.publicKey.encoded`），两者不互通——宿主按 Swift 口径生成 pin，或改 SPKI 提取（ASN.1）再对齐 Kotlin。
-11. **`EthTokenUriResolver` 非 throw**：签名 `resolveEthrTokenUri(...) async -> String?`（失败返回 nil）；Swift 实现/宿主实现都别用 throw 通道。
+11. **`IEthTokenUriResolver` 非 throw**：签名 `resolveEthrTokenUri(...) async -> String?`（失败返回 nil）；Swift 实现/宿主实现都别用 throw 通道。**模块内默认实现（`Net/EthTokenUriResolver.swift`，实现回写 #31）**：SwiftNft 随包提供 eth_call 默认解析器（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`；calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段；ABI string 解码假定 offset=32；URI 过 `normalizeRemoteAssetUrl`）；**RPC 端点不内置**，由 `init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数（对齐 Kotlin `defaultRpcUrlsForChain`/`AppEndpoints.RPC_*` 由宿主配置的语义），返回 nil → nil（单节点 eth_call，非 throw）。
 12. **`resolveCredentialImages` 去重**：按 `buildCredentialResolutionKey`（chainId|contract.lowercase()|tokenId|normalize(metadataUri)|normalize(imageUrl, metadataUri)）用 LinkedHashMap 等价物去重——**相同请求只拉一次**（Kotlin 测试锁定：2 个相同请求 → 1 次 server 请求、2 个相等结果）；空列表直接返回空。
 13. **日志不落 payload**：元数据 body 可能含头像/社交链接等隐私，日志只打 scheme/host（对齐 DappConnect「日志不打 payload」约定）。
 14. **与 SwiftDappConnect `NftProvider` 的边界别串**：`eth_requestNfts` / `swtc_requestNfts`（DApp 面持仓枚举、`{address,total,nfts}` 序列化）属宿主 `NftProvider`；SwiftNft 的存储/客户端可**支撑**宿主实现，但 M3（任意地址枚举）在 `NftProvider` 侧修（address ∈ 已授权账户），SwiftNft 侧无此面。
@@ -46,7 +46,7 @@
 19. **依赖环（对 02 §2 的补强）**：`DidNftResolution` 协议缝现定义在 SwiftDid；阶段二**必须随 DTO 一起迁入 SwiftNft**（14 方法签名不动），SwiftDid 用 `public typealias DidNftResolution = SwiftNft.DidNftResolution` 保公开拼写——否则 SwiftNft conform 该协议需 `import SwiftDid`，`SwiftDid → SwiftNft → SwiftDid` 成环。
 20. **`Sendable`（Swift 6 严格并发）**：`NftStore: AnyObject, Sendable`；`GRDBNftStore: NftStore, @unchecked Sendable`（DatabasePool 线程安全）。否则 `SwiftNft: Sendable` / `SwiftNftConfig: Sendable` 持有 `any NftStore` 编译不过。
 21. **对 Kotlin 小怪癖的显式修正**：① `hasLocal = !image.isNullOrBlank()`（Kotlin `image != null` 把空串算 true，勿照搬）；② `fetchAndCacheNftMeta` 失败路径记日志（scheme/host，不打 body），不静默吞错（Kotlin catch-all 返回 null 无日志）；③ `fetchMetadataFields` 对外非 Optional/.empty，内部保留 throwing/Result 版本或日志区分「网络失败」与「字段缺失」。
-22. **`SwtcChainNftClient` 抽协议 seam + 独立 session**：① 抽 `SwtcMetadataUriFetching` 协议、`SwiftNftConfig` 注入 `swtcChainNftClient`（nil → 用 rpcNodes/certificatePins 建默认实现；测试注入 Fake）——否则「Fake SwtcChainNftClient」测试落不了地（对齐 Kotlin 构造函数注入）；② 它**不复用 no-redirect 的 `NftHttpClient`**，自持 redirect-following + `willPerformHTTPRedirection` 里对新 URL 查 `SsrfGuard` 的 session（见坑 #7）。
+22. **`SwtcNftClient` 抽协议 seam + 独立 session**：① 抽 `SwtcMetadataUriFetching` 协议、`SwiftNftConfig` 注入 `swtcChainNftClient`（nil → 用 rpcNodes/certificatePins 建默认实现；测试注入 Fake）——否则「Fake SwtcNftClient」测试落不了地（对齐 Kotlin 构造函数注入）；② 它**不复用 no-redirect 的 `NftHttpClient`**，自持 redirect-following + `willPerformHTTPRedirection` 里对新 URL 查 `SsrfGuard` 的 session（见坑 #7）。
 
 ## 3. 测试策略
 
@@ -57,8 +57,9 @@
 | SSRF | `SsrfGuardTests` | 镜像 Kotlin `NftRemoteAssetResolverTest`：loopback/site-local/link-local 拒、**公网 IP 放行**、file:/javascript:/ftp 拒、非 http(s) scheme 拒、**未解析域名 fail-closed**、`enabled=false` 旁路；**全地址解析（任一私网即拒）**、IPv4-mapped IPv6、fc00::/7、建连策略（连 IP + TLS server-name 或建连后复验） |
 | 网络层 | Fake `NftHttpClient` + URLProtocol 少量用例 | `resolveCredentialImage` 四分支（内联 JSON 提图 / 直出 / metadataUri 即图片 URL / 拉元数据提图）；**瞬时失败重试**（500 → nil，再调成功）；`resolveCredentialImages` 去重（1 次请求）；**不跟随重定向**（302 → 失败）；**RPC 重定向目标被 `SsrfGuard` 拒绝**（302 到私网不跟随）；`data:` 超上限截断、非 `data:image/*` 拒 |
 | 缓存 | `NftMetadataImageCacheTests` | 成功记忆化、**失败不缓存（可重试）**、并发同 key 只 fetch 一次（**per-key Task in-flight 去重**）、`removeAll`（取消在途 Task + 清空两字典） |
+| EVM tokenURI | `EthTokenUriResolverTests` | `buildTokenUriCallData` KAT（十进制 tokenId → `0xc87b56dd` + 32B hex：`"4"` → `…04`、大数 `2^256-1` → 64 位全 `f`、超 32 字节拒、非数字拒）、`decodeAbiString`（"hi"/URI ABI 向量、超短/空/畸形拒、尾随垃圾截断）、`normalizeTokenMetadataUri`（ipfs:// → 默认网关、http 原样、空白 → nil） |
 | 存储 | `GRDBNftStore`（内存 DatabasePool） | 四表建表迁移、upsert/observe/get/delete、复合 PK `ON CONFLICT DO UPDATE`（id 保留）、**LOWER() 归一化查询**、`deleteSwtcNftsByOwner` 的 preserveSwtcEntityAsMeta、collections 增删改 |
-| 头像回退链 | 内存库 + Fake `EthTokenUriResolver`/`SwtcMetadataUriFetching` | `resolveSwtcAvatar`（nft_meta 命中 / swtc_nfts 行 / erc_info 拉取 / 裸 Nft 四分支）、`resolveEthrAvatar`（resolver URI / nft_meta / evm_nft_items）、`getAvatarCandidates` SWTC/EVM 映射（tokenName = fundCodeName.ifBlank{fundCode}） |
+| 头像回退链 | 内存库 + Fake `IEthTokenUriResolver`/`SwtcMetadataUriFetching` | `resolveSwtcAvatar`（nft_meta 命中 / swtc_nfts 行 / erc_info 拉取 / 裸 Nft 四分支）、`resolveEthrAvatar`（resolver URI / nft_meta / evm_nft_items）、`getAvatarCandidates` SWTC/EVM 映射（tokenName = fundCodeName.ifBlank{fundCode}） |
 | SwiftDid 集成（阶段二） | `SwiftNft` 注入 `SwiftDid(nft:)` + Fake 桥 | `DidNftResolution` 14 方法 conformance、`generateSwtcNft`/`generateEthrNft` 回退链、`generateProfileVC` 预取 `fetchAndCacheNftMeta`、`getAvatarNftCredentials` 候选、typealias 后 `SwiftDid.NftMetadataFields` 拼写仍可用 |
 | 真实网络冒烟（iOS） | 复用 SwiftWebviewBridge 集成基建 | 真实网关拉取、真实 `erc_info` 节点（`https://srje115qd43qw2.swtc.top`）端到端 |
 
@@ -68,9 +69,9 @@
 
 - [ ] 字段对照表校验：`toDidNft()` / `toDidAvatarAsset()` 涉及的 8 字段逐项比对（合并偏离前提，坑 #2）
 - [ ] `Package.swift` 注册 `SwiftNft` target（依赖 SwiftDappConnect 取模型 + **GRDB**）
-- [ ] `Model/NftModels.swift`：Nft / DidAvatarAsset / NftMetadataFields / CredentialImageRequest / ResolvedCredentialImage / EthTokenUriResolver / NftMeta + 持仓实体（SwtcNftEntity / EvmNftItemEntity / EvmNftCollectionEntity）+ 单测
+- [ ] `Model/NftModels.swift`：Nft / DidAvatarAsset / NftMetadataFields / CredentialImageRequest / ResolvedCredentialImage / IEthTokenUriResolver / NftMeta + 持仓实体（SwtcNftEntity / EvmNftItemEntity / EvmNftCollectionEntity）+ 单测
 - [ ] `Util/NftUrlUtils.swift`：normalizeRemoteAssetUrl(raw, base, gateway:) / isLoadableRemoteAssetUrl / extractMetadataImageUrl / extractSwtcMetadataUri / looksLikeImageAssetUrl + Kotlin 向量 KAT 单测（**含自定义网关贯穿用例**）
-- [ ] `Net/SsrfGuard.swift`（getaddrinfo DNS fail-closed；私网/回环/链路本地拒绝；公网 IP 放行；测试旁路开关）+ `Net/NftHttpClient.swift`（10s 超时、**不跟随重定向**、2 MiB 上限）+ `Net/SwtcChainNftClient.swift`（erc_info + 多节点 fallback + 可选 pinning + **重定向目标 SsrfGuard 守卫**）
+- [ ] `Net/SsrfGuard.swift`（getaddrinfo DNS fail-closed；私网/回环/链路本地拒绝；公网 IP 放行；测试旁路开关）+ `Net/NftHttpClient.swift`（10s 超时、**不跟随重定向**、2 MiB 上限）+ `Net/SwtcNftClient.swift`（erc_info + 多节点 fallback + 可选 pinning + **重定向目标 SsrfGuard 守卫**）
 - [ ] `Store/NftStore.swift` 协议 + `GRDBNftStore`（四表迁移 / ValueObservation→AsyncStream / LOWER() 查询 / preserveSwtcEntityAsMeta）+ 单测
 - [ ] `Cache/NftMetadataImageCache.swift`（actor；**只缓存成功**；per-key Task in-flight 去重；removeAll 取消在途并清空）
 - [ ] `SwiftNft.swift` 门面：14 方法完整镜像（`fetchMetadataFields` 非 Optional、`fetchAndCacheNftMeta` 返回 `NftMeta?`、`resolveCredentialImages` 去重、`getAvatarCandidates` 本地持仓映射）
@@ -86,8 +87,10 @@
 | 23 | `resolveCredentialImages` **有界并发** | Kotlin 顺序执行；实现按 key 去重后分批复用 ≤4 个 Task（`withTaskGroup`），结果按请求序回填——避免大批量瞬间打满连接/线程；同 key 仍只解析一次、nil 也去重 |
 | 24 | `fetchJson` 返回 `Data` 且不做 JSON 校验 | 设计稿草案为 `[String: Any]?`；`[String: Any]` 非 Sendable 无法跨协议边界，且客户端校验与门面重复解析——解析收敛到门面一次（`fetchAndCacheNftMeta` 解析失败按「解析失败」记日志），行为与 Kotlin 等价 |
 | 25 | **惰性 eth_call** | `resolveEthrAvatar` 的 nft_meta 分支：本地 `tokenUri` 非空时**不再调 resolver**（对 Kotlin 的优化偏离，注释标明；省一次 RPC） |
-| 26 | `swtcClient` 构建一次复用 | `SwiftNft.init` 里 `config.resolvedSwtcChainNftClient()` 建一次存成员，避免每次 `erc_info` 重建 URLSession/delegate |
+| 26 | `swtcClient` 构建一次复用 | `SwiftNft.init` 里 `config.resolvedSwtcNftClient()` 建一次存成员，避免每次 `erc_info` 重建 URLSession/delegate |
 | 27 | 网关 `precondition` + `normalizedGateway` | `SwiftNftConfig.ipfsGateway` 经 `normalizedGateway` 规范化（trim + 尾部 `/`，空回退默认——修掉「无尾斜杠拼接坏 URL」）；`SwiftNft.init` 对非 http(s) 网关 `precondition` 崩溃（编程错误防护） |
-| 28 | 注入 session 的信任边界 | `URLSessionNftHttpClient`/`SwtcChainNftClient` 注入自定义 session 时，调用方须保证不跟随重定向/可 pinning（delegate 随 session 固定，无法挂上本模块的 delegate）——注释警告，勿传 `URLSession.shared` |
+| 28 | 注入 session 的信任边界 | `URLSessionNftHttpClient`/`SwtcNftClient` 注入自定义 session 时，调用方须保证不跟随重定向/可 pinning（delegate 随 session 固定，无法挂上本模块的 delegate）——注释警告，勿传 `URLSession.shared` |
 | 29 | 图片缓存简单 LRU | `accessOrder` 数组（命中 `touch` + 插入逐出最旧，`removeAll` 清空），替代「keys.first 任意淘汰」 |
 | 30 | `getAvatarCandidates` 移除不可达 catch | 观察流 `AsyncStream`（Failure == Never）不 throw，`firstValue` 非抛——catch 不可达已删 |
+| 31 | **EVM eth_call 默认解析器迁入模块** | 按用户要求把 Kotlin app 侧 `com.android.jdid.repository.DefaultEthTokenUriResolver` 移入 SwiftNft（`Net/EthTokenUriResolver.swift`，public，`init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数、模块不内置 RPC URL）；demo 删本地实现改用模块类；03 §2.1「模块不内置 eth_call」随之修订为「接口可注入 + 模块自带默认实现」 |
+| 32 | **协议/实现重命名（用户指定）** | 协议 `EthTokenUriResolver` → `IEthTokenUriResolver`（避免与实现类同名）；默认实现 `DefaultEthTokenUriResolver` → `EthTokenUriResolver`；`SwtcChainNftClient` → `SwtcNftClient`（对齐 Kotlin 类名）。`EthTokenUriResolver.init` 由 `rpcUrlsByChain` 字典改为注入 `rpcUrlsForChain: ChainRpcUrlsProvider`（`@Sendable (Int64) -> String?`，对齐 Kotlin `defaultRpcUrlsForChain`）——字典/列表改单 URL 函数后「chainId → 节点」映射完全由宿主闭包决定，模块连默认映射也不内置，单节点 eth_call |

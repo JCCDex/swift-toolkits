@@ -4,7 +4,7 @@
 
 > 状态：设计稿（已按 `kotlin-toolkits` 源码对齐，commit `f77b59f`，2026-08-18）。文中 Swift 代码为设计示例，用于指导实现，尚未作为可编译 target 落库。Kotlin 源码路径：`nft/src/main/java/com/jccdex/toolkits/nft/`（`NftSdk.kt` / `model/NftModels.kt` / `remote/*` / `storage/room/*`）。
 >
-> 对齐结论速览：`NftSdk` 14 个公开方法签名、`Nft`/`AvatarCandidate`/`NftMetadataFields`/`CredentialImageRequest`/`ResolvedCredentialImage`/`EthTokenUriResolver` 字段、Room 四表（`nft_meta`/`swtc_nfts`/`evm_nft_items`/`evm_nft_collections`）、`SsrfGuard` 语义、`normalizeRemoteAssetUrl` 规则、SWTC `erc_info` RPC 协议均已逐一对齐（详见 01/03 章）。
+> 对齐结论速览：`NftSdk` 14 个公开方法签名、`Nft`/`AvatarCandidate`/`NftMetadataFields`/`CredentialImageRequest`/`ResolvedCredentialImage`/`IEthTokenUriResolver` 字段、Room 四表（`nft_meta`/`swtc_nfts`/`evm_nft_items`/`evm_nft_collections`）、`SsrfGuard` 语义、`normalizeRemoteAssetUrl` 规则、SWTC `erc_info` RPC 协议均已逐一对齐（详见 01/03 章）。
 
 ## 设计原则
 
@@ -33,7 +33,11 @@ let store = try GRDBNftStore(database: DatabasePool(path: ".../nft.sqlite"))
 let nft = SwiftNft(config: SwiftNftConfig(
     store: store,
     ipfsGateway: URL(string: "https://ipfs.jccdex.cn/ipfs/"),   // 默认对齐 Kotlin DEFAULT_IPFS_GATEWAY_BASE_URL
-    ethTokenUriResolver: hostResolver,                          // 宿主提供 tokenURI eth_call
+    ethTokenUriResolver: EthTokenUriResolver(   // 模块默认 eth_call 实现（RPC URL 由函数注入，不内置）；
+        rpcUrlsForChain: { chainId in           // 宿主按 chainId 返回该链 RPC URL，nil = 无节点
+            chainId == 1 ? "https://ethereum-rpc.publicnode.com" : nil
+        },
+    ),
     rpcNodes: ["https://srje115qd43qw2.swtc.top"]               // 默认对齐 Kotlin DEFAULT_RPC_NODES
 ))
 
@@ -53,6 +57,7 @@ let meta: NftMeta? = await nft.fetchAndCacheNftMeta(contract: "issuer", tokenId:
 | --- | --- | --- |
 | 网络 | `HttpURLConnection`（元数据拉取不跟随重定向） | `URLSession` + `NftHttpClient` 协议（可注入 Fake/URLProtocol；同样不跟随重定向） |
 | 入口 | `NftSdk.create(context, databaseName = "nft_storage.db", ethTokenUriResolver)` | `SwiftNft(config:)`（无需 Context；store/网关/RPC 节点/解析器经 config 注入） |
+| EVM tokenURI | eth_call 解析器在 **app 侧**（`com.android.jdid.repository`），`:nft` 仅注入接口 | SwiftNft **随包提供默认实现** `EthTokenUriResolver`（`init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数、模块不内置），宿主可注入自实现（见 02 §4.2） |
 | 存储 | Room（`NftRoomDatabase`，`nft_storage.db`） | **GRDB**（`GRDBNftStore`，四表同构） |
 | 并发 | `suspend` + `Dispatchers.IO` | `async throws`（自由线程，非 @MainActor） |
 | 反序列化 | Gson / org.json | `JSONDecoder` + Codable DTO |
@@ -63,7 +68,7 @@ let meta: NftMeta? = await nft.fetchAndCacheNftMeta(contract: "issuer", tokenId:
 
 ## 关键设计点
 
-- **DTO 归属与依赖方向（对 Did 设计稿的显式修正）**：Kotlin 中 `AvatarCandidate`/`NftMetadataFields` 等定义在 `:nft`，`DidAvatarAsset` 定义在 `:did` port、`Nft` 在 `:did`/`:nft` 各有一份（字段完全一致，`toDidNft()`/`toDidAvatarAsset()` 是逐字段拷贝）。Did 设计稿为「协议缝编译期可用」把 NFT DTO 前置定义在 SwiftDid——若照「SwiftNft 复用 SwiftDid DTO」实现，依赖方向会变成 `SwiftNft → SwiftDid`（拖入桥 + GRDB）且与 Kotlin 反向。**修正**：阶段一保持 DTO 在 SwiftDid（缝可用）；阶段二 `Nft`/`NftMetadataFields`/`CredentialImageRequest`/`ResolvedCredentialImage`/`AvatarCandidate`/`DidAvatarAsset`/`EthTokenUriResolver`/`NftMeta` **全部迁入 SwiftNft**（Swift 将 Kotlin 双份 `Nft` 与双份候选模型合并为单类型，显式偏离见 02 §2），**`DidNftResolution` 协议缝一并迁入 SwiftNft**（否则 SwiftNft conform 它会形成 `SwiftDid → SwiftNft → SwiftDid` 依赖环，见 02 §2），SwiftDid 以 `public typealias` 保持公开 API 拼写不变，依赖方向 `SwiftDid → SwiftNft`（对齐 Kotlin `:did → :nft`）。
+- **DTO 归属与依赖方向（对 Did 设计稿的显式修正）**：Kotlin 中 `AvatarCandidate`/`NftMetadataFields` 等定义在 `:nft`，`DidAvatarAsset` 定义在 `:did` port、`Nft` 在 `:did`/`:nft` 各有一份（字段完全一致，`toDidNft()`/`toDidAvatarAsset()` 是逐字段拷贝）。Did 设计稿为「协议缝编译期可用」把 NFT DTO 前置定义在 SwiftDid——若照「SwiftNft 复用 SwiftDid DTO」实现，依赖方向会变成 `SwiftNft → SwiftDid`（拖入桥 + GRDB）且与 Kotlin 反向。**修正**：阶段一保持 DTO 在 SwiftDid（缝可用）；阶段二 `Nft`/`NftMetadataFields`/`CredentialImageRequest`/`ResolvedCredentialImage`/`AvatarCandidate`/`DidAvatarAsset`/`IEthTokenUriResolver`/`NftMeta` **全部迁入 SwiftNft**（Swift 将 Kotlin 双份 `Nft` 与双份候选模型合并为单类型，显式偏离见 02 §2），**`DidNftResolution` 协议缝一并迁入 SwiftNft**（否则 SwiftNft conform 它会形成 `SwiftDid → SwiftNft → SwiftDid` 依赖环，见 02 §2），SwiftDid 以 `public typealias` 保持公开 API 拼写不变，依赖方向 `SwiftDid → SwiftNft`（对齐 Kotlin `:did → :nft`）。
 - **头像解析回退链对齐 Kotlin**：`avatarResolver`（宿主注入）→ `nftSdk.resolveSwtcAvatar`/`resolveEthrAvatar` → 本地兜底 `buildSwtcNft`/`buildEthrNft`（见 [Did-Swift 02 §6](../Did-Swift/02-swift-design.md) 与 01 §4）。
 - **`fetchMetadataFields` 非 Optional（NftSdk 层）**：对齐 Kotlin `NftSdk.fetchMetadataFields` 签名，失败返回 `NftMetadataFields(null,null,null)`，不 throw；注意 Kotlin `DidSdk` 的包装方法返回 **`NftMetadataFields?`**（可空），Swift 协议缝沿用非 Optional，属对 `DidSdk` 包装层的显式偏离（见 04 坑 #5）。
 - **缓存语义**：`NftMetadataImageCache` 按「规范化后的 metadataUrl」做进程内记忆化，**只缓存成功结果**——瞬时失败（如 HTTP 500）不缓存、下次调用可重试（Kotlin 测试 `resolveCredentialImage retries metadata fetch after a transient failure` 锁定该行为）；`fetchAndCacheNftMeta` 持久化到 `nft_meta` 表（含 `fullContent`）。
