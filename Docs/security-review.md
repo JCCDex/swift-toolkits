@@ -10,6 +10,7 @@
 | H1 | DAppConnect 消息来源伪造：仅接受主 frame，origin 按 `frameInfo.securityOrigin` 实时推导（不再信任宿主全局状态） |
 | M1 | 响应伪造：`_ccdaoSettle` token 鉴权 + `Object.defineProperty` 冻结；`WKScriptMessageHandlerWithReply` 方案经实测不可行（reply 在 xctest 进程不送达），详见 `03-protocol-and-js.md` |
 | M2 | 状态伪造：provider 状态收进 IIFE 闭包，`_ccdaoNative` token 鉴权 + 冻结 |
+| W2 | SwiftWebviewBridge 脚本以 `;null` 结尾：`PromiseBridge.call` 是 async 函数返回 Promise，`evaluateJavaScript` 无法序列化会报 `javascript execution returned a result of an unsupported type`（DID 头像 demo 实报）；结果本就经 `onPromiseResult` 回调返回，尾随 `null` 使其可序列化（`WebviewBridgeClient.swift`） |
 | CI | `docs:` / `demo:` 开头的提交跳过测试 |
 
 ---

@@ -109,7 +109,10 @@ public final class WebviewBridgeClient: NSObject {
                 }
 
                 let paramsJs = Self.jsonString(params) ?? "null"
-                let script = "PromiseBridge.call(\(Self.jsString(method)), \(paramsJs), \(Self.jsString(id)));"
+                // 以 `;null` 结尾（security-review W2）：PromiseBridge.call 是 async 函数、返回 Promise，
+                // evaluateJavaScript 无法序列化会报 "unsupported type"；结果本就经 onPromiseResult 回调
+                // 返回，evaluateJavaScript 的返回值弃用，故用尾随 null 使其可序列化。
+                let script = "PromiseBridge.call(\(Self.jsString(method)), \(paramsJs), \(Self.jsString(id)));null"
 
                 Task { @MainActor in
                     do {
