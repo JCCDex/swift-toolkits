@@ -137,11 +137,10 @@ final class EngineDidBridge: DidBridge {
     /// 自持独立 client 加载 did-bridge.html，对应 Kotlin AndroidDidWebRuntime 的独立 WebView。
     private let client = WebviewBridgeClient()
 
-    func start(ipfsBaseURL: String) throws {
-        // 网关注入：校验 URL → 替换 did-bridge.js 占位符 → 临时 bundle 加载（见 03 §3 方案 A）。
-        // 未配置 / URL 非法 / 占位符残留 → 抛 SwiftDidError.ipfsBaseURLNotConfigured（fail-closed）。
-        // 临时 bundle 按「替换后内容 hash + ipfsBaseURL」缓存复用（见 04 坑 #22）。
-        let bundle = try DidBridgeAssets.makeTempBundle(ipfsBaseURL: ipfsBaseURL)
+    /// 网关保持 did-bridge.js 硬编码（见 03 §3），**无注入**：直接用 SwiftWebviewBridge 默认 bundle，
+    /// `resolveBridgeURL` 自动落到 `bridge/` 子目录——无临时 bundle、无占位符替换。
+    func start() throws {
+        let bundle = WebviewBridgeResources.bundle
         self.client.initialize(
             bundle: bundle,
             config: WebviewBridgeConfig(bridgeFileName: "did-bridge.html", resourceBundle: bundle)
@@ -175,21 +174,18 @@ public final class SwiftDid: DidSDK {
     private let nft: (any DidNftResolution)?            // 预留：SwiftNft 模块接入点（未来）
     private let avatarResolver: (any DidAvatarResolver)? // 宿主注入头像解析（对齐 Kotlin IDidAvatarResolver）
     private let avatarCredentialSource: (any DidAvatarCredentialSource)? // 宿主头像候选源（对齐 Kotlin IDidAvatarCredentialSource）
-    private let ipfsBaseURL: String?                    // 由宿主在 start() 前配置（无默认值，fail-closed）
     private var started = false
     public static let pendingTTLMillis: Int64 = 24 * 60 * 60 * 1000  // 24h，可配置（见 01 §6）
 
     public init(
         store: any DidStore,                        // 宿主提供 GRDBDidStore（或自实现）
         bridge: any DidBridge = EngineDidBridge(),
-        ipfsBaseURL: String? = nil,                 // 必配：IPFS 网关（start() 前校验并注入）
         nft: (any DidNftResolution)? = nil,         // 预留：SwiftNft 模块接入点（未来）
         avatarResolver: (any DidAvatarResolver)? = nil, // 宿主注入（对齐 Kotlin IDidAvatarResolver）
         avatarCredentialSource: (any DidAvatarCredentialSource)? = nil // 宿主头像候选源
     ) {
         self.store = store
         self.bridge = bridge
-        self.ipfsBaseURL = ipfsBaseURL
         self.nft = nft
         self.avatarResolver = avatarResolver
         self.avatarCredentialSource = avatarCredentialSource
@@ -199,13 +195,9 @@ public final class SwiftDid: DidSDK {
 
     public func start() throws {
         guard !self.started else { return }
-        // 网关注入：校验 ipfsBaseURL（仅 http/https，拒绝 javascript:/file:）→ 替换
-        // did-bridge.js 占位符 → 临时 bundle 加载（见 03 §3 方案 A）；未配置/校验失败/
-        // 占位符残留 → fail-closed。启动时顺带做一次 did_pending 全表 TTL 清理。
-        guard let ipfsBaseURL, DidBridgeAssets.isValidBaseURL(ipfsBaseURL) else {
-            throw SwiftDidError.ipfsBaseURLNotConfigured
-        }
-        try self.engineStart(ipfsBaseURL: ipfsBaseURL)
+        // 网关保持 did-bridge.js 硬编码（见 03 §3），无注入面。
+        // 启动时顺带做一次 did_pending 全表 TTL 清理（不启动定时器）。
+        if let engine = bridge as? EngineDidBridge { try engine.start() }
         try self.store.deleteExpiredPending(
             now: Int64(Date().timeIntervalSince1970 * 1000),
             ttlMillis: SwiftDid.pendingTTLMillis
@@ -274,7 +266,6 @@ public enum SwiftDidError: Error, Equatable {
     case invalidPayload
     case invalidCredential
     case didNotFound
-    case ipfsBaseURLNotConfigured
 }
 ```
 
@@ -474,7 +465,7 @@ private func resolveAvatar(vc: String) async -> Nft? {
 - **私钥 String 传输**：同 `SwiftWallet`，私钥经 JS 桥以 String 传递，调用后尽快丢弃引用。
 - **EIP-55 checksum（keccak-256，首选专门轻量依赖）**：`toDid` / VCID 生成需要 keccak-256，CryptoKit 不提供。**优先专门的轻量 keccak 依赖**（避免为单个算法引入整个 CryptoSwift；`swift-crypto`/CryptoKit 也不含 keccak-256；若选 CryptoSwift 须仅取 Keccak variant——0x01 padding 的 Keccak-256，非 SHA3-256）；确需自实现 `Util/Keccak256.swift` 时，必须与 BouncyCastle 做 KAT 全量交叉验证并固定进 CI（仅 `""`/`"abc"` 两条标准向量不够）。
 - **`updated` 时间戳比较（勿照搬 Kotlin 字符串比较）**：链上 `updated` 解析为 ISO8601 `Date`（开 `.withFractionalSeconds`，处理不定长小数位）后比较，测试覆盖精度不一致场景（如 `…0.12Z` vs `…0.1Z`）。
-- **`didStat` 失败 = 发布失败（有限重试）**：previousCid 取不到时先有限重试（1–2 次）再中止发布并上抛，避免 IPFS 历史链分叉（Kotlin 静默吞错，见 01 §6）。
+- **`didStat` 失败 = 发布失败（不重试）**：previousCid 取不到时直接中止发布并上抛，避免 IPFS 历史链分叉（Kotlin 静默吞错，见 01 §6）。实现不做重试（fail-closed 优先），见 04 坑 #14。
 - **`resolveAndSaveDid` 返回类型化结果**：区分 `missing / error / document`，桥/网络错误不得伪装成「链上缺失」，否则 `resolveOwnerDidDocument` 会静默回退本地陈旧缓存。
 - **文档键名归一化**：写 `service` 前删除旧 `services` 键（反之亦然），避免同一文档出现双键（Kotlin 现状缺陷，见 01 §6）。
 - **`verifyCredential` 保留 `errorKind`/`error`**：JS 返回里含失败原因（撤销/签名无效等），Kotlin 丢弃了；Swift 模型带上，供宿主展示验签失败原因。

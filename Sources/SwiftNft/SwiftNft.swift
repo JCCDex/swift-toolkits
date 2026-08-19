@@ -9,7 +9,7 @@ import SwiftDappConnect
 ///
 /// 覆盖 Kotlin `NftSdk` 的完整方法面（14 个公开方法 = 13 个方法名 + `resolveCredentialImage` 重载，
 /// 含 `fetchAndCacheNftMeta`）。纯数据取/解析（无 UI），不加 @MainActor（自由线程调度）。
-public protocol DidNftResolution: AnyObject {
+public protocol DidNftResolution: AnyObject, Sendable {
     func resolveSwtcAvatar(vc: String) async -> Nft?
     func resolveEthrAvatar(vc: String) async -> Nft?
     func getAvatarCandidates(account: WalletAccount) async -> [DidAvatarAsset]

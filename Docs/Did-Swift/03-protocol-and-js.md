@@ -26,7 +26,7 @@
 > 须同时把 `"{}"`、`"null"` 与**空串（trimmed 后）**都判定为 `missing`（对齐 Kotlin `DidResolveUtils.isMissingDidDocument`，并补空串防御），
 > 否则 `resolveOwnerDidDocument` / `resolveBaseDoc` 会把缺失文档当成有效文档处理。
 
-## 3. 硬编码 IPFS 网关（迁移必修项）
+## 3. IPFS 网关（保持硬编码，不注入）
 
 `did-bridge.js` 当前硬编码：
 
@@ -34,22 +34,9 @@
 const client = new IpfsClient({ baseURL: "https://wodecards.wh.jccdex.cn:8550" });
 ```
 
-问题（`security-review.md` D5）：生产网关写死在库资产里，单点故障 + 换环境不可配。
+**决策（2026-08 实现）**：网关**保持硬编码、不做注入**——`EngineDidBridge.start()` 直接用 SwiftWebviewBridge 默认 bundle 加载 `did-bridge.html`（`resolveBridgeURL` 自动落到 `bridge/` 子目录），**无临时 bundle、无占位符替换、无 `ipfsBaseURL` 配置面**（`SwiftDid` init / `SwiftDidError` 均不含网关相关项）。
 
-**方案**：把 `did-bridge.js` 中的 baseURL 改为占位符，由 Swift 侧注入：
-
-```js
-const client = new IpfsClient({ baseURL: /*__CCDAO_DID_IPFS_BASE_URL__*/ null });
-```
-
-**注入机制（可落地，二选一）**：
-
-- **方案 A（推荐）**：`did-bridge.html` 用 `<script src>` 引用 bundle 内 `did-bridge.js`，bundle 只读、不能原地改文件。SwiftDid 把**修改后的 `did-bridge.js` + `did-bridge.html` + `did-0.3.2.min.js` + `jcc-wallet-4.0.8.min.js`** 整套复制到持久缓存目录（`Application Support/Did/bridge-<hash>/`，按整个资产集内容 hash 缓存，见 04 坑 #22；勿用 `temporaryDirectory`，会被系统清理、缓存失效），用 `Bundle(path:)` 包一层，再以 `WebviewBridgeConfig(bridgeFileName: "did-bridge.html", resourceBundle: tempBundle)` 交给自持的 `WebviewBridgeClient`。WKWebView 的 read-access 只指向该缓存目录，同目录资产可相对引用，Swift 侧无需改 `WebviewBridgeClient`。
-- **方案 B（对齐 DappConnect 注入 provider 的成熟模式）**：`did-bridge.js` 改为从全局读网关（`const client = new IpfsClient({ baseURL: window.__CCDAO_DID_IPFS_BASE_URL__ });`），SwiftDid 通过 `WKUserScript(.atDocumentStart)` 预置该全局；未预置时 JS 侧 fail-closed。
-
-**校验与 fail-closed**：`ipfsBaseURL` 只接受 http/https 且 host 合法（复用 `DAppConnectSdk.isSafeUrl` 的校验思路，拒绝 `javascript:`/`file:`）；native 在 `start()` 检测占位符残留/未配置即抛 `SwiftDidError.ipfsBaseURLNotConfigured`；JS 侧保留 `baseURL: null` 的构造失败兜底。默认值不放代码里，由宿主从远端配置/环境注入。
-
-**资产同步**：占位化会令 Swift 与 Kotlin 的 `did-bridge.js` 产生永久差异，与 04 章「diff 对齐」冲突。建议 Kotlin 侧同步占位化（`baseURL` 也改为注入），或至少在文档/CI 中记录这处**唯一允许的差异**，diff 校验时白名单放行。
+> ⚠️ 已知接受项：`security-review.md` D5（生产网关写死在库资产里，单点故障 + 换环境不可配）**未修复**，与 Kotlin `:did` 现状一致（Kotlin 的 `:nft` 同样硬编码 `DEFAULT_IPFS_GATEWAY_BASE_URL`）。若日后需要可配置网关，再回到注入方案（占位符替换 + 临时 bundle / `WKUserScript` 预置全局），届时注意：占位化会令 Swift 与 Kotlin 的 `did-bridge.js` 产生永久差异，diff 对齐时需白名单放行这处唯一允许的差异。
 
 ## 4. 密钥经桥安全
 

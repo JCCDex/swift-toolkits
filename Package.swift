@@ -93,6 +93,25 @@ var targets: [Target] = [
             .product(name: "GRDB", package: "GRDB.swift") // 测试用内存 DatabasePool
         ],
         path: "Tests/SwiftNftTests"
+    ),
+    .target(
+        name: "SwiftDid",
+        dependencies: [
+            .target(name: "SwiftWebviewBridge"), // did-bridge.html / did-bridge.js 资产 + 桥运行时
+            .target(name: "SwiftDappConnect"), // DidSDK 协议 / WalletAccount / ChainType
+            .target(name: "SwiftNft"), // 阶段二：DTO 与 DidNftResolution 协议缝归 SwiftNft（见 Nft-Swift 02 §2）
+            .product(name: "GRDB", package: "GRDB.swift") // 对应 Kotlin Room（did_documents / did_pending）
+        ],
+        path: "Sources/SwiftDid"
+    ),
+    .testTarget(
+        name: "SwiftDidTests",
+        dependencies: [
+            "SwiftDid",
+            .target(name: "SwiftDappConnect"),
+            .product(name: "GRDB", package: "GRDB.swift")
+        ],
+        path: "Tests/SwiftDidTests"
     )
 ]
 
@@ -132,6 +151,10 @@ let package = Package(
         .library(
             name: "SwiftNft",
             targets: ["SwiftNft"]
+        ),
+        .library(
+            name: "SwiftDid",
+            targets: ["SwiftDid"]
         )
     ],
     dependencies: [
