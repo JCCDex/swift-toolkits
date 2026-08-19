@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var wallet: WalletService
     @EnvironmentObject private var state: DemoWalletState
     @State private var showDapp = false
+    @State private var showDidAvatar = false
     @State private var keyResult: KeyResult?
     @State private var errorText: String?
     @State private var didLoadExisting = false
@@ -43,6 +44,16 @@ struct ContentView: View {
 
                 Section {
                     Button {
+                        self.showDidAvatar = true
+                    } label: {
+                        Label("DID 头像（示例）", systemImage: "person.crop.circle")
+                    }
+                } header: {
+                    Text("DID")
+                }
+
+                Section {
+                    Button {
                         self.showDapp = true
                     } label: {
                         Label("加载 DApp Demo", systemImage: "globe")
@@ -62,6 +73,9 @@ struct ContentView: View {
             .navigationTitle("Wallet Demo")
             .fullScreenCover(isPresented: self.$showDapp) {
                 DappScreen(wallet: self.wallet)
+            }
+            .fullScreenCover(isPresented: self.$showDidAvatar) {
+                DidAvatarScreen()
             }
             .sheet(item: self.$keyResult) { result in
                 KeySheet(result: result)

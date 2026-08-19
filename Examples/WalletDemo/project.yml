@@ -7,6 +7,9 @@ options:
 packages:
   SwiftToolkits:
     path: ../..
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: 7.0.0
 targets:
   WalletDemo:
     type: application
@@ -24,6 +27,12 @@ targets:
         product: SwiftDappConnect
       - package: SwiftToolkits
         product: SwiftWallet
+      - package: SwiftToolkits
+        product: SwiftNft
+      - package: SwiftToolkits
+        product: SwiftDid
+      - package: GRDB
+        product: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swifttoolkits.WalletDemo

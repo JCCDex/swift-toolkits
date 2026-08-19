@@ -7,6 +7,8 @@
 | `SwiftWebviewBridge` | 隐藏 WebView 里的 jcc-wallet 加密库：生成助记词、派生 ETH 账户 |
 | `SwiftVault` | 密码加密持久化私钥/助记词（Argon2id + AES-256-GCM） |
 | `SwiftDappConnect` | 真实 WKWebView 中注入 EIP-1193 provider，DApp 与钱包通信 |
+| `SwiftNft` | NFT 元数据/图片解析：DID 头像 VC → tokenURI/erc_info → 元数据 → 图片 URL |
+| `SwiftDid` | 链上 DID 解析（did-bridge 隐藏 WebView）+ Profile/头像 VC 展示 |
 
 ## 功能
 
@@ -15,6 +17,19 @@
 - **无钱包**：显示「生成钱包」按钮与提示。
 - **已有钱包**：显示**地址列表**（地址缩写展示前后段如 `0xd65b…8bdb`，点击行切换当前地址、
   点「密钥」查看该地址完整私钥/助记词），并提供「新增钱包」按钮（再次生成新助记词派生新账户）。
+- **DID 头像（示例）**：主界面「DID」区块按钮进入**二级全屏页**（与 DApp 页同形态），展示
+  `did:swtc:…` 与 `did:ethr:…` 两个示例 DID 的头像：
+  - 解析链：`resolveDid`（链上取档）→ `generateProfileVC`（读 preferredAvatar VC）→ SwiftNft
+    元数据解析出图片 URL → 行内 AsyncImage 加载；EVM 头像的 `tokenURI(uint256)` 由 SwiftNft
+    模块内 `EthTokenUriResolver`（eth_call）提供，RPC 端点由宿主经
+    `rpcUrlsForChain` 闭包按 chainId 注入。
+  - **SWTC ownership 兜底**：preferredAvatar 的 NFT 元数据不可解析时（如 `did:swtc:…` 示例的
+    ETH NFT `tokenURI` 链上 revert），改用该 DID 自有的 SWTC ownership VC（`generateSwtcNft`
+    → erc_info → IPFS 元数据 → 图片，演示两个模块组合）。
+  - **缓存优先**：DID 文档已落本地 sqlite 时跳过链上解析（不转圈）；解析成功的图片 URL 持久化
+    到 UserDefaults，**头像图片文件落盘 `Application Support/WalletDemo/avatars/`**——已落库的 DID
+    进页面直接从本地文件出图，连图片下载的 loading 都不出现；仅首次解析/下载时显示 loading，
+    失败显示具体原因。
 - **加载 DApp Demo**：全屏 WKWebView 加载本地 DApp 页面（`dapp.html`，英文内容），四个按钮：
   - `web3_clientVersion`：直接调 `window.ethereum.request(...)`
   - `web3_clientVersion (EIP-6963)`：监听 `eip6963:announceProvider` 按发现协议拿 provider 再调用
