@@ -77,8 +77,8 @@ final class SwiftAccountFacadeTests: XCTestCase {
         XCTAssertEqual(roots.map(\.id), [root.id])
         let all = try await self.firstValue(self.account.accounts) ?? []
         XCTAssertEqual(all.count, 1)
-        let swtc = try await self.account.accounts(chain: .swtc)
-        let swtcFirst = try await self.firstValue(swtc) ?? []
+        // accounts(chain:) 是同步方法（返回 AsyncStream），await 作用于 firstValue
+        let swtcFirst = try await self.firstValue(self.account.accounts(chain: .swtc)) ?? []
         XCTAssertEqual(swtcFirst.count, 1)
     }
 
