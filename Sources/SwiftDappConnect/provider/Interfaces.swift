@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 // ── 核心 Provider（与 Kotlin provider.Interfaces 对齐） ──
 

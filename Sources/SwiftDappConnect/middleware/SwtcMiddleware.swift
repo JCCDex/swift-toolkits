@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// SWTC 中间件：swtc_* RPC 方法。
 @MainActor

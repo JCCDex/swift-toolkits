@@ -1,3 +1,4 @@
+import SwiftCore
 import SwiftDappConnect
 import SwiftUI
 

@@ -10,22 +10,22 @@
 - HD 根账户 / 子账户 / 传统账户的增删改查与观察；
 - 当前选中账户（`currentAccount`）管理；
 - 按链、地址、父账户等维度查询（含 HD 子账户索引推进 `getMaxIndexByChain`）；
-- `AccountOrchestrator`：与 `SwiftVault`（密钥落库）、`SwiftWallet`（地址派生）协作的导入 / 派生 / 删除流程。
+- `AccountManager`：与 `SwiftVault`（密钥落库）、`SwiftWallet`（地址派生）协作的导入 / 派生 / 删除流程。
 
 ## 设计原则
 
 1. **存储用 GRDB 替代 Room**：`AccountStore` 协议 + `GRDBAccountStore`（`accounts` / `current_account` 两表），宿主可替换（对齐 Kotlin `IAccountStore` + `RoomAccountStore`）。
 2. **Swift 化 API**：`Flow` → `AsyncStream`（GRDB ValueObservation），`suspend` → `async throws`/`async`，`ByteArray` → `Data`。
 3. **共享模型复用 SwiftDappConnect**：`WalletAccount` / `ChainType` / `Path` 已存于 SwiftDappConnect（对应 Kotlin `:core`），`SwiftAccount` 直接复用、不重复定义。
-4. **派生能力复用 SwiftWallet**：`deriveChild` / `hdWalletFromMnemonic` / `deriveFromPrivateKey` 已实现（桥 JS），`AccountOrchestrator` 依赖它完成地址派生（对齐 Kotlin 依赖 `:wallet` 的 `WalletSdk`）。
+4. **派生能力复用 SwiftWallet**：`deriveChild` / `hdWalletFromMnemonic` / `deriveFromPrivateKey` 已实现（桥 JS），`AccountManager` 依赖它完成地址派生（对齐 Kotlin 依赖 `:wallet` 的 `WalletSdk`）。
 5. **密钥安全边界**：编排器只把派生结果/地址交给 `SwiftVault` 落库；密码经调用方 `Data` 传入（Swift `Data` 无 Kotlin `ByteArray.fill(0)` 的原地清零语义——**显式偏离**，见 04 坑 #2）。
 
 ## 文档导航
 
 | 文档 | 内容 |
 | --- | --- |
-| [01-kotlin-architecture.md](01-kotlin-architecture.md) | Kotlin 版模块解析（已对齐源码）：`AccountSdk` 门面、`AccountOrchestrator`、`IAccountStore`/Room 两表、模型与错误、测试基线 |
-| [02-swift-design.md](02-swift-design.md) | Swift 版设计：模块布局、GRDB 两表、`AccountStore` 协议、`SwiftAccount` 门面与 `AccountOrchestrator` 代码草案、并发与安全要点 |
+| [01-kotlin-architecture.md](01-kotlin-architecture.md) | Kotlin 版模块解析（已对齐源码）：`AccountSdk` 门面、`AccountManager`、`IAccountStore`/Room 两表、模型与错误、测试基线 |
+| [02-swift-design.md](02-swift-design.md) | Swift 版设计：模块布局、GRDB 两表、`AccountStore` 协议、`SwiftAccount` 门面与 `AccountManager` 代码草案、并发与安全要点 |
 | [04-migration-and-testing.md](04-migration-and-testing.md) | Kotlin → Swift 逐项对照、实现坑（Room→GRDB、Flow→AsyncStream、Data 与密码语义、Mutex→actor、Path 双份）、测试策略与实施清单 |
 
 ## 快速接入（设计预览）
@@ -46,15 +46,15 @@ for await roots in account.rootHDAccounts { /* HD 根 */ }
 
 // 编排器（依赖 vault + wallet，负责导入/派生/删除）
 let vault = VaultRepository.get()
-let orchestrator = account.orchestrator(vault: vault, wallet: walletSdk)
+let accountManager = account.accountManager   // 成员变量（init 已注入 vault/wallet）
 
 // 导入 HD 钱包
 let hd = try await walletSdk.hdWalletFromMnemonic(mnemonic: ..., chains: [ChainType.eth.bip44Code])
-let result = await orchestrator.importHdWallet(hd, name: "My HD", password: passwordData)
+let result = await accountManager.importHdWallet(hd, name: "My HD", password: passwordData)
 // result: AccountOperationResult<ImportHdWalletResult>
 
 // 派生子账户（Swift 侧派生需显式密码——见 02 §5 / 04 坑 #6）
-let derived = await orchestrator.deriveSubAccount(chain: .eth, rootAccountId: "root", password: passwordData)
+let derived = await accountManager.deriveSubAccount(chain: .eth, rootAccountId: "root", password: passwordData)
 ```
 
 ## 模块边界（与其他 Swift 模块的分工）
@@ -74,7 +74,7 @@ let derived = await orchestrator.deriveSubAccount(chain: .eth, rootAccountId: "r
 | 存储 | Room（`AccountRoomDatabase`，`ccdao_accounts.db`，两表） | **GRDB**（`GRDBAccountStore`，两表同构） |
 | 观察 | `Flow<List<WalletAccount>>` | `AsyncStream`（ValueObservation 驱动） |
 | 门面入口 | `AccountSdk.get(context)`（单例） | `SwiftAccount(store:)`（无需 Context，store 注入） |
-| 编排器 | `AccountOrchestrator(store, vault)`，vault 自带解锁态 | `AccountOrchestrator(store, vault, wallet)`；派生需显式密码（SwiftVault 公开读取 `getMnemonic` 每次重校验密码，会话态读取未作稳定 API，见 04 坑 #6） |
+| 编排器 | `AccountManager(store, vault)`，vault 自带解锁态 | `AccountManager(store, vault, wallet: any WalletDeriving)`；`VaultRepository` 为 **actor**（调用 `await`）；派生需显式密码（见 04 坑 #6） |
 | 密码语义 | `ByteArray` + 原地清零（H-R5） | `Data`（无原地清零；调用方负责，见 04 坑 #2） |
 | 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器显式稳定 id `"\(address)#\(chain.bip44Code)"`（偏离，见 04 坑 #1） |
 | 并发 | `Mutex` + `suspend` | `actor` 互斥门（链式 Task 串行，仅 `deriveSubAccount` 互斥，见 04 坑 #16） |

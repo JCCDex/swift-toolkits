@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// 请求账户前的用户授权回调（M-06：必须设置，未设置视为用户拒绝）。
 public typealias RequestAccountsCallback = @MainActor (String) async -> Bool

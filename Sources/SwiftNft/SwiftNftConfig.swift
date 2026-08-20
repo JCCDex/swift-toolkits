@@ -1,5 +1,4 @@
 import Foundation
-import SwiftDappConnect
 
 /// SwiftNft 配置（对应 Kotlin `NftSdk.create(context, databaseName, ethTokenUriResolver)`）。
 ///

@@ -6,13 +6,13 @@
 
 ```text
 Sources/SwiftAccount/
-├── SwiftAccount.swift               // 门面：镜像 AccountSdk（观察/CRUD/查询/orchestrator）
-├── AccountOrchestrator.swift        // 业务编排：导入/派生/删除（依赖 SwiftVault + SwiftWallet）
+├── SwiftAccount.swift               // 门面：镜像 AccountSdk（观察/CRUD/查询/accountManager）
+├── AccountManager.swift        // 业务编排：导入/派生/删除（依赖 SwiftVault + SwiftWallet）
 ├── AccountModels.swift              // AccountOperationResult / AccountOperationError /
 │                                    //   ImportHdWalletResult / HdChildAccountId / DerivedSubAccount
 ├── Store/AccountStore.swift         // 协议：镜像 IAccountStore（观察流 + CRUD + 查询）
 ├── Store/GRDBAccountStore.swift     // GRDB 实现：accounts / current_account 两表
-└── Util/PathConversion.swift        // SwiftDappConnect.Path ↔ SwiftWallet.Path 互转（对应 toCorePath/toWalletPath）
+└── (Path 已统一到 SwiftCore——不再有双份 Path，无需 PathConversion)
 ```
 
 `Package.swift` 目标：
@@ -99,7 +99,7 @@ public protocol AccountStore: AnyObject, Sendable {
 }
 ```
 
-> **`addAccount`/`addAccounts` 冲突策略**：Kotlin Room `@Insert` 默认 ABORT——重复 `id` 抛 `SQLiteConstraintException`（orchestrator 判重前置，见 01 §4）；Swift 建议同样**冲突即抛错**（`INSERT` 不接 `ON CONFLICT DO UPDATE`），保持「重复 id 是编程错误」语义；仅 `current_account` 用 upsert（固定单行）。若实现选择幂等 upsert，须在协议注释写明偏离。
+> **`addAccount`/`addAccounts` 冲突策略**：Kotlin Room `@Insert` 默认 ABORT——重复 `id` 抛 `SQLiteConstraintException`（AccountManager 判重前置，见 01 §4）；Swift 建议同样**冲突即抛错**（`INSERT` 不接 `ON CONFLICT DO UPDATE`），保持「重复 id 是编程错误」语义；仅 `current_account` 用 upsert（固定单行）。若实现选择幂等 upsert，须在协议注释写明偏离。
 > Kotlin 的 `Flow` 属性（`accounts`/`currentAccount`/…）在 Swift 用 `observeXxx() -> AsyncStream` 表达（与 SwiftNft/SwiftDid 的 `observeDidDocument` 等命名一致）。
 > 空表语义按 Kotlin 对齐：`countSubAccountsByChain`（`COUNT(*)`）无行 → 0；**`getMaxIndexByChain`（`MAX(pathIndex)`）无行 → -1**（Kotlin `?: -1`），这是 `deriveSubAccount` 里 `getMaxIndexByChain + 1` 让首个子账户落在 index 0 的前提——勿实现成 0。
 > `setCurrentAccount` 对齐 Kotlin 的「账户不存在抛 `NoSuchElementException`」语义：建议 Swift 同样**抛错**（`AccountStoreError.accountNotFound(accountId)` 或等价错误，在协议注释写明）；不做 no-op——no-op 会掩盖宿主 bug。
@@ -116,12 +116,12 @@ public final class SwiftAccount: Sendable {
         self.store = store
     }
 
-    /// 编排器（依赖 vault + wallet；仅导入/派生/删除流程需要）。
+    /// 创建编排器（依赖 vault + wallet；仅导入/派生/删除流程需要）。
     /// ⚠️ 使用前须先启动 SwiftWallet 桥（对应 Kotlin `WalletSdk.initialize(context); start()`，
     /// 隐藏 WebView runtime 就绪后才能 deriveChild/hdWalletFromMnemonic）；SwiftWallet 为 @MainActor，
     /// 编排器（自由线程）经 `await` 跨 actor 调用其方法。
-    public func orchestrator(vault: VaultRepository, wallet: SwiftWallet) -> AccountOrchestrator {
-        AccountOrchestrator(store: self.store, vault: vault, wallet: wallet)
+    public func accountManager(vault: VaultRepository, wallet: any WalletDeriving) -> AccountManager {
+        AccountManager(store: self.store, vault: vault, wallet: wallet)
     }
 
     public var accounts: AsyncStream<[WalletAccount]> { self.store.observeAccounts() }
@@ -156,7 +156,7 @@ public final class SwiftAccount: Sendable {
 
 > `WalletAccount.id`：SwiftDappConnect 默认 `UUID().uuidString`（随机、**不幂等**）；Kotlin 的 `id` 是调用方控制的业务 id（Room 非自增 String PK）。**编排器落库时必须显式覆盖为稳定 id** `"\(address)#\(chain.bip44Code)"`（同地址同链唯一、天然对应 `findNonRootAccount`/`getSameAccountsCount` 判重键与幂等删除），见 04 坑 #1。
 
-## 5. AccountOrchestrator（代码草案）
+## 5. AccountManager（代码草案）
 
 ```swift
 public enum AccountOperationError: Error, Equatable {
@@ -210,7 +210,7 @@ private actor DeriveGate {
     }
 }
 
-public final class AccountOrchestrator: Sendable {
+public final class AccountManager: Sendable {
     private let store: any AccountStore
     private let vault: VaultRepository
     private let wallet: SwiftWallet
@@ -268,8 +268,8 @@ public final class AccountOrchestrator: Sendable {
 
 ## 6. 并发与安全要点
 
-- **自由线程**：`SwiftAccount`/`AccountStore` 不加 `@MainActor`（AsyncStream 观察、GRDB DatabasePool 线程安全）；`VaultRepository` 内部自带锁。
-- **@MainActor 接线**：`SwiftWallet` 门面是 `@MainActor`，`AccountOrchestrator` 调 `deriveChild`/`hdWalletFromMnemonic` 经 `await` 跨 actor（Swift 6 严格并发允许）；编排器自身不要求 MainActor。
+- **自由线程**：`SwiftAccount`/`AccountStore` 不加 `@MainActor`（AsyncStream 观察、GRDB DatabasePool 线程安全）；`VaultRepository` 是 **actor**（调用需 `await`）；派生能力经 **`WalletDeriving` 协议**注入（`SwiftWallet` conform，测试可 Fake——实现决策，见 README 差异表）。
+- **@MainActor 接线**：`SwiftWallet` 门面是 `@MainActor`，`AccountManager` 调 `deriveChild`/`hdWalletFromMnemonic` 经 `await` 跨 actor（Swift 6 严格并发允许）；编排器自身不要求 MainActor。
 - **写路径互斥**：仅 `deriveSubAccount` 需要互斥（对应 Kotlin `Mutex`），用 actor 互斥门 `DeriveGate`（链式 Task 串行，见 §5），**不用 `NSLock`**、**不靠 actor 方法直接写临界区**（await 点可重入，见 04 坑 #16）；其余写操作幂等或由 store 冲突策略保证。
 - **密码安全**：`Data` 不提供 Kotlin `ByteArray.fill(0)` 的原地清零——编排器不复制密码缓冲（显式偏离，文档注明）；宿主应避免复用同一 `Data` 作 password 与 clearExistingPassword。
 - **私钥明文边界**：编排器内部只把派生 keypair 的**私钥字节**传给 `vault.importPrivateKey`（SwiftVault 加密落盘），自身不保留明文；`deriveSubAccount` 的 mnemonic 读自 vault（SwiftVault 解密返回 `Data`，用完由调用方置空——Swift 无自动清零）。

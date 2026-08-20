@@ -1,6 +1,6 @@
 import Foundation
 import OSLog
-import SwiftDappConnect
+import SwiftCore
 
 // MARK: - DidNftResolution（协议缝，阶段二形态）
 

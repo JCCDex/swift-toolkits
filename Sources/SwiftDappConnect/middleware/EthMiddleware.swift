@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// EVM 中间件：eth_*/personal_*/wallet_switchEthereumChain 等 RPC 方法。
 @MainActor

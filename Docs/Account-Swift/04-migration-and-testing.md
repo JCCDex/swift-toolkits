@@ -8,13 +8,13 @@
 | 存储 | `IAccountStore` + `RoomAccountStore`（Room，`ccdao_accounts.db`） | `AccountStore` 协议 + `GRDBAccountStore`（两表同构；`addAccount`/`addAccounts` 冲突即抛、仅 `current_account` 单行 upsert，见坑 #14） |
 | chain 还原 | `ChainType.fromBip44Code(chain)` | SwiftDappConnect 仅有 `bip44Code`（单向）——**需补充 `fromBip44Code(_:) -> ChainType?`**（或 SwiftAccount 内部 `allCases.first{ $0.bip44Code == code }`），见坑 #12 |
 | 观察 | `Flow<List<WalletAccount>>` / `Flow<WalletAccount?>` | `AsyncStream<[WalletAccount]>` / `AsyncStream<WalletAccount?>`（ValueObservation） |
-| 编排 | `AccountOrchestrator(store, vault)` | `AccountOrchestrator(store, vault, wallet)`（Swift 显式注入 wallet 派生能力） |
+| 编排 | `AccountManager(store, vault)` | `AccountManager(store, vault, wallet)`（Swift 显式注入 wallet 派生能力） |
 | 错误 | `AccountOperationResult<T>` 密封类 + `AccountOperationError` | `AccountOperationResult<Value>` enum + `AccountOperationError` enum |
 | 密码 | `ByteArray`（H-R5 原地清零） | `Data`（无原地清零，显式偏离） |
 | 解锁态 | `vault.getMnemonicUnlocked(address)`（会话态读取） | SwiftVault 公开读取 `getMnemonic` 每次重校验密码 → `deriveSubAccount` 显式传 `password`（偏离，见坑 #6） |
 | 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器显式稳定 id `"\(address)#\(chain.bip44Code)"`（偏离，见坑 #1） |
 | 互斥 | `Mutex` | actor 互斥门（仅 deriveSubAccount，见坑 #16） |
-| Path | `:core.Path` ↔ `:wallet.Path` 互转 | SwiftDappConnect.Path ↔ SwiftWallet.Path 互转（Util/PathConversion.swift） |
+| Path | `:core.Path` ↔ `:wallet.Path` 互转（双份） | **统一到 SwiftCore.Path**（含 derivationPath/Codable；SwiftDappConnect 与 SwiftWallet 原双份已合并，无需互转） |
 
 ## 2. 实现坑
 
@@ -52,5 +52,5 @@
 - [ ] `Model`：`AccountOperationResult` / `AccountOperationError` / `ImportHdWalletResult` / `HdChildAccountId` / `DerivedSubAccount` + 单测
 - [ ] `Store/AccountStore.swift` 协议（观察流 + CRUD + 查询，镜像 IAccountStore）+ `GRDBAccountStore`（两表迁移 / upsert / ValueObservation / 索引）+ 单测
 - [ ] `SwiftAccount.swift` 门面（全部方法镜像 AccountSdk）+ `Util/PathConversion.swift`
-- [ ] `AccountOrchestrator.swift`：六流程（importSingleAccount / importHdWallet / importSubAccount / deriveSubAccount / removeAccount / clearWalletData）+ Fake store/vault/wallet 单测
+- [ ] `AccountManager.swift`：六流程（importSingleAccount / importHdWallet / importSubAccount / deriveSubAccount / removeAccount / clearWalletData）+ Fake store/vault/wallet 单测
 - [ ] 接入 `Examples/WalletDemo`：账户层替换 demo 自维护的地址列表（若 demo 扩展示）

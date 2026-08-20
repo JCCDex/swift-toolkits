@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import SwiftDappConnect
 import SwiftNft
 

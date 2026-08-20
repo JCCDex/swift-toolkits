@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import WebKit
 
 /// SwiftDappConnect 统一入口：中间件工厂、JS 生成、URL 安全。

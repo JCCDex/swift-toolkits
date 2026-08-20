@@ -74,7 +74,7 @@ final class EngineWalletBridge: WalletBridge {
 /// 覆盖：助记词生成/校验、子账户派生、地址派生与校验、SWTC/EVM 交易构造与签名、
 /// EVM 消息签名与验签、加密/解密。
 @MainActor
-public final class SwiftWallet {
+public final class SwiftWallet: WalletDeriving {
     public static let shared = SwiftWallet()
 
     private let bridge: any WalletBridge

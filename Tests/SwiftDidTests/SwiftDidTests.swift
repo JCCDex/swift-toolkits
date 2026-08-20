@@ -1,4 +1,5 @@
 import GRDB
+import SwiftCore
 import SwiftDappConnect
 @testable import SwiftDid
 import SwiftNft

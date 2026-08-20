@@ -1,5 +1,6 @@
 import Foundation
 import os
+import SwiftCore
 import SwiftDappConnect
 import SwiftVault
 import SwiftWebviewBridge

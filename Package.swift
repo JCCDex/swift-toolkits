@@ -20,6 +20,15 @@ if hasVendoredTink {
 
 var targets: [Target] = [
     .target(
+        name: "SwiftCore", // 共享模型（ChainType / Path / WalletAccount），对应 Kotlin :core
+        path: "Sources/SwiftCore"
+    ),
+    .testTarget(
+        name: "SwiftCoreTests",
+        dependencies: ["SwiftCore"],
+        path: "Tests/SwiftCoreTests"
+    ),
+    .target(
         name: "SwiftVault",
         dependencies: swiftVaultDependencies,
         path: "Sources/SwiftVault",
@@ -49,6 +58,9 @@ var targets: [Target] = [
     ),
     .target(
         name: "SwiftDappConnect",
+        dependencies: [
+            .target(name: "SwiftCore") // ChainType / Path / WalletAccount（原在 model/Models.swift，已迁 SwiftCore）
+        ],
         path: "Sources/SwiftDappConnect",
         resources: [
             // 注意：不能 .copy("Resources")（会在 bundle 内生成 Resources/ 包装层，
@@ -58,7 +70,7 @@ var targets: [Target] = [
     ),
     .testTarget(
         name: "SwiftDappConnectTests",
-        dependencies: ["SwiftDappConnect"],
+        dependencies: ["SwiftDappConnect", "SwiftCore"], // 测试用 ChainType / WalletAccount
         path: "Tests/SwiftDappConnectTests"
     ),
     .target(
@@ -66,20 +78,21 @@ var targets: [Target] = [
         dependencies: [
             .target(name: "SwiftWebviewBridge"),
             // WalletSigning 协议定义在 SwiftDappConnect；SwiftWallet 作为其真实实现。
-            .target(name: "SwiftDappConnect")
+            .target(name: "SwiftDappConnect"),
+            .target(name: "SwiftCore") // Path（原重复定义在 WalletModels.swift，已合并）
         ],
         path: "Sources/SwiftWallet"
     ),
     .testTarget(
         name: "SwiftWalletTests",
-        dependencies: ["SwiftWallet"],
+        dependencies: ["SwiftWallet", "SwiftCore"],
         path: "Tests/SwiftWalletTests"
     ),
     .target(
         name: "SwiftNft",
         dependencies: [
-            // 仅取 WalletAccount / ChainType 模型（SwiftDappConnect 零运行时依赖，对应 Kotlin :core）。
-            .target(name: "SwiftDappConnect"),
+            // 仅取 WalletAccount / ChainType 模型（SwiftCore，对应 Kotlin :core）。
+            .target(name: "SwiftCore"),
             // Room → GRDB（四表：nft_meta / swtc_nfts / evm_nft_items / evm_nft_collections，见 Nft-Swift 02 §5）。
             .product(name: "GRDB", package: "GRDB.swift")
         ],
@@ -89,7 +102,7 @@ var targets: [Target] = [
         name: "SwiftNftTests",
         dependencies: [
             "SwiftNft",
-            .target(name: "SwiftDappConnect"), // 测试用 WalletAccount/ChainType
+            .target(name: "SwiftCore"), // 测试用 WalletAccount/ChainType
             .product(name: "GRDB", package: "GRDB.swift") // 测试用内存 DatabasePool
         ],
         path: "Tests/SwiftNftTests",
@@ -101,7 +114,8 @@ var targets: [Target] = [
         name: "SwiftDid",
         dependencies: [
             .target(name: "SwiftWebviewBridge"), // did-bridge.html / did-bridge.js 资产 + 桥运行时
-            .target(name: "SwiftDappConnect"), // DidSDK 协议 / WalletAccount / ChainType
+            .target(name: "SwiftDappConnect"), // DidSDK 协议
+            .target(name: "SwiftCore"), // WalletAccount / ChainType
             .target(name: "SwiftNft"), // 阶段二：DTO 与 DidNftResolution 协议缝归 SwiftNft（见 Nft-Swift 02 §2）
             .product(name: "GRDB", package: "GRDB.swift") // 对应 Kotlin Room（did_documents / did_pending）
         ],
@@ -112,12 +126,34 @@ var targets: [Target] = [
         dependencies: [
             "SwiftDid",
             .target(name: "SwiftDappConnect"),
+            .target(name: "SwiftCore"), // 测试用 WalletAccount / ChainType
             .product(name: "GRDB", package: "GRDB.swift")
         ],
         path: "Tests/SwiftDidTests",
         resources: [
             .copy("Fixtures") // 真实 DID 文档（RealDidDocumentTests 用，见 Fixtures/）
         ]
+    ),
+    .target(
+        name: "SwiftAccount",
+        dependencies: [
+            .target(name: "SwiftCore"), // 共享模型（ChainType / Path / WalletAccount）
+            .target(name: "SwiftVault"), // 密钥落库 / 密码校验
+            .target(name: "SwiftWallet"), // 地址派生（对应 Kotlin :wallet 的 WalletSdk）
+            .product(name: "GRDB", package: "GRDB.swift") // 对应 Kotlin Room（accounts / current_account）
+        ],
+        path: "Sources/SwiftAccount"
+    ),
+    .testTarget(
+        name: "SwiftAccountTests",
+        dependencies: [
+            "SwiftAccount",
+            "SwiftCore",
+            "SwiftVault",
+            "SwiftWallet",
+            .product(name: "GRDB", package: "GRDB.swift")
+        ],
+        path: "Tests/SwiftAccountTests"
     )
 ]
 
@@ -161,6 +197,14 @@ let package = Package(
         .library(
             name: "SwiftDid",
             targets: ["SwiftDid"]
+        ),
+        .library(
+            name: "SwiftCore",
+            targets: ["SwiftCore"]
+        ),
+        .library(
+            name: "SwiftAccount",
+            targets: ["SwiftAccount"]
         )
     ],
     dependencies: [

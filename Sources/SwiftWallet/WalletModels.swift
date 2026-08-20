@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 // MARK: - 钱包模型（镜像 Kotlin `WalletModels.kt`，Decodable 对应）
 
@@ -10,26 +11,6 @@ public struct Keypair: Codable, Sendable, Equatable {
     public init(privateKey: String, publicKey: String) {
         self.privateKey = privateKey
         self.publicKey = publicKey
-    }
-}
-
-/// BIP44 派生路径段（chain = BIP44 链码，与 SwiftDappConnect `ChainType.bip44Code` 数值一致）
-public struct Path: Codable, Sendable, Equatable {
-    public let chain: Int64
-    public let account: Int
-    public let change: Int
-    public let index: Int
-
-    public init(chain: Int64, account: Int = 0, change: Int = 0, index: Int = 0) {
-        self.chain = chain
-        self.account = account
-        self.change = change
-        self.index = index
-    }
-
-    /// `m/44'/<chain>'/<account>'/<change>/<index>`（与 Kotlin `Path.toString()` 一致）
-    public var derivationPath: String {
-        "m/44'/\(self.chain)'/\(self.account)'/\(self.change)/\(self.index)"
     }
 }
 

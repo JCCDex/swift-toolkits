@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 @testable import SwiftDappConnect
 
 func makeAccount(address: String, chain: ChainType = .eth, isHD: Bool = false, parentId: String? = nil) -> WalletAccount {
