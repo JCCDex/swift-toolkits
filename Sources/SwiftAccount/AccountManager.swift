@@ -37,8 +37,8 @@ public final class AccountManager: Sendable {
             await self.persistVault(derived)
 
             let walletAccount = WalletAccount(
-                // 显式稳定 id（默认 UUID 随机不幂等，见 Account-Swift 04 坑 #1）
-                id: "\(address)#\(chain.bip44Code)",
+                // id 用默认 UUID（对齐 Kotlin：id 是调用方可控的业务键；判重依赖 address，
+                // 见 importSingleAccount 入口的 findNonRootAccount 预检）
                 address: address,
                 chain: chain,
                 name: name,
@@ -101,7 +101,6 @@ public final class AccountManager: Sendable {
             )
 
             let rootAccount = WalletAccount(
-                id: "\(hdResult.address)#\(ChainType.swtc.bip44Code)",
                 address: hdResult.address,
                 chain: .swtc,
                 name: name,
@@ -122,7 +121,6 @@ public final class AccountManager: Sendable {
                     continue
                 }
                 let child = WalletAccount(
-                    id: "\(sub.address)#\(chainType.bip44Code)",
                     address: sub.address,
                     chain: chainType,
                     name: "\(chainType.label)-HD",

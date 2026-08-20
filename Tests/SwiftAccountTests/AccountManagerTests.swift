@@ -55,7 +55,10 @@ final class AccountManagerTests: XCTestCase {
         guard case let .success(id) = result else {
             return XCTFail("应成功，得到 \(result)")
         }
-        XCTAssertEqual(id, "0xabc#\(ChainType.eth.bip44Code)", "稳定 id 约定")
+        // id 为默认 UUID（对齐 Kotlin：判重依赖入口 findNonRootAccount 的 address 预检，与 id 无关）
+        let saved = try await self.store.findById(id)
+        XCTAssertNotNil(saved, "导入的账户应能按返回 id 查回")
+        XCTAssertEqual(saved?.address, "0xabc")
 
         let dup = await self.manager.importSingleAccount(
             derived: derived, chain: .eth, name: "acc", isHD: false, parentId: nil
@@ -264,22 +267,20 @@ final class AccountManagerTests: XCTestCase {
     func testRemoveAccountVaultSemantics() async throws {
         try await self.vault.initializePassword(self.password)
         // 同地址两个账户（跨链）：删一个保留 vault；删最后一个清 vault
-        _ = await self.manager.importSingleAccount(
+        guard case let .success(ethId) = await self.manager.importSingleAccount(
             derived: TraditionalDeriveResult(address: "0xshared", keypair: self.keypair("0xshared"), path: nil),
             chain: .eth, name: "e", isHD: false, parentId: nil
-        )
-        _ = await self.manager.importSingleAccount(
+        ) else { return XCTFail("导入 eth 账户失败") }
+        guard case let .success(swtcId) = await self.manager.importSingleAccount(
             derived: TraditionalDeriveResult(address: "0xshared", keypair: self.keypair("0xshared"), path: nil),
             chain: .swtc, name: "s", isHD: false, parentId: nil
-        )
+        ) else { return XCTFail("导入 swtc 账户失败") }
 
-        let ethId = "0xshared#\(ChainType.eth.bip44Code)"
         let first = await self.manager.removeAccount(accountId: ethId, password: self.password)
         guard case .success = first else { return XCTFail("删一个应成功：\(first)") }
         let stillInKeys = try await self.vault.addressInKeys("0xshared")
         XCTAssertTrue(stillInKeys, "同地址还有另一账户 → 保留 vault")
 
-        let swtcId = "0xshared#\(ChainType.swtc.bip44Code)"
         let last = await self.manager.removeAccount(accountId: swtcId, password: self.password)
         guard case .success = last else { return XCTFail("删最后一个应成功：\(last)") }
         let removed = try await self.vault.addressInKeys("0xshared")

@@ -35,7 +35,7 @@ final class DemoWalletState: ObservableObject {
         }
     }
 
-    /// 切换当前账户：委托 `SwiftAccount.setCurrentAccount(accountId:)`（稳定 id `address#chain`）。
+    /// 切换当前账户：委托 `SwiftAccount.setCurrentAccount(accountId:)`（id 来自观察流，动态获取）。
     func setCurrent(_ address: String) {
         guard let account,
               let matched = self.accounts.first(where: { $0.address.caseInsensitiveCompare(address) == .orderedSame })

@@ -154,7 +154,7 @@ public final class SwiftAccount: Sendable {
 }
 ```
 
-> `WalletAccount.id`：SwiftDappConnect 默认 `UUID().uuidString`（随机、**不幂等**）；Kotlin 的 `id` 是调用方控制的业务 id（Room 非自增 String PK）。**编排器落库时必须显式覆盖为稳定 id** `"\(address)#\(chain.bip44Code)"`（同地址同链唯一、天然对应 `findNonRootAccount`/`getSameAccountsCount` 判重键与幂等删除），见 04 坑 #1。
+> `WalletAccount.id`：Swift `WalletAccount.init` 默认 `UUID().uuidString`；Kotlin 的 `id` 是调用方控制的业务 id（Room 非自增 String PK）。**编排器不覆盖 id、沿用默认 UUID（对齐 Kotlin）**——判重不依赖 id：导入入口按 address 预检（`findNonRootAccount`/`findRootAccountByAddress`，见 04 坑 #1），重复导入返回错误不落库；`removeAccount` vault 清理按 `getSameAccountsCount(address)`。
 
 ## 5. AccountManager（代码草案）
 

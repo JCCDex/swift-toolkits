@@ -12,13 +12,13 @@
 | 错误 | `AccountOperationResult<T>` 密封类 + `AccountOperationError` | `AccountOperationResult<Value>` enum + `AccountOperationError` enum |
 | 密码 | `ByteArray`（H-R5 原地清零） | `Data`（无原地清零，显式偏离） |
 | 解锁态 | `vault.getMnemonicUnlocked(address)`（会话态读取） | SwiftVault 公开读取 `getMnemonic` 每次重校验密码 → `deriveSubAccount` 显式传 `password`（偏离，见坑 #6） |
-| 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器显式稳定 id `"\(address)#\(chain.bip44Code)"`（偏离，见坑 #1） |
+| 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器同样用 UUID 默认 id（判重依赖 address 预检，见坑 #1） |
 | 互斥 | `Mutex` | actor 互斥门（仅 deriveSubAccount，见坑 #16） |
 | Path | `:core.Path` ↔ `:wallet.Path` 互转（双份） | **统一到 SwiftCore.Path**（含 derivationPath/Codable；SwiftDappConnect 与 SwiftWallet 原双份已合并，无需互转） |
 
 ## 2. 实现坑
 
-1. **`WalletAccount.id` 必须显式稳定**：SwiftDappConnect 的 `WalletAccount.init` 默认 `id = UUID().uuidString`（随机、**不幂等**）。编排器落库必须覆盖为稳定 id `"\(address)#\(chain.bip44Code)"`（同地址同链唯一；否则重复导入同地址判重失效、`removeAccount` 幂等性破坏）；宿主直接 `addAccount` 也应按此约定。**`getSameAccountsCount`/`findNonRootAccount` 判重依赖 address，与 id 无关**——但 id 稳定是「同地址只一条」的前提（见 02 §4）。
+1. **`WalletAccount.id` 用默认 UUID（对齐 Kotlin）**：Swift `WalletAccount.init` 默认 `id = UUID().uuidString`，编排器**不覆盖**（与 Kotlin 一致：id 是调用方可控的业务键）。**判重不依赖 id**：`importSingleAccount`/`importSubAccount` 入口先 `findNonRootAccount(address, chain)` 按地址判重、`importHdWallet` 根账户按 `findRootAccountByAddress` 判重、子账户按地址跳过已存在——重复导入返回 `addressAlreadyExists`/`accountAlreadyExists`，不会落库，`removeAccount` 的 vault 清理用 `getSameAccountsCount(address)`（与 id 无关）。宿主直接调门面 `addAccount` 时自行保证幂等（store 层按 id 唯一约束冲突即抛，见坑 #14）。
 2. **`ByteArray` 清零语义缺失**：Kotlin `importHdWallet` 的「password 与 clearExistingPassword 必须 distinct（H-R5：verify/clear 会原地 wipe）」在 Swift `Data` 上不存在——Swift 不复制/不清零密码缓冲，调用方自行保证两个参数不是同一份可变缓冲。文档注明，勿试图用 `Data` 模拟原地清零。
 3. **GRDB 建索引**：`TableDefinition.index(_:)` 在 GRDB 7 不可用（Nft-Swift 04 坑 #3 同款）；用迁移后 `try db.create(index:on:columns:)`。
 4. **`current_account` 单行语义**：`setCurrentAccount` 用 `INSERT ... ON CONFLICT(id) DO UPDATE`（id 固定 1；单行下与 REPLACE 等价，沿用 GRDB upsert 惯例）；`removeAccount` 后若删的是 current → **删除该行**（对齐 Kotlin `clearIfCurrent`；`accountId` 列 NOT NULL，**不能置空**，见 02 §2），观察流随之推 nil——补测试「删除当前账户 → current 流推 nil」；`clearAllAccounts` 会**一并清空 `current_account`**（对齐 Kotlin `deleteAll`）。

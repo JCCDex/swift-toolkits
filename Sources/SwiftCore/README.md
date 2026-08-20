@@ -28,7 +28,7 @@ public struct Path: Codable, Sendable, Equatable {
 }
 
 public struct WalletAccount: Sendable, Identifiable, Equatable {
-    public let id: String              // 默认 UUID；AccountManager 显式用 "address#bip44Code"（幂等）
+    public let id: String              // 默认 UUID；判重依赖 address（导入入口先按地址预检）
     public let address: String
     public let chain: ChainType
     public let name: String
@@ -51,7 +51,6 @@ import SwiftCore
 let chain = ChainType.eth                       // bip44Code = 2_147_483_708
 let path = Path.root(chainType: chain)          // m/44'/2147483708'/0'/0/0
 let account = WalletAccount(
-    id: "0xabc…#2147483708",                   // 稳定 id：address#bip44Code
     address: "0xabc…",
     chain: .eth,
     name: "Demo Wallet",

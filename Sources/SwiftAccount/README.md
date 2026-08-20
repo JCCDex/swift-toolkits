@@ -58,7 +58,7 @@ if case let .success(accountId) = result {
 
 ## 设计要点（与 Kotlin 对齐）
 
-1. **稳定 id = `address#bip44Code`**：非随机 UUID——随机 id 破坏判重/计数/删 vault 语义，重复导入靠唯一约束显式报错（见 04 坑 #1）。
+1. **id 默认 UUID（对齐 Kotlin）**：`WalletAccount.id` 用默认 `UUID().uuidString`——**判重不依赖 id**：`importSingleAccount`/`importSubAccount` 入口先 `findNonRootAccount(address, chain)` 按地址判重，`importHdWallet` 根账户用 `findRootAccountByAddress` 判重、子账户按地址跳过已存在；重复导入返回 `addressAlreadyExists`/`accountAlreadyExists`，不会落库。
 2. **冲突即抛错**：`addAccount`/`addAccounts` 走 GRDB insert（ABORT 语义），不做 upsert 静默覆盖；编排器先判重（见 04 坑 #14）。
 3. **`getMaxIndexByChain` 空表 → -1**：`deriveSubAccount` 依赖 -1 + 1 = 0 让首个子账户落在 index 0（见 04 坑 #15）。
 4. **`findNonRootAccount` SQL 含 `((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)`**：与 Kotlin 一致；`importSingleAccount`/`importSubAccount` 用它判重（不判根）。

@@ -76,6 +76,6 @@ let derived = await accountManager.deriveSubAccount(chain: .eth, rootAccountId: 
 | 门面入口 | `AccountSdk.get(context)`（单例） | `SwiftAccount(store:)`（无需 Context，store 注入） |
 | 编排器 | `AccountManager(store, vault)`，vault 自带解锁态 | `AccountManager(store, vault, wallet: any WalletDeriving)`；`VaultRepository` 为 **actor**（调用 `await`）；派生需显式密码（见 04 坑 #6） |
 | 密码语义 | `ByteArray` + 原地清零（H-R5） | `Data`（无原地清零；调用方负责，见 04 坑 #2） |
-| 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器显式稳定 id `"\(address)#\(chain.bip44Code)"`（偏离，见 04 坑 #1） |
+| 账户 id | Kotlin 编排器用 UUID 默认 id（调用方可控） | Swift 编排器同样用 UUID 默认 id（判重依赖 address 预检，与 id 无关） |
 | 并发 | `Mutex` + `suspend` | `actor` 互斥门（链式 Task 串行，仅 `deriveSubAccount` 互斥，见 04 坑 #16） |
 | Path | `:core` 与 `:wallet` 双份，互转 `toCorePath`/`toWalletPath` | SwiftDappConnect 与 SwiftWallet 各一份，编排器做等价转换 |

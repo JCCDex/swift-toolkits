@@ -218,7 +218,7 @@ final class GRDBAccountStoreTests: XCTestCase {
     }
 
     func testFindNonRootAccountFiltersTraditionalAndHdSub() async throws {
-        // 注意：id 约定 address#chain，同地址同链会撞 id——测试数据须跨地址/跨链
+        // 注意：id 是 PK（冲突即抛），且同地址同链会撞 findNonRootAccount 判重键——测试数据须跨地址/跨链
         let trad = self.makeAccount(address: "0xshared")
         let root = self.makeAccount(address: "root", isHD: true)
         let sub = self.makeAccount(address: "0xsub", isHD: true, parentId: root.id, index: 0)
