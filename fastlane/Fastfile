@@ -1,5 +1,10 @@
 # This file contains the fastlane configuration for swift-toolkits.
 #
+# 禁用 fastlane 每次执行 lane 后自动重建 fastlane/README.md：
+# fastlane 2.x 默认会自动生成该文件并产生 markdown 格式警告；
+# README.md 已入库并手工维护，用 FASTLANE_SKIP_DOCS 关掉自动生成。
+ENV["FASTLANE_SKIP_DOCS"] = "1"
+#
 # This is a Swift Package Manager project (no Xcode project/workspace).
 # The lanes run tests via `xcodebuild` against the generated SPM scheme and
 # then produce HTML / JSON / Markdown coverage reports with `xcov`

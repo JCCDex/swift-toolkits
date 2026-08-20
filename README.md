@@ -58,8 +58,7 @@ bundle exec fastlane macos_test                          # macOS（带覆盖率�
 bundle exec fastlane ios_test                            # iOS 模拟器（默认最新运行时）
 bundle exec fastlane ios_test "device_name:iPhone 16" device_os:18   # 指定版本/机型（与 CI 一致）
 bundle exec fastlane ios_test_only                       # 仅测试、不带覆盖率（快速路径）
+
+# llvm-cov HTML 覆盖率报告（coverage/html/index.html，含全部模块）
+bundle exec fastlane html_report
 ```
-
-说明：iOS 测试会自动预热模拟器、串行执行，并对失败用例自动重试一次；覆盖率报告输出到 `coverage/`。
-
-> Tink 相关用例：Tink.xcframework 未 vendored 时相关用例会被编译期条件跳过，不影响其余测试。
