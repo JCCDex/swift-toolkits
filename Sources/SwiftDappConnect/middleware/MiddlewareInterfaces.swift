@@ -56,7 +56,7 @@ public protocol WalletSigning {
 @MainActor
 public protocol DidSDK {
     func didGenerateBase58PublicKey(privateKey: String) async throws -> (publicKeyBase58: String, type: String)
-    func signCredentialForDApp(privateKey: String, vcJson: String) async throws -> String
+    func signCredential(privateKey: String, vcJson: String) async throws -> String
     func ipfsPersonalSign(privateKey: String, data: [Int]) async throws -> String
     func ipfsGetPublicKey(privateKey: String) async throws -> String
 }

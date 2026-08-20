@@ -14,7 +14,7 @@
 | `didStat` | did | `{cid}` | `didStat`（写操作填 previousCid） |
 | `publishDid` | did, privateKey, didDocument | `{code, message}` | `publishDid` |
 | `generatePublicKeyBase58` | privateKey | `{publicKeyBase58, type}` | `didGenerateBase58PublicKey` |
-| `signCredential` | credential/keyDoc/privateKey/… | 签名后 VC（JSON 字符串） | `signCredentialForDApp`（**JS 强依赖 `keyDoc.did`/`keyDoc.id`**，native 结构校验须先于桥报错，见 §4） |
+| `signCredential` | credential/keyDoc/privateKey/… | 签名后 VC（JSON 字符串） | `signCredential`（**JS 强依赖 `keyDoc.did`/`keyDoc.id`**，native 结构校验须先于桥报错，见 §4） |
 | `ipfsGetPublicKey` | privateKey | 压缩公钥 hex | `ipfsGetPublicKey` |
 | `ipfsPersonalSign` | privateKey, data(int[]) | DER(hex) 签名 | `ipfsPersonalSign` |
 | `generateVC` | id/types/subject/privateKey/address/did/expirationDate/contextType | VC JSON | `addCredentialToDid`/`updateDidAvatar` 内部 |
@@ -41,6 +41,6 @@ const client = new IpfsClient({ baseURL: "https://wodecards.wh.jccdex.cn:8550" }
 ## 4. 密钥经桥安全
 
 - `signCredential` / `generateVC` / `ipfsPersonalSign` / `generatePublicKeyBase58` 等把私钥传入隐藏 WebView JS 上下文——与 Kotlin 现状一致。隐藏 WebView 只加载本地 bundle 资产（导航白名单），不可被远程内容劫持。
-- `signCredentialForDApp` 只做结构校验（M-15），**用户确认必须由宿主 UI 完成**——恶意 DApp 可构造任意 VC 内容要求签名，钱包须展示待签内容。
-- `signCredential` 还强依赖 `keyDoc.did`/`keyDoc.id`（`did-bridge.js` 内显式校验），`signCredentialForDApp` 的结构校验须把 keyDoc 一并纳入（M-15 三条 + keyDoc 两条），先于桥报错并返回 `SwiftDidError.invalidCredential`，避免把桥内字符串错误透传给 DApp。
+- `signCredential` 只做结构校验（M-15），**用户确认必须由宿主 UI 完成**——恶意 DApp 可构造任意 VC 内容要求签名，钱包须展示待签内容。
+- `signCredential` 还强依赖 `keyDoc.did`/`keyDoc.id`（`did-bridge.js` 内显式校验），`signCredential` 的结构校验须把 keyDoc 一并纳入（M-15 三条 + keyDoc 两条），先于桥报错并返回 `SwiftDidError.invalidCredential`，避免把桥内字符串错误透传给 DApp。
 - 私钥以 `String` 存在，Swift 无法可靠擦除（COW），上层调用后尽快丢弃引用（同 `SwiftWallet`）。

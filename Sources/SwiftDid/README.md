@@ -8,7 +8,7 @@
 2. **GRDB 替代 Room**：`DidStore` 协议 + `GRDBDidStore` 实现（`did_documents` 表 + `did_pending` 表 + ValueObservation 观察流），宿主可替换。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`，Gson → `[String: Any]`/Codable；门面 `@MainActor`，存储/解析协议自由线程。
 4. **avatar/NFT 经 `SwiftNft` 接入**：`SwiftDid` 以**可选依赖**接入 `SwiftNft`（对齐 Kotlin `nftSdk: NftSdk? = null`，构造参数 `nft: (any DidNftResolution)?`）；头像解析回退链与 Kotlin 一致：`DidAvatarResolver`（宿主注入）→ `SwiftNft` → 本地兜底解析；未注入时相关方法返回 nil，协议缝保证宿主无 SwiftNft 也能编译。
-5. **对接 SwiftDappConnect**：实现 `DidSDK` 协议（`didGenerateBase58PublicKey` / `signCredentialForDApp` / `ipfsPersonalSign` / `ipfsGetPublicKey`），成为中间件 `did_*` / `ipfs_*` 方法的真实后端。
+5. **对接 SwiftDappConnect**：实现 `DidSDK` 协议（`didGenerateBase58PublicKey` / `signCredential` / `ipfsPersonalSign` / `ipfsGetPublicKey`），成为中间件 `did_*` / `ipfs_*` 方法的真实后端。
 
 ## 快速开始
 
@@ -84,7 +84,7 @@ Sources/SwiftDid/
 | 展示模型 | `generateProfileVC(_:)`（preferredAvatar VC + 预取 nft_meta）/ `generateSwtcNft(_:)` / `generateEthrNft(_:)` / `getAvatarNftCredentials(account:)` / `nickname(_:)` / `getProfile(_:)` |
 | 写操作 | `uploadInitialDidDoc` / `updateDidNickname` / `updateDidAvatar` / `publishDidDelete` / `addCredentialToDid` / `deleteCredentialFromDid` / `bindVcidToDid` / `updatePreferredAvatar`（pending 对账） |
 | 验证 | `verifyCredential(_:)` / `queryAndValidateVcid(_:)` / `checkGranteeCredentialUpdate(_:)` |
-| DApp 签名面（DidSDK） | `didGenerateBase58PublicKey` / `signCredentialForDApp` / `ipfsPersonalSign` / `ipfsGetPublicKey` |
+| DApp 签名面（DidSDK） | `didGenerateBase58PublicKey` / `signCredential` / `ipfsPersonalSign` / `ipfsGetPublicKey` |
 | NFT 透传（SwiftNft 接入） | `resolveCredentialImage`（重载）/ `resolveCredentialImages` / `fetchResolvedMetadataImage` / `normalizeAssetUrl` / `extractResolvedMetadataImageUrl` / `isSupportedRemoteAssetUrl` / `extractSwtcMetadataUri` / `fetchMetadataFields` / `ensureSwtcCredentialMetadata` |
 | 宿主注入点 | `DidAvatarResolver` / `DidAvatarCredentialSource`（回退链第 1 级，优先于 SwiftNft） |
 
@@ -94,7 +94,7 @@ Sources/SwiftDid/
 - **pending 对账状态机（Swift 增强）**：四张 Kotlin 内存表合并为 `did_pending` 单表（kind 列）持久化到 GRDB，消除 Kotlin 内存态的重启丢失窗口；TTL 24h（`deleteExpiredPending` 启动时清理，不启动定时器）；create/delete/avatar/nickname 对账逻辑对齐 Kotlin，含**删除防复活**守卫（`pendingDelete` 检查前置到本地 upsert 之前）。
 - **解析三态不 throw**：`resolveDid` 返回 `.document / .missing / .error`，桥/网络错误不伪装成「链上缺失」（对齐 Kotlin 修正 #2）。
 - **IPFS 网关硬编码（D5 接受）**：复用现有 `did-bridge.js`，其硬编码网关 `https://wodecards.wh.jccdex.cn:8550` **保持原样、不做注入**（与 Kotlin `:did` 现状一致，见 security-review.md D5）。
-- **安全**：`signCredentialForDApp` 只做结构校验（对齐 Kotlin M-15 三条），用户确认由宿主 UI 完成；私钥经 JS 桥传输的内存边界同 `SwiftWallet`；日志不打 payload。
+- **安全**：`signCredential` 只做结构校验（对齐 Kotlin M-15 三条），用户确认由宿主 UI 完成；私钥经 JS 桥传输的内存边界同 `SwiftWallet`；日志不打 payload。
 - **并发**：门面 `@MainActor`；`DidStore` / `DidResolver` / `DidNftResolution` 等 I/O 协议自由线程。
 
 ## Design Docs

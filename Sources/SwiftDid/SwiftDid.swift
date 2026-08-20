@@ -230,7 +230,7 @@ public final class SwiftDid: DidSDK {
     }
 
     /// 只校验 VC 结构（M-15 三条 + keyDoc 两条，见 Did-Swift 04 坑 #19）；用户确认由宿主 UI 完成。
-    public func signCredentialForDApp(privateKey: String, vcJson: String) async throws -> String {
+    public func signCredential(privateKey: String, vcJson: String) async throws -> String {
         guard let object = DidJson.parseObject(vcJson) else { throw SwiftDidError.invalidPayload }
         guard let credential = DidJson.optDict(object, "credential"),
               credential["@context"] != nil || credential["type"] != nil,

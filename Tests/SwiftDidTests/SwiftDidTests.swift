@@ -76,7 +76,7 @@ final class SwiftDidTests: XCTestCase {
 
     func testSignCredentialForDAppRejectsMissingCredential() async {
         do {
-            _ = try await self.did.signCredentialForDApp(privateKey: "0x1", vcJson: #"{"keyDoc":{"did":"d","id":"i"}}"#)
+            _ = try await self.did.signCredential(privateKey: "0x1", vcJson: #"{"keyDoc":{"did":"d","id":"i"}}"#)
             XCTFail("缺 credential 应抛 invalidCredential")
         } catch SwiftDidError.invalidCredential {
             // 预期
@@ -88,7 +88,7 @@ final class SwiftDidTests: XCTestCase {
     func testSignCredentialForDAppRejectsMissingKeyDoc() async {
         let payload = #"{"credential":{"@context":"c","credentialSubject":{},"issuer":"i"}}"#
         do {
-            _ = try await self.did.signCredentialForDApp(privateKey: "0x1", vcJson: payload)
+            _ = try await self.did.signCredential(privateKey: "0x1", vcJson: payload)
             XCTFail("缺 keyDoc.did/id 应抛 invalidCredential")
         } catch SwiftDidError.invalidCredential {
             // 预期
@@ -104,7 +104,7 @@ final class SwiftDidTests: XCTestCase {
             return #"{"signed":true}"#
         }
         let payload = #"{"credential":{"@context":"c","credentialSubject":{},"issuer":"i"},"keyDoc":{"did":"did:swtc:aaa","id":"did:swtc:aaa#key-1"}}"#
-        let result = try await did.signCredentialForDApp(privateKey: "0xsecret", vcJson: payload)
+        let result = try await did.signCredential(privateKey: "0xsecret", vcJson: payload)
         XCTAssertEqual(result, #"{"signed":true}"#)
         XCTAssertEqual(receivedParams?["privateKey"] as? String, "0xsecret", "桥调用必须带上 privateKey")
     }

@@ -10,7 +10,7 @@
 2. **存储用 GRDB 替代 Room**：Kotlin 的 Room 无原生 Swift 等价，方案采用 [GRDB.swift](https://github.com/groue/GRDB.swift)（Swift 生态的 Room 等价物，`from: "7.0.0"`）：`DidStore` 协议 + `GRDBDidStore` 实现（`did_documents` 表 + ValueObservation 观察），宿主可替换。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`，`JSONObject` → `[String: Any]`/`Codable`，Gson → `JSONDecoder`。
 4. **avatar/NFT 经 `SwiftNft` 模块接入（已实现）**：Kotlin 的 avatar 解析依赖独立 `:nft` 模块（`NftSdk`），Swift 侧 **`SwiftNft` 已落库**，`SwiftDid` 以**可选依赖**接入（对齐 Kotlin `nftSdk: NftSdk? = null`，构造参数 `nft: (any DidNftResolution)?`）。头像解析回退链与 Kotlin 一致：`DidAvatarResolver`（宿主注入）→ `SwiftNft` → 本地兜底解析；未注入时相关方法返回 nil，协议缝保证宿主无 SwiftNft 也能编译。
-5. **对接 SwiftDappConnect**：实现 `DidSDK` 协议（`didGenerateBase58PublicKey` / `signCredentialForDApp` / `ipfsPersonalSign` / `ipfsGetPublicKey`），成为中间件 `did_*` / `ipfs_*` 方法的真实后端（demo 目前是桩）。
+5. **对接 SwiftDappConnect**：实现 `DidSDK` 协议（`didGenerateBase58PublicKey` / `signCredential` / `ipfsPersonalSign` / `ipfsGetPublicKey`），成为中间件 `did_*` / `ipfs_*` 方法的真实后端（demo 目前是桩）。
 
 ## 文档导航
 
@@ -47,7 +47,7 @@ let signing: any DidSDK = did
 
 // 直接能力
 let base58 = try await did.didGenerateBase58PublicKey(privateKey: "0x...")
-let vc = try await did.signCredentialForDApp(privateKey: "0x...", vcJson: payload)
+let vc = try await did.signCredential(privateKey: "0x...", vcJson: payload)
 let signature = try await did.ipfsPersonalSign(privateKey: "0x...", data: bytes)
 ```
 
@@ -68,5 +68,5 @@ let signature = try await did.ipfsPersonalSign(privateKey: "0x...", data: bytes)
 - **SwiftDid 自持 DID 隐藏 WebView（不复用共享引擎）**：`WebviewBridgeEngine.shared` 一个 client 只能承载一个 bridge 页面（已被 SwiftWallet 占用）；SwiftDid 自持 `WebviewBridgeClient` 加载 `did-bridge.html`，与 Kotlin 的独立 WebView 对齐（详见 02 §1/§3）。
 - **模型镜像**：`Did` / `Profile` / `Nft` / `ProfileVC` / `VerificationMethod` / `DidEntity` / 凭证模型等与 Kotlin 数据类一一对应。
 - **写操作链**：`publishDid` + `didStat`（previousCid）+ `resolveBaseDoc` 的编排逻辑保留在 Swift 服务层（`DidCoreService` 等价，**含 pending 对账状态机**，见 01 §6），桥只做方法透传。**Swift 增强：pending 表持久化到 GRDB**，消除 Kotlin 内存态的重启丢失窗口。
-- **安全注意**：`signCredentialForDApp` 只做结构校验（对齐 Kotlin M-15 三条），用户确认由宿主 UI 完成；私钥经 JS 桥传输的内存边界同 `SwiftWallet`。
+- **安全注意**：`signCredential` 只做结构校验（对齐 Kotlin M-15 三条），用户确认由宿主 UI 完成；私钥经 JS 桥传输的内存边界同 `SwiftWallet`。
 - **范围（一期已实现）**：`DidSyncService`（多 DID 批量同步）一期裁剪、二期补；NFT 元数据 DTO 与 `DidNftResolution` 协议缝已从 SwiftDid **迁入 SwiftNft**（阶段二，SwiftDid 依赖 SwiftNft），SwiftDid 以 `public typealias` 保持公开 API 拼写。

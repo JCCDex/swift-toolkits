@@ -509,7 +509,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 throw DAppConnectError.internalError("Missing keyDoc.address")
             }
             let privateKey = try await getPrivateKeyOrFail(address: address, origin: origin)
-            let signedVc = try await didSDK.signCredentialForDApp(privateKey: privateKey, vcJson: vcJson.jsonString)
+            let signedVc = try await didSDK.signCredential(privateKey: privateKey, vcJson: vcJson.jsonString)
             if let object = (try? JSONSerialization.jsonObject(with: Data(signedVc.utf8))) as? [String: Any] {
                 return self.success(nonce, .object(object))
             }

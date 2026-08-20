@@ -214,7 +214,7 @@ public final class SwiftDid: DidSDK {
     }
 
     /// 只校验 VC 结构（对齐 Kotlin M-15 三条）；用户确认由宿主 UI 完成。
-    public func signCredentialForDApp(privateKey: String, vcJson: String) async throws -> String {
+    public func signCredential(privateKey: String, vcJson: String) async throws -> String {
         guard let obj = try? JSONSerialization.jsonObject(with: Data(vcJson.utf8)) as? [String: Any] else {
             throw SwiftDidError.invalidPayload
         }
@@ -461,7 +461,7 @@ private func resolveAvatar(vc: String) async -> Nft? {
 ## 7. 并发与安全要点
 
 - **线程模型（门面 + 编排 @MainActor，I/O 协议自由线程）**：`SwiftDid` 门面与 `DidCoreService` 编排层保持 **@MainActor**（桥调用免 hop、pending 对账互斥简单）；`DidStore` / `DidResolver` / `DidNftResolution` / `DidAvatarResolver` / `DidAvatarCredentialSource` 协议**自由线程**（不加 @MainActor），实现内部自行调度（GRDB 后台队列、桥 hop 主 actor），避免编排层线程切换地狱。
-- **结构校验边界（M-15）**：`signCredentialForDApp` 仅校验 `credential` 结构；签名确认必须由宿主弹 UI，SDK 不内置（避免破坏性回调 API）。
+- **结构校验边界（M-15）**：`signCredential` 仅校验 `credential` 结构；签名确认必须由宿主弹 UI，SDK 不内置（避免破坏性回调 API）。
 - **私钥 String 传输**：同 `SwiftWallet`，私钥经 JS 桥以 String 传递，调用后尽快丢弃引用。
 - **EIP-55 checksum（keccak-256，首选专门轻量依赖）**：`toDid` / VCID 生成需要 keccak-256，CryptoKit 不提供。**优先专门的轻量 keccak 依赖**（避免为单个算法引入整个 CryptoSwift；`swift-crypto`/CryptoKit 也不含 keccak-256；若选 CryptoSwift 须仅取 Keccak variant——0x01 padding 的 Keccak-256，非 SHA3-256）；确需自实现 `Util/Keccak256.swift` 时，必须与 BouncyCastle 做 KAT 全量交叉验证并固定进 CI（仅 `""`/`"abc"` 两条标准向量不够）。
 - **`updated` 时间戳比较（勿照搬 Kotlin 字符串比较）**：链上 `updated` 解析为 ISO8601 `Date`（开 `.withFractionalSeconds`，处理不定长小数位）后比较，测试覆盖精度不一致场景（如 `…0.12Z` vs `…0.1Z`）。
