@@ -32,12 +32,13 @@ import GRDB
 let db = try DatabasePool(path: ".../did.sqlite")
 let did = try SwiftDid(store: GRDBDidStore(database: db))  // nft: 可选，接入 SwiftNft 后启用头像解析
 
-// 头像解析后端（可选）：SwiftNft 随包默认解析器 + 模块默认 EVM/SWTC 客户端
+// 头像解析后端（可选）：SwiftNft 随包默认解析器 + 宿主注入的 SWTC/EVM 解析器
 let nft = try SwiftNft(config: SwiftNftConfig(
     store: GRDBNftStore(database: DatabasePool(path: ".../nft.sqlite")),
     ethTokenUriResolver: EthTokenUriResolver(rpcUrlsForChain: { chainId in
         chainId == 1 ? "https://ethereum-rpc.publicnode.com" : nil
-    })
+    }),
+    swtcTokenUriResolver: SwtcTokenUriResolver(getRpcNode: { "https://srje115qd43qw2.swtc.top" })
 ))
 let did2 = try SwiftDid(store: GRDBDidStore(database: db), nft: nft)
 
