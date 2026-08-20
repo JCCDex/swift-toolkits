@@ -24,7 +24,7 @@ let did = try SwiftDid(store: GRDBDidStore(database: db))  // 不接 SwiftNft：
 // 头像解析后端（可选）：SwiftNft（EVM tokenURI 由模块默认解析器提供、SWTC 由宿主注入，RPC 均不内置）
 let nft = try SwiftNft(config: SwiftNftConfig(
     store: GRDBNftStore(database: DatabasePool(path: ".../nft.sqlite")),
-    ethTokenUriResolver: EthTokenUriResolver(rpcUrlsForChain: { chainId in
+    ethTokenUriResolver: EthTokenUriResolver(getRpcNode: { chainId in
         chainId == 1 ? "https://ethereum-rpc.publicnode.com" : nil
     }),
     swtcTokenUriResolver: SwtcTokenUriResolver(getRpcNode: { "https://srje115qd43qw2.swtc.top" })

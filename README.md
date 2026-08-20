@@ -25,7 +25,7 @@ DApp Connect：Swift 移植设计、快速接入、通信协议与安全说明�
 
 ## SwiftNft
 
-NFT 元数据解析与缓存、本地 NFT 持仓存储（GRDB 四表）、DID 头像/凭证图片解析；随包提供 EVM `tokenURI` eth_call 默认解析器（RPC 端点由宿主经 `rpcUrlsForChain` 注入，模块不内置）与 SWTC `erc_info` 客户端。快速接入与 API 详见：
+NFT 元数据解析与缓存、本地 NFT 持仓存储（GRDB 四表）、DID 头像/凭证图片解析；随包提供 EVM `tokenURI` eth_call 默认解析器（RPC 端点由宿主经 `getRpcNode` 注入，模块不内置）与 SWTC `erc_info` 客户端。快速接入与 API 详见：
 
 [SwiftNft/README.md](Sources/SwiftNft/README.md)
 

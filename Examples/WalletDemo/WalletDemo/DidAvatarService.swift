@@ -52,11 +52,11 @@ final class DidAvatarService: ObservableObject {
             let (didDB, nftDB) = try Self.makeStores()
             let nftStore = try GRDBNftStore(database: nftDB)
             // SwiftNft：元数据/图片解析（EVM tokenURI 由模块内 EthTokenUriResolver（eth_call）
-            // 提供；RPC URL 由宿主经 rpcUrlsForChain 闭包按 chainId 注入，模块不内置端点）
+            // 提供；RPC URL 由宿主经 getRpcNode 闭包按 chainId 注入，模块不内置端点）
             let nft = SwiftNft(config: SwiftNftConfig(
                 store: nftStore,
                 httpClient: URLSessionNftHttpClient(),
-                ethTokenUriResolver: EthTokenUriResolver(rpcUrlsForChain: { chainId in
+                ethTokenUriResolver: EthTokenUriResolver(getRpcNode: { chainId in
                     switch chainId {
                     case 1: "https://ethereum-rpc.publicnode.com"
                     case 56: "https://bsc-dataseed.binance.org"

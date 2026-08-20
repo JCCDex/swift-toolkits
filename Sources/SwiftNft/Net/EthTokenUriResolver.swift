@@ -12,27 +12,27 @@ public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
 ///   字段，不进 calldata）；tokenId 按**十进制**解析转 hex（逐位除法，支持任意长度 uint256）；
 /// - `decodeAbiString`：ABI string 解码（假定 offset=32，取第 2 个 32 字节字为长度，数据从第 128 hex 位起）；
 /// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetUrl(raw) ?: raw`（ipfs:// → 默认网关）；
-/// - **RPC URL 由 `init(rpcUrlsForChain:)` 注入**（chainId → RPC URL 的函数），本类不内置任何端点——
+/// - **RPC URL 由 `init(getRpcNode:)` 注入**（chainId → RPC URL 的函数），本类不内置任何端点——
 ///   端点属宿主配置（对应 Kotlin `AppEndpoints.RPC_*`）；
 /// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、跟随重定向、SsrfGuard/上限由客户端统一）。
 public final class EthTokenUriResolver: IEthTokenUriResolver {
-    private let rpcUrlsForChain: ChainRpcUrlsProvider
+    private let getRpcNode: ChainRpcUrlsProvider
     private let httpClient: any NftHttpClient
 
     /// - Parameters:
-    ///   - rpcUrlsForChain: 根据 chainId 返回该链 RPC URL 的函数（宿主注入；nil = 无节点）。
+    ///   - getRpcNode: 根据 chainId 返回该链 RPC URL 的函数（宿主注入；nil = 无节点）。
     ///   - httpClient: 网络客户端（默认 `URLSessionNftHttpClient`；测试可注入 URLProtocol 桩 session）。
     public init(
-        rpcUrlsForChain: @escaping ChainRpcUrlsProvider,
+        getRpcNode: @escaping ChainRpcUrlsProvider,
         httpClient: any NftHttpClient = URLSessionNftHttpClient()
     ) {
-        self.rpcUrlsForChain = rpcUrlsForChain
+        self.getRpcNode = getRpcNode
         self.httpClient = httpClient
     }
 
     public func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? {
         guard let callData = Self.buildTokenUriCallData(tokenId: tokenId) else { return nil }
-        guard let rpcUrl = self.rpcUrlsForChain(chainId) else { return nil }
+        guard let rpcUrl = self.getRpcNode(chainId) else { return nil }
         return await self.fetchTokenUri(rpcUrl: rpcUrl, contract: contract, callData: callData)
     }
 

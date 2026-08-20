@@ -22,7 +22,7 @@
   - 解析链：`resolveDid`（链上取档）→ `generateProfileVC`（读 preferredAvatar VC）→ SwiftNft
     元数据解析出图片 URL → 行内 AsyncImage 加载；EVM 头像的 `tokenURI(uint256)` 由 SwiftNft
     模块内 `EthTokenUriResolver`（eth_call）提供，RPC 端点由宿主经
-    `rpcUrlsForChain` 闭包按 chainId 注入。
+    `getRpcNode` 闭包按 chainId 注入。
   - **SWTC ownership 兜底**：preferredAvatar 的 NFT 元数据不可解析时（如 `did:swtc:…` 示例的
     ETH NFT `tokenURI` 链上 revert），改用该 DID 自有的 SWTC ownership VC（`generateSwtcNft`
     → erc_info → IPFS 元数据 → 图片，演示两个模块组合）。

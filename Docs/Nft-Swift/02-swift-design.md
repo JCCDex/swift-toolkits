@@ -17,7 +17,7 @@ Sources/SwiftNft/
 ├── Net/NftHttpClient.swift      // 协议 + URLSession 实现（fetchJson/fetchText 不跟随重定向；fetchRpc POST 跟随重定向）
 ├── Net/SsrfGuard.swift          // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网 IP 放行）
 ├── Net/SwtcTokenUriResolver.swift // SWTC erc_info RPC（getRpcNode 单节点注入）
-├── Net/EthTokenUriResolver.swift // EVM tokenURI eth_call 默认实现（RPC URL 由 init(rpcUrlsForChain:) 注入，不内置）
+├── Net/EthTokenUriResolver.swift // EVM tokenURI eth_call 默认实现（RPC URL 由 init(getRpcNode:) 注入，不内置）
 └── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（只缓存成功结果）
 ```
 
@@ -131,7 +131,7 @@ public struct ResolvedCredentialImage: Codable, Sendable, Equatable {
 }
 
 // tokenURI 解析：可注入接口（宿主可自实现）；模块同时随包提供 eth_call 默认实现
-// EthTokenUriResolver（见 §4.2；RPC URL 由 init(rpcUrlsForChain:) 注入，不内置端点）
+// EthTokenUriResolver（见 §4.2；RPC URL 由 init(getRpcNode:) 注入，不内置端点）
 public protocol IEthTokenUriResolver: Sendable {
     func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String?
 }
@@ -275,9 +275,9 @@ public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
 /// - ABI string 解码假定 offset = 32：第 2 个 32 字节字为长度，数据从第 128 hex 位起，
 ///   尾随垃圾截断、畸形/超短拒；
 /// - URI 过 `normalizeRemoteAssetUrl(raw) ?: raw`（ipfs:// → 默认网关）；
-/// - 单节点 eth_call：`rpcUrlsForChain(chainId)` 返回 nil → nil，非 throw。
+/// - 单节点 eth_call：`getRpcNode(chainId)` 返回 nil → nil，非 throw。
 public final class EthTokenUriResolver: IEthTokenUriResolver {
-    public init(rpcUrlsForChain: @escaping ChainRpcUrlsProvider) { ... }  // 端点宿主注入，不内置
+    public init(getRpcNode: @escaping ChainRpcUrlsProvider) { ... }  // 端点宿主注入，不内置
     public func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? { ... }
 }
 ```

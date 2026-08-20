@@ -21,7 +21,7 @@ let store = try GRDBNftStore(database: DatabasePool(path: ".../nft.sqlite"))
 let nft = SwiftNft(config: SwiftNftConfig(
     store: store,
     // EVM tokenURI：模块默认 eth_call 实现；RPC URL 由宿主按 chainId 注入（模块不内置任何端点）
-    ethTokenUriResolver: EthTokenUriResolver(rpcUrlsForChain: { chainId in
+    ethTokenUriResolver: EthTokenUriResolver(getRpcNode: { chainId in
         switch chainId {
         case 1: "https://ethereum-rpc.publicnode.com"
         case 137: "https://polygon-rpc.com"
@@ -73,11 +73,11 @@ Sources/SwiftNft/
 | 纯函数 | `normalizeAssetUrl(_:baseUrl:)` / `extractResolvedMetadataImageUrl(_:metadataUri:)` / `isSupportedRemoteAssetUrl(_:)` / `extractSwtcMetadataUri(_:)` |
 | 模型 | `Nft` / `DidAvatarAsset` / `NftMetadataFields` / `CredentialImageRequest` / `ResolvedCredentialImage` / `NftMeta` / `SwtcNftEntity` / `EvmNftItemEntity` / `EvmNftCollectionEntity` |
 | 协议 | `DidNftResolution`（SwiftDid 接入缝，宿主可注入自实现）/ `IEthTokenUriResolver`（EVM tokenURI）/ `NftStore` / `NftHttpClient` / `ISwtcTokenUriResolver` |
-| 默认实现 | `EthTokenUriResolver`（eth_call，`init(rpcUrlsForChain:)` + `httpClient`）/ `SwtcTokenUriResolver`（erc_info，`init(getRpcNode:)` + `httpClient`）——两者均走 `NftHttpClient.fetchRpc`（POST JSON-RPC、跟随重定向） |
+| 默认实现 | `EthTokenUriResolver`（eth_call，`init(getRpcNode:)` + `httpClient`）/ `SwtcTokenUriResolver`（erc_info，`init(getRpcNode:)` + `httpClient`）——两者均走 `NftHttpClient.fetchRpc`（POST JSON-RPC、跟随重定向） |
 
 ## Notes
 
-- **EVM tokenURI**：`IEthTokenUriResolver` 是非 throw 注入接口（失败返回 nil）；模块随包提供默认实现 `EthTokenUriResolver`（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `rpcUrlsForChain` 闭包按 chainId 提供单个 URL。
+- **EVM tokenURI**：`IEthTokenUriResolver` 是非 throw 注入接口（失败返回 nil）；模块随包提供默认实现 `EthTokenUriResolver`（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `getRpcNode` 闭包按 chainId 提供单个 URL。
 - **缓存语义（成功才缓存）**：`NftMetadataImageCache` 只缓存**成功**结果（HTTP 500 等瞬时失败不缓存、可重试）；并发同 key 只 fetch 一次（per-key Task in-flight 去重）；`nft_meta`/图片缓存无 TTL（对齐 Kotlin）。
 - **安全边界**：所有拉取 URL 过 `SsrfGuard`（http/https + DNS 解析，回环/私网/链路本地/未解析拒绝，公网放行）；元数据拉取不跟随重定向；**SWTC RPC 例外：节点可信、跟随重定向**（无 delegate，对齐 Kotlin）；`data:` 直出仅限 `data:image/*`（宿主渲染第三方图片用 `UIImage`/`CGImage`，勿用 WKWebView）；日志不落元数据 payload。
 - **注入信任面**：`swtcTokenUriResolver` / `ethTokenUriResolver` / `ipfsGateway` 均属宿主配置（模块**不内置任何节点/端点**）；`SwtcTokenUriResolver` 经 `getRpcNode` 注入节点（自建普通 session，跟随重定向）。

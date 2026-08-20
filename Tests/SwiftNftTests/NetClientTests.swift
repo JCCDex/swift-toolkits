@@ -6,7 +6,7 @@ import XCTest
 /// - SwtcTokenUriResolver：`getRpcNode` 单节点注入 + `NftHttpClient.fetchRpc`、真实 erc_info 响应形状（TokenInfos 数组/字符串）、
 ///   RPC error、响应超限、空 tokenId、节点 nil；
 /// - EthTokenUriResolver：eth_call 成功解码（真实 ABI 形状）、revert（无 result）、
-///   rpcUrlsForChain 返回 nil、非法 calldata。
+///   getRpcNode 返回 nil、非法 calldata。
 final class NetClientTests: XCTestCase {
     private var session: URLSession!
 
@@ -90,7 +90,7 @@ final class NetClientTests: XCTestCase {
         }
 
         let resolver = EthTokenUriResolver(
-            rpcUrlsForChain: { $0 == 1 ? "https://rpc.test" : nil },
+            getRpcNode: { $0 == 1 ? "https://rpc.test" : nil },
             httpClient: URLSessionNftHttpClient(session: self.session)
         )
         let result = await resolver.resolveEthrTokenUri(
@@ -119,7 +119,7 @@ final class NetClientTests: XCTestCase {
         }
 
         let resolver = EthTokenUriResolver(
-            rpcUrlsForChain: { _ in "https://rpc.test" },
+            getRpcNode: { _ in "https://rpc.test" },
             httpClient: URLSessionNftHttpClient(session: self.session)
         )
         let result = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "4", chainId: 1)
@@ -127,14 +127,14 @@ final class NetClientTests: XCTestCase {
     }
 
     func testResolveEthrTokenUriReturnsNilWithoutRpcNode() async {
-        let resolver = EthTokenUriResolver(rpcUrlsForChain: { _ in nil })
+        let resolver = EthTokenUriResolver(getRpcNode: { _ in nil })
         let result = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "4", chainId: 1)
-        XCTAssertNil(result, "rpcUrlsForChain 返回 nil → 不发起请求")
+        XCTAssertNil(result, "getRpcNode 返回 nil → 不发起请求")
     }
 
     func testResolveEthrTokenUriReturnsNilForInvalidTokenId() async {
         let resolver = EthTokenUriResolver(
-            rpcUrlsForChain: { _ in "https://rpc.test" },
+            getRpcNode: { _ in "https://rpc.test" },
             httpClient: URLSessionNftHttpClient(session: self.session)
         )
         let result = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "not-a-number", chainId: 1)

@@ -15,7 +15,7 @@
 
 ### 2.1 tokenURI
 
-- `IEthTokenUriResolver` 是可注入接口（`resolveEthrTokenUri(contract, tokenId, chainId): String?`，非 throw，失败返回 nil）；SwiftNft 同时**随包提供默认实现** `EthTokenUriResolver`（eth_call：ERC-721 `tokenURI(uint256)` selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数（对齐 Kotlin app 侧 `defaultRpcUrlsForChain` / `AppEndpoints.RPC_*` 语义，见 02 §4.2）。
+- `IEthTokenUriResolver` 是可注入接口（`resolveEthrTokenUri(contract, tokenId, chainId): String?`，非 throw，失败返回 nil）；SwiftNft 同时**随包提供默认实现** `EthTokenUriResolver`（eth_call：ERC-721 `tokenURI(uint256)` selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `init(getRpcNode:)` 注入「chainId → RPC URL」函数（对齐 Kotlin app 侧 `defaultRpcUrlsForChain` / `AppEndpoints.RPC_*` 语义，见 02 §4.2）。
 - 返回的元数据 URI 常见形式 `https://.../*.json` / `ipfs://<CID>` / `data:application/json;base64,...`（后两者由 SwiftNft 的 `normalizeRemoteAssetUrl` / `isLoadableRemoteAssetUrl` 处理）。
 
 ### 2.2 元数据 JSON（源码实况）

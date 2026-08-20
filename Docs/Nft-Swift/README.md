@@ -34,7 +34,7 @@ let nft = SwiftNft(config: SwiftNftConfig(
     store: store,
     ipfsGateway: URL(string: "https://ipfs.jccdex.cn/ipfs/"),   // 默认对齐 Kotlin DEFAULT_IPFS_GATEWAY_BASE_URL
     ethTokenUriResolver: EthTokenUriResolver(   // 模块默认 eth_call 实现（RPC URL 由函数注入，不内置）；
-        rpcUrlsForChain: { chainId in           // 宿主按 chainId 返回该链 RPC URL，nil = 无节点
+        getRpcNode: { chainId in              // 宿主按 chainId 返回该链 RPC URL，nil = 无节点
             chainId == 1 ? "https://ethereum-rpc.publicnode.com" : nil
         },
     ),
@@ -57,7 +57,7 @@ let meta: NftMeta? = await nft.fetchAndCacheNftMeta(contract: "issuer", tokenId:
 | --- | --- | --- |
 | 网络 | `HttpURLConnection`（元数据拉取不跟随重定向） | `URLSession` + `NftHttpClient` 协议（可注入 Fake/URLProtocol；同样不跟随重定向） |
 | 入口 | `NftSdk.create(context, databaseName = "nft_storage.db", ethTokenUriResolver)` | `SwiftNft(config:)`（无需 Context；store/网关/RPC 节点/解析器经 config 注入） |
-| EVM tokenURI | eth_call 解析器在 **app 侧**（`com.android.jdid.repository`），`:nft` 仅注入接口 | SwiftNft **随包提供默认实现** `EthTokenUriResolver`（`init(rpcUrlsForChain:)` 注入「chainId → RPC URL」函数、模块不内置），宿主可注入自实现（见 02 §4.2） |
+| EVM tokenURI | eth_call 解析器在 **app 侧**（`com.android.jdid.repository`），`:nft` 仅注入接口 | SwiftNft **随包提供默认实现** `EthTokenUriResolver`（`init(getRpcNode:)` 注入「chainId → RPC URL」函数、模块不内置），宿主可注入自实现（见 02 §4.2） |
 | 存储 | Room（`NftRoomDatabase`，`nft_storage.db`） | **GRDB**（`GRDBNftStore`，四表同构） |
 | 并发 | `suspend` + `Dispatchers.IO` | `async throws`（自由线程，非 @MainActor） |
 | 反序列化 | Gson / org.json | `JSONDecoder` + Codable DTO |
