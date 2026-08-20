@@ -78,7 +78,10 @@ final class NftHttpClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: session)
+        let client = SwtcTokenUriResolver(
+            getRpcNode: { "https://rpc.test" },
+            httpClient: URLSessionNftHttpClient(session: session, maxBodyBytes: 1024)
+        )
         let uri = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(uri, "超过 maxBodyBytes 的 RPC 响应拒绝解析")
     }

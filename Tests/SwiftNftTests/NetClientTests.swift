@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 /// SwtcTokenUriResolver / EthTokenUriResolver 网络路径测试（URLProtocol 桩，不联网）：
-/// - SwtcTokenUriResolver：`getRpcNode` 单节点注入、真实 erc_info 响应形状（TokenInfos 数组/字符串）、
+/// - SwtcTokenUriResolver：`getRpcNode` 单节点注入 + `NftHttpClient.fetchRpc`、真实 erc_info 响应形状（TokenInfos 数组/字符串）、
 ///   RPC error、响应超限、空 tokenId、节点 nil；
 /// - EthTokenUriResolver：eth_call 成功解码（真实 ABI 形状）、revert（无 result）、
 ///   rpcUrlsForChain 返回 nil、非法 calldata。
@@ -33,7 +33,7 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, httpClient: URLSessionNftHttpClient(session: self.session))
         let result = await client.fetchMetadataUri(tokenId: "43726F737320436861696E2044414F2000000000000000000000000000000008")
         XCTAssertEqual(result, "https://ipfs.jccdex.cn/ipfs/bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8")
     }
@@ -47,7 +47,7 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, httpClient: URLSessionNftHttpClient(session: self.session))
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertEqual(result, "https://ipfs.jccdex.cn/ipfs/bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8")
     }
@@ -57,13 +57,13 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, httpClient: URLSessionNftHttpClient(session: self.session))
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(result)
     }
 
     func testSwtcTokenUriResolverReturnsNilWhenGetRpcNodeNil() async {
-        let client = SwtcTokenUriResolver(getRpcNode: { nil }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { nil }, httpClient: URLSessionNftHttpClient(session: self.session))
         let noNode = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(noNode, "无节点 → nil，不发起请求")
         let blank = await client.fetchMetadataUri(tokenId: "  ")
@@ -74,7 +74,7 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(String(repeating: "x", count: 10000).utf8))
         }
-        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, httpClient: URLSessionNftHttpClient(session: self.session, maxBodyBytes: 1024))
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(result)
     }
@@ -88,10 +88,11 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        URLProtocol.registerClass(StubURLProtocol.self)
-        defer { URLProtocol.unregisterClass(StubURLProtocol.self) }
 
-        let resolver = EthTokenUriResolver(rpcUrlsForChain: { $0 == 1 ? "https://rpc.test" : nil })
+        let resolver = EthTokenUriResolver(
+            rpcUrlsForChain: { $0 == 1 ? "https://rpc.test" : nil },
+            httpClient: URLSessionNftHttpClient(session: self.session)
+        )
         let result = await resolver.resolveEthrTokenUri(
             contract: "0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a",
             tokenId: "4",
@@ -116,10 +117,11 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        URLProtocol.registerClass(StubURLProtocol.self)
-        defer { URLProtocol.unregisterClass(StubURLProtocol.self) }
 
-        let resolver = EthTokenUriResolver(rpcUrlsForChain: { _ in "https://rpc.test" })
+        let resolver = EthTokenUriResolver(
+            rpcUrlsForChain: { _ in "https://rpc.test" },
+            httpClient: URLSessionNftHttpClient(session: self.session)
+        )
         let result = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "4", chainId: 1)
         XCTAssertNil(result)
     }
@@ -131,7 +133,10 @@ final class NetClientTests: XCTestCase {
     }
 
     func testResolveEthrTokenUriReturnsNilForInvalidTokenId() async {
-        let resolver = EthTokenUriResolver(rpcUrlsForChain: { _ in "https://rpc.test" })
+        let resolver = EthTokenUriResolver(
+            rpcUrlsForChain: { _ in "https://rpc.test" },
+            httpClient: URLSessionNftHttpClient(session: self.session)
+        )
         let result = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "not-a-number", chainId: 1)
         XCTAssertNil(result, "非法 tokenId → calldata 构造失败 → nil")
     }

@@ -13,40 +13,43 @@ public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
 /// - `decodeAbiString`：ABI string 解码（假定 offset=32，取第 2 个 32 字节字为长度，数据从第 128 hex 位起）；
 /// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetUrl(raw) ?: raw`（ipfs:// → 默认网关）；
 /// - **RPC URL 由 `init(rpcUrlsForChain:)` 注入**（chainId → RPC URL 的函数），本类不内置任何端点——
-///   端点属宿主配置（对应 Kotlin `AppEndpoints.RPC_*`）。
+///   端点属宿主配置（对应 Kotlin `AppEndpoints.RPC_*`）；
+/// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、跟随重定向、SsrfGuard/上限由客户端统一）。
 public final class EthTokenUriResolver: IEthTokenUriResolver {
     private let rpcUrlsForChain: ChainRpcUrlsProvider
+    private let httpClient: any NftHttpClient
 
-    /// - Parameter rpcUrlsForChain: 根据 chainId 返回该链 RPC URL 的函数（宿主注入；nil = 无节点）。
-    public init(rpcUrlsForChain: @escaping ChainRpcUrlsProvider) {
+    /// - Parameters:
+    ///   - rpcUrlsForChain: 根据 chainId 返回该链 RPC URL 的函数（宿主注入；nil = 无节点）。
+    ///   - httpClient: 网络客户端（默认 `URLSessionNftHttpClient`；测试可注入 URLProtocol 桩 session）。
+    public init(
+        rpcUrlsForChain: @escaping ChainRpcUrlsProvider,
+        httpClient: any NftHttpClient = URLSessionNftHttpClient()
+    ) {
         self.rpcUrlsForChain = rpcUrlsForChain
+        self.httpClient = httpClient
     }
 
     public func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? {
         guard let callData = Self.buildTokenUriCallData(tokenId: tokenId) else { return nil }
         guard let rpcUrl = self.rpcUrlsForChain(chainId) else { return nil }
-        return await Self.fetchTokenUri(rpcUrl: rpcUrl, contract: contract, callData: callData)
+        return await self.fetchTokenUri(rpcUrl: rpcUrl, contract: contract, callData: callData)
     }
 
     // MARK: - eth_call
 
-    private static func fetchTokenUri(rpcUrl: String, contract: String, callData: String) async -> String? {
+    private func fetchTokenUri(rpcUrl: String, contract: String, callData: String) async -> String? {
         guard let url = URL(string: rpcUrl) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // 对齐 Kotlin：RPC 节点可信，跟随重定向（URLSession 默认行为）
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+        // 对齐 Kotlin：RPC 节点可信，跟随重定向（fetchRpc 语义）
+        guard let body = try? JSONSerialization.data(withJSONObject: [
             "jsonrpc": "2.0",
             "method": "eth_call",
             "params": [["to": contract, "data": callData], "latest"],
             "id": 1
-        ])
+        ]) else { return nil }
 
-        guard let (body, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode),
-              let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+        guard let data = try? await self.httpClient.fetchRpc(url, body: body),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let rawResult = json["result"] as? String
         else { return nil }
         return Self.normalizeTokenMetadataUri(Self.decodeAbiString(rawResult))

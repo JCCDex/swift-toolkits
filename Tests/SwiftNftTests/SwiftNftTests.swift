@@ -456,6 +456,17 @@ final class FakeNftHttpClient: NftHttpClient, @unchecked Sendable {
             return first
         }
     }
+
+    func fetchRpc(_ url: URL, body _: Data) async throws -> Data? {
+        self.lock.withLock {
+            self._jsonRequestCount += 1
+            self._jsonRequestURLs.append(url.absoluteString)
+            guard var queue = jsonQueues[url.absoluteString], !queue.isEmpty else { return nil }
+            let first = queue.removeFirst()
+            self.jsonQueues[url.absoluteString] = queue
+            return first
+        }
+    }
 }
 
 /// Fake SWTC erc_info 拉取器。

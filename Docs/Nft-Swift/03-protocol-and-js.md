@@ -4,7 +4,7 @@
 
 ## 1. 传输：无 JS 桥（与 did-bridge.js 的分工）
 
-**SwiftNft 不新增、不调用任何 JS**：元数据/图片拉取、SWTC `erc_info` RPC 均为纯原生网络（`NftHttpClient` → URLSession），与 SwiftDid/SwiftWallet 的隐藏 WebView 桥（`did-bridge.html` / `wallet-bridge.html`）无关。
+**SwiftNft 不新增、不调用任何 JS**：元数据/图片拉取、EVM `eth_call`、SWTC `erc_info` RPC 均为纯原生网络（`NftHttpClient`：fetchJson/fetchText 不跟随重定向，fetchRpc 跟随重定向），与 SwiftDid/SwiftWallet 的隐藏 WebView 桥（`did-bridge.html` / `wallet-bridge.html`）无关。
 
 与 `did-bridge.js` 的关系（跨模块）：
 
@@ -46,7 +46,7 @@
 ### 3.1 链上查询
 
 ```jsonc
-// POST https://srje115qd43qw2.swtc.top（经 SwiftNftConfig.swtcTokenUriResolver 注入，节点由 `SwtcTokenUriResolver(getRpcNode:)` 提供）
+// POST https://srje115qd43qw2.swtc.top（经 SwiftNftConfig.swtcTokenUriResolver 注入，节点由 `SwtcTokenUriResolver(getRpcNode:)` 提供；节点可信、跟随重定向，无 delegate）
 {
   "method": "erc_info",
   "params": [ { "tokenid": "<tokenId>" } ]
@@ -108,8 +108,8 @@
 ## 6. 安全
 
 - **SSRF（对齐 Kotlin `SsrfGuard` + Swift 修正 DNS rebinding）**：拉取前 `SsrfGuard.check(url)`——scheme http/https、host 非空、**DNS 解析失败 fail-closed**、拒绝回环/私网/链路本地（`localhost`、127.0.0.0/8、10/8、172.16/12、192.168/16、169.254/16、::1、fe80::/10、fc00::/7），并补 IPv4-mapped IPv6（`::ffff:a.b.c.d` 映射回 IPv4 再判）、`0.0.0.0`/`255.255.255.255`、`100.64.0.0/10`（CGNAT）；**公网 IP 放行**（Kotlin 测试：`https://8.8.8.8/metadata.json` 通过）。**Swift 必须修正 Kotlin 的 check-then-connect 间隙（DNS rebinding / TOCTOU）**：① 解析**全部**地址（`getaddrinfo` 全量），任一私网/回环/链路本地即拒；② 建连策略三选一——`NWConnection` 连已校验 IP + TLS server-name（证书按原主机名校验）／按主机名建连后复验对端 IP／明确接受残余风险；⚠️ **HTTPS 不能简单「pin IP + Host 头」**（证书校验会失败，除非危险地 override server trust）；**URLSession 无对端 IP API，方案 ② 仅 `NWConnection` 可行**——默认 `SwiftNftConfig.httpClient` 即 URLSession，默认取舍采用 ③（文档化残余风险），详见 02 §4/§8。
-- **重定向**：元数据/图片拉取**不跟随重定向**（Kotlin `instanceFollowRedirects = false`；Swift 用 delegate-backed URLSession，`willPerformHTTPRedirection` 返回 nil——**勿用 `URLSession.shared`**，其无 delegate、会静默跟随）——重定向是 SSRF 绕过常见路径；SWTC RPC 默认节点可跟随（Kotlin `instanceFollowRedirects = true`），但**节点可注入后必须在 `willPerformHTTPRedirection` 里对重定向目标再查 `SsrfGuard`**，失败即不跟随。
-- **注入的 `rpcNodes` 也要过 `SsrfGuard`**：Kotlin 节点硬编码可信故不查；Swift 可注入，建连前对节点 URL 做 http/https + 公网校验，**并同时守重定向目标**（见上），否则「注入节点 + 跟随重定向」= SSRF。
+- **重定向**：元数据/图片拉取**不跟随重定向**（Kotlin `instanceFollowRedirects = false`；Swift 用 delegate-backed URLSession，`willPerformHTTPRedirection` 返回 nil——**勿用 `URLSession.shared`**，其无 delegate、会静默跟随）——重定向是 SSRF 绕过常见路径；SWTC RPC 节点可信、**直接跟随重定向**（Kotlin `instanceFollowRedirects = true`；`SwtcTokenUriResolver` 无 delegate，与 `EthTokenUriResolver` 同策略）。
+- **注入的 RPC 节点也要过 `SsrfGuard`**：Kotlin 节点硬编码可信故不查；Swift 可注入，建连前对节点 URL 做 http/https + 公网校验（注入节点由宿主负责信任边界）。
 - **响应体上限**：Swift 增强——元数据/图片 body 设 2 MiB 上限（Kotlin `readText()` 无上限属现状），防恶意元数据撑爆内存；`data:` URL 解码同样设上限（上限归属：本模块解码校验时适用；原样透传字符串时由渲染侧负责，见 02 §8）。
 - **`data:` URL 类型**：`isSupportedRemoteAssetUrl` 放行任何 `data:` 前缀（对齐 Kotlin 纯函数），但 `resolveCredentialImage` 直出前用**独立的 `isDataImageUrl` 检查**仅放行 `data:image/*`（设计决策，勿收紧公开函数）——只挡 HTML/JS，**挡不住 `image/svg+xml` 脚本**；宿主渲染第三方图片须用 `UIImage`/`CGImage` 解码（不执行脚本）、勿用 `WKWebView`。
 - **不记录 payload**：日志只打 scheme/host，不打元数据 body（可能含头像、社交链接等隐私）。

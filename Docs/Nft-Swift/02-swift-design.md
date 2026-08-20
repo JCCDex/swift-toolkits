@@ -14,9 +14,9 @@ Sources/SwiftNft/
 ├── Store/GRDBNftStore.swift     // GRDB 实现：nft_meta / swtc_nfts / evm_nft_items / evm_nft_collections 四表
 ├── Util/NftUrlUtils.swift       // normalizeRemoteAssetUrl(raw, base, gateway:) / isLoadableRemoteAssetUrl /
 │                                //   extractMetadataImageUrl / extractSwtcMetadataUri / looksLikeImageAssetUrl
-├── Net/NftHttpClient.swift      // 协议 + URLSession 实现（fetchJson/fetchText；不跟随重定向）
+├── Net/NftHttpClient.swift      // 协议 + URLSession 实现（fetchJson/fetchText 不跟随重定向；fetchRpc POST 跟随重定向）
 ├── Net/SsrfGuard.swift          // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网 IP 放行）
-├── Net/SwtcTokenUriResolver.swift // SWTC erc_info RPC（getRpcNode 单节点注入 + 可选证书 pinning）
+├── Net/SwtcTokenUriResolver.swift // SWTC erc_info RPC（getRpcNode 单节点注入）
 ├── Net/EthTokenUriResolver.swift // EVM tokenURI eth_call 默认实现（RPC URL 由 init(rpcUrlsForChain:) 注入，不内置）
 └── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（只缓存成功结果）
 ```
@@ -166,6 +166,9 @@ public struct NftMeta: Codable, Sendable, Equatable {
 public protocol NftHttpClient: Sendable {
     func fetchJson(_ url: URL) async throws -> Data?   // GET JSON 元数据原始 body（不解析）
     func fetchText(_ url: URL) async throws -> String? // GET 文本 body
+    /// JSON-RPC POST（eth_call / SWTC erc_info）：RPC 节点可信、**跟随重定向**
+    /// （对齐 Kotlin instanceFollowRedirects = true）；其余行为同 fetchJson。
+    func fetchRpc(_ url: URL, body: Data) async throws -> Data?
 }
 
 public struct URLSessionNftHttpClient: NftHttpClient, Sendable {
@@ -222,13 +225,12 @@ internal enum SsrfGuard {
 
 /// SWTC 链上元数据 URI（对齐 Kotlin SwtcNftClient，Swift 侧为 SwtcTokenUriResolver）：
 /// POST {"method":"erc_info","params":[{"tokenid": tokenId}]}，节点由 getRpcNode 注入（单 URL，nil = 无节点）；
-/// 15s 超时；RPC 节点可信可跟随重定向；可选证书 pinning（sha256/Base64）。
+/// 15s 超时；**RPC 节点可信、跟随重定向**（对齐 Kotlin `instanceFollowRedirects = true`，无 delegate——
+/// 与 `EthTokenUriResolver` 同策略，信任边界由宿主负责）。
 /// ⚠️ 可注入 + 安全边界：
-/// ① Kotlin 硬编码可信节点故不查 SsrfGuard；Swift 把 rpcNodes 做成可注入，建连前对注入节点做
+/// ① Kotlin 硬编码可信节点故不查 SsrfGuard；Swift 节点可注入，建连前对注入节点做
 ///    SsrfGuard.check（http/https + 公网）；
-/// ② **不复用 `NftHttpClient`**（那是 no-redirect）：本客户端自持 redirect-following 且
-///    `willPerformHTTPRedirection` 里对新 URL 再查 `SsrfGuard`（失败不跟随）的 delegate session；
-/// ③ 抽协议 seam `ISwtcTokenUriResolver` 供注入 Fake（对齐 Kotlin 构造函数注入 swtcChainNftClient），
+/// ② 抽协议 seam `ISwtcTokenUriResolver` 供注入 Fake（对齐 Kotlin 构造函数注入 swtcChainNftClient），
 ///    否则测试策略「Fake SwtcTokenUriResolver」落不了地。
 public protocol ISwtcTokenUriResolver: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
@@ -236,9 +238,8 @@ public protocol ISwtcTokenUriResolver: Sendable {
 public typealias SwtcRpcNodeProvider = @Sendable () -> String?
 
 public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
-    public var certificatePins: [String]       // 默认空（不 pin）
     private let getRpcNode: SwtcRpcNodeProvider // 节点由 init 注入，模块不内置 DEFAULT_RPC_NODES
-    private let session: URLSession            // 自己的 redirect-following + 重定向目标 SsrfGuard 守卫 session
+    private let session: URLSession            // 无 delegate：跟随重定向（对齐 Kotlin instanceFollowRedirects=true）
     public init(getRpcNode: @escaping SwtcRpcNodeProvider, ...) { ... }
     public func fetchMetadataUri(tokenId: String) async -> String? { ... }
 }
@@ -281,7 +282,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
 }
 ```
 
-- **安全边界**：RPC 节点与网关同属「注入信任面」——建连走宿主提供的 URL；本实现用 `URLSession.shared` 跟随重定向（对齐 Kotlin `instanceFollowRedirects=true`：RPC 节点可信）。若宿主注入不可信节点，应自实现 resolver（可配 `SsrfGuard`）。
+- **安全边界**：RPC 节点与网关同属「注入信任面」——建连走宿主提供的 URL；`EthTokenUriResolver`/`SwtcTokenUriResolver` 均经 `NftHttpClient.fetchRpc`（POST JSON-RPC、跟随重定向，对齐 Kotlin `instanceFollowRedirects=true`），SsrfGuard 建连检查与 2 MiB 上限由客户端统一。若宿主注入不可信节点，应自实现 resolver。
 - **单测**（`EthTokenUriResolverTests`，macOS `swift test`）：calldata KAT（`"4"` → `0xc87b56dd` + 63 个 0 + `04`；`2^256-1` → 64 位全 `f`；超长/非数字拒）、`decodeAbiString` 向量（`"hi"`、URI、畸形/超短/空拒、尾随垃圾截断）、`normalizeTokenMetadataUri`（ipfs:// → 网关、http 原样、空白 → nil）。
 
 ## 5. 存储（GRDB 替代 Room）
