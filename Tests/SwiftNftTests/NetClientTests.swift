@@ -2,8 +2,8 @@ import Foundation
 @testable import SwiftNft
 import XCTest
 
-/// SwtcNftClient / EthTokenUriResolver 网络路径测试（URLProtocol 桩，不联网）：
-/// - SwtcNftClient：`getRpcNode` 单节点注入、真实 erc_info 响应形状（TokenInfos 数组/字符串）、
+/// SwtcTokenUriResolver / EthTokenUriResolver 网络路径测试（URLProtocol 桩，不联网）：
+/// - SwtcTokenUriResolver：`getRpcNode` 单节点注入、真实 erc_info 响应形状（TokenInfos 数组/字符串）、
 ///   RPC error、响应超限、空 tokenId、节点 nil；
 /// - EthTokenUriResolver：eth_call 成功解码（真实 ABI 形状）、revert（无 result）、
 ///   rpcUrlsForChain 返回 nil、非法 calldata。
@@ -24,21 +24,21 @@ final class NetClientTests: XCTestCase {
         SsrfGuard.enabled = true
     }
 
-    // MARK: - SwtcNftClient
+    // MARK: - SwtcTokenUriResolver
 
-    func testSwtcNftClientFetchesMetadataUriFromGetRpcNode() async {
+    func testSwtcTokenUriResolverFetchesMetadataUriFromGetRpcNode() async {
         // 真实响应（demo 使用的节点 https://srje115qd43qw2.swtc.top 实际返回，2026-08-20）：
         // TokenInfos 数组、InfoType hex 746F6B656E557269（"tokenUri"）、InfoData hex 真实元数据 URI。
         let body = self.fixture("erc_info_nft8")
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
         let result = await client.fetchMetadataUri(tokenId: "43726F737320436861696E2044414F2000000000000000000000000000000008")
         XCTAssertEqual(result, "https://ipfs.jccdex.cn/ipfs/bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8")
     }
 
-    func testSwtcNftClientParsesStringTokenInfos() async {
+    func testSwtcTokenUriResolverParsesStringTokenInfos() async {
         // TokenInfos 可能是字符串（真实链上两种形态之一）
         let uri = "ipfs://bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8"
         let body = """
@@ -47,34 +47,34 @@ final class NetClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertEqual(result, "https://ipfs.jccdex.cn/ipfs/bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8")
     }
 
-    func testSwtcNftClientReturnsNilOnRpcError() async {
+    func testSwtcTokenUriResolverReturnsNilOnRpcError() async {
         let body = #"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"err"}}"#
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, session: self.session)
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(result)
     }
 
-    func testSwtcNftClientReturnsNilWhenGetRpcNodeNil() async {
-        let client = SwtcNftClient(getRpcNode: { nil }, session: self.session)
+    func testSwtcTokenUriResolverReturnsNilWhenGetRpcNodeNil() async {
+        let client = SwtcTokenUriResolver(getRpcNode: { nil }, session: self.session)
         let noNode = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(noNode, "无节点 → nil，不发起请求")
         let blank = await client.fetchMetadataUri(tokenId: "  ")
         XCTAssertNil(blank, "空白 tokenId → nil")
     }
 
-    func testSwtcNftClientRejectsOversizedResponse() async {
+    func testSwtcTokenUriResolverRejectsOversizedResponse() async {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(String(repeating: "x", count: 10000).utf8))
         }
-        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: self.session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: self.session)
         let result = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(result)
     }

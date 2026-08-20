@@ -33,7 +33,7 @@ public protocol DidNftResolution: AnyObject, Sendable {
 public final class SwiftNft: DidNftResolution, Sendable {
     private let config: SwiftNftConfig
     private let imageCache = NftMetadataImageCache()
-    private let swtcClient: any SwtcMetadataUriFetching // 构建一次复用（勿每次解析新建 URLSession/delegate）
+    private let swtcTokenUriResolver: (any ISwtcTokenUriResolver)? // 宿主注入；nil = SWTC 元数据解析不可用
 
     private let logger = Logger(subsystem: "com.jccdex.toolkits.swiftnft", category: "SwiftNft")
 
@@ -46,7 +46,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
             resolved.ipfsGateway = IpfsResolver.defaultGateway
         }
         self.config = resolved
-        self.swtcClient = resolved.resolvedSwtcNftClient()
+        self.swtcTokenUriResolver = resolved.swtcTokenUriResolver
         if config.ipfsGateway != resolved.ipfsGateway {
             self.logger.warning("SwiftNft: ipfsGateway 非法（非 http/https），已回退默认网关")
         }
@@ -325,7 +325,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
         let tokenUri: String? = if let uri = existing?.tokenUri, !isBlank(uri) {
             uri
         } else {
-            await self.swtcClient.fetchMetadataUri(tokenId: tokenId)
+            await self.swtcTokenUriResolver?.fetchMetadataUri(tokenId: tokenId)
         }
         guard let tokenUri else { return existing }
         return await self.fetchAndCacheNftMeta(contract: nftIssuer, tokenId: tokenId, tokenUri: tokenUri) ?? existing

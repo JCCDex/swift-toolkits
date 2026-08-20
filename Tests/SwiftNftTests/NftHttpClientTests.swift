@@ -70,7 +70,7 @@ final class NftHttpClientTests: XCTestCase {
         XCTAssertEqual(result, Data(body.utf8))
     }
 
-    func testSwtcNftClientRejectsOversizedRpcResponse() async {
+    func testSwtcTokenUriResolverRejectsOversizedRpcResponse() async {
         // RPC 响应体上限（post-download 检查）：恶意/被黑节点超大响应 → nil。
         SsrfGuard.enabled = false
         defer { SsrfGuard.enabled = true }
@@ -78,7 +78,7 @@ final class NftHttpClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: session)
+        let client = SwtcTokenUriResolver(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: session)
         let uri = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(uri, "超过 maxBodyBytes 的 RPC 响应拒绝解析")
     }

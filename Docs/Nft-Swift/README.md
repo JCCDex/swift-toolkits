@@ -38,7 +38,7 @@ let nft = SwiftNft(config: SwiftNftConfig(
             chainId == 1 ? "https://ethereum-rpc.publicnode.com" : nil
         },
     ),
-    getRpcNode: { "https://srje115qd43qw2.swtc.top" }           // SWTC erc_info 节点（宿主注入，不内置）
+    swtcTokenUriResolver: SwtcTokenUriResolver(getRpcNode: { "https://srje115qd43qw2.swtc.top" }), // SWTC erc_info 解析器（宿主注入）
 ))
 
 // 宿主把钱包持仓同步进本地存储（对齐 Kotlin NftStore.upsert*）

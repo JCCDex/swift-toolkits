@@ -6,8 +6,8 @@ import Security
 /// 对齐 Kotlin `DEFAULT_RPC_NODES`（app 侧内置）——Swift 由宿主经 init 注入，模块不内置节点。
 public typealias SwtcRpcNodeProvider = @Sendable () -> String?
 
-/// SWTC 链上元数据 URI 拉取抽象（可注入 Fake；对齐 Kotlin 构造函数注入 `SwtcNftClient`）。
-public protocol SwtcMetadataUriFetching: Sendable {
+/// SWTC 链上元数据 URI 拉取抽象（可注入 Fake；对齐 Kotlin `SwtcNftClient` 的构造函数注入语义）。
+public protocol ISwtcTokenUriResolver: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
 }
 
@@ -16,7 +16,7 @@ public protocol SwtcMetadataUriFetching: Sendable {
 /// - 15s 超时；**RPC 节点可信可跟随重定向，但重定向目标必须过 `SsrfGuard`**（否则注入节点 302 到私网即绕过）；
 /// - 建连前对注入节点做 `SsrfGuard.check`（http/https + 公网）——Swift 可注入，信任边界比 Kotlin 大；
 /// - 可选证书 pinning（SHA-256/Base64，`sha256/...` 格式）。
-public struct SwtcNftClient: SwtcMetadataUriFetching {
+public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
     public var certificatePins: [String]
     public var gateway: String // ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway
     public let timeout: TimeInterval

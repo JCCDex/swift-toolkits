@@ -17,7 +17,7 @@ final class RealDidDataTests: XCTestCase {
     private var store: GRDBNftStore!
     private var databaseURL: URL!
     private var http: FakeNftHttpClient!
-    private var swtc: FakeSwtcMetadataUriFetching!
+    private var swtc: FakeSwtcTokenUriResolver!
     private var resolver: FakeEthTokenUriResolver!
     private var sdk: SwiftNft!
 
@@ -37,13 +37,13 @@ final class RealDidDataTests: XCTestCase {
         self.database = try DatabasePool(path: self.databaseURL.path)
         self.store = try GRDBNftStore(database: self.database)
         self.http = FakeNftHttpClient()
-        self.swtc = FakeSwtcMetadataUriFetching()
+        self.swtc = FakeSwtcTokenUriResolver()
         self.resolver = FakeEthTokenUriResolver()
         self.sdk = SwiftNft(config: SwiftNftConfig(
             store: self.store,
             httpClient: self.http,
             ethTokenUriResolver: self.resolver,
-            swtcChainNftClient: self.swtc
+            swtcTokenUriResolver: self.swtc
         ))
         SsrfGuard.enabled = false
     }

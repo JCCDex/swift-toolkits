@@ -46,7 +46,7 @@
 ### 3.1 链上查询
 
 ```jsonc
-// POST https://srje115qd43qw2.swtc.top（节点由宿主经 getRpcNode 注入，单节点；可证书 pinning）
+// POST https://srje115qd43qw2.swtc.top（经 SwiftNftConfig.swtcTokenUriResolver 注入，节点由 `SwtcTokenUriResolver(getRpcNode:)` 提供）
 {
   "method": "erc_info",
   "params": [ { "tokenid": "<tokenId>" } ]

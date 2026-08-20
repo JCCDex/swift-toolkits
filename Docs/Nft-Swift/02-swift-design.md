@@ -7,7 +7,7 @@
 ```text
 Sources/SwiftNft/
 ├── SwiftNft.swift               // 门面：14 方法镜像 NftSdk（薄封装 NftStore）
-├── SwiftNftConfig.swift         // store / ipfsGateway / httpClient / ethTokenUriResolver / getRpcNode / pins
+├── SwiftNftConfig.swift         // store / ipfsGateway / httpClient / ethTokenUriResolver / swtcTokenUriResolver
 ├── Model/NftModels.swift        // Nft / AvatarCandidate / NftMetadataFields / CredentialImageRequest /
 │                                //   ResolvedCredentialImage / IEthTokenUriResolver / DidAvatarAsset / NftMeta
 ├── Store/NftStore.swift         // 协议：持仓 CRUD/观察（纯存储；解析/编排逻辑归属 SwiftNft 门面，见 §5）
@@ -16,7 +16,7 @@ Sources/SwiftNft/
 │                                //   extractMetadataImageUrl / extractSwtcMetadataUri / looksLikeImageAssetUrl
 ├── Net/NftHttpClient.swift      // 协议 + URLSession 实现（fetchJson/fetchText；不跟随重定向）
 ├── Net/SsrfGuard.swift          // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网 IP 放行）
-├── Net/SwtcNftClient.swift      // SWTC erc_info RPC（getRpcNode 单节点注入 + 可选证书 pinning）
+├── Net/SwtcTokenUriResolver.swift // SWTC erc_info RPC（getRpcNode 单节点注入 + 可选证书 pinning）
 ├── Net/EthTokenUriResolver.swift // EVM tokenURI eth_call 默认实现（RPC URL 由 init(rpcUrlsForChain:) 注入，不内置）
 └── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（只缓存成功结果）
 ```
@@ -220,7 +220,7 @@ internal enum SsrfGuard {
     static func check(_ url: URL) -> Bool { ... }
 }
 
-/// SWTC 链上元数据 URI（对齐 SwtcNftClient）：
+/// SWTC 链上元数据 URI（对齐 Kotlin SwtcNftClient，Swift 侧为 SwtcTokenUriResolver）：
 /// POST {"method":"erc_info","params":[{"tokenid": tokenId}]}，节点由 getRpcNode 注入（单 URL，nil = 无节点）；
 /// 15s 超时；RPC 节点可信可跟随重定向；可选证书 pinning（sha256/Base64）。
 /// ⚠️ 可注入 + 安全边界：
@@ -228,14 +228,14 @@ internal enum SsrfGuard {
 ///    SsrfGuard.check（http/https + 公网）；
 /// ② **不复用 `NftHttpClient`**（那是 no-redirect）：本客户端自持 redirect-following 且
 ///    `willPerformHTTPRedirection` 里对新 URL 再查 `SsrfGuard`（失败不跟随）的 delegate session；
-/// ③ 抽协议 seam `SwtcMetadataUriFetching` 供注入 Fake（对齐 Kotlin 构造函数注入 swtcChainNftClient），
-///    否则测试策略「Fake SwtcNftClient」落不了地。
-public protocol SwtcMetadataUriFetching: Sendable {
+/// ③ 抽协议 seam `ISwtcTokenUriResolver` 供注入 Fake（对齐 Kotlin 构造函数注入 swtcChainNftClient），
+///    否则测试策略「Fake SwtcTokenUriResolver」落不了地。
+public protocol ISwtcTokenUriResolver: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
 }
 public typealias SwtcRpcNodeProvider = @Sendable () -> String?
 
-public struct SwtcNftClient: SwtcMetadataUriFetching {
+public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
     public var certificatePins: [String]       // 默认空（不 pin）
     private let getRpcNode: SwtcRpcNodeProvider // 节点由 init 注入，模块不内置 DEFAULT_RPC_NODES
     private let session: URLSession            // 自己的 redirect-following + 重定向目标 SsrfGuard 守卫 session
@@ -349,9 +349,7 @@ public struct SwiftNftConfig: Sendable {
     public var ipfsGateway: String = IpfsResolver.defaultGateway   // 默认对齐 Kotlin，可注入（贯穿 ipfs→网关重写，见 §4）
     public var httpClient: any NftHttpClient = URLSessionNftHttpClient()
     public var ethTokenUriResolver: (any IEthTokenUriResolver)?    // 对应 Kotlin 构造参数；宿主可注入模块默认 EthTokenUriResolver
-    public var swtcChainNftClient: (any SwtcMetadataUriFetching)? = nil  // 注入时**优先于** getRpcNode/certificatePins（后两者被忽略）；nil → 用 getRpcNode/pins 建默认实现；测试注入 Fake
-    public var getRpcNode: (@Sendable () -> String?)? = nil
-    public var certificatePins: [String] = []
+    public var swtcTokenUriResolver: (any ISwtcTokenUriResolver)? = nil  // 宿主注入（SwtcTokenUriResolver(getRpcNode:) 或自实现/Fake）；nil → SWTC 解析返回 nil
 }
 
 /// 门面：自由线程（不加 @MainActor，对齐 DidNftResolution 协议缝）。
@@ -392,7 +390,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
 
     public func ensureSwtcCredentialMetadata(_ vc: String) async {
         // VC $.credentialSubject.tokenId / nftIssuer → resolveAndCacheSwtcNftMeta
-        //（nft_meta 已有 image → 返回；否则 tokenUri = 已有 或 (config.swtcChainNftClient ?? 默认实现).fetchMetadataUri(tokenId)）
+        //（nft_meta 已有 image → 返回；否则 tokenUri = 已有 或 config.swtcTokenUriResolver?.fetchMetadataUri(tokenId)）
     }
 
     // MARK: - 凭证/元数据图片解析（对齐 NftSdk 3.3，4 签名 = 3 方法名 + resolveCredentialImage 重载）

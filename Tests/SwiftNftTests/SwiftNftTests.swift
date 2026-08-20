@@ -9,7 +9,7 @@ final class SwiftNftTests: XCTestCase {
     private var store: GRDBNftStore!
     private var databaseURL: URL!
     private var http: FakeNftHttpClient!
-    private var swtc: FakeSwtcMetadataUriFetching!
+    private var swtc: FakeSwtcTokenUriResolver!
     private var resolver: FakeEthTokenUriResolver!
     private var sdk: SwiftNft!
 
@@ -20,13 +20,13 @@ final class SwiftNftTests: XCTestCase {
         self.database = try DatabasePool(path: self.databaseURL.path)
         self.store = try GRDBNftStore(database: self.database)
         self.http = FakeNftHttpClient()
-        self.swtc = FakeSwtcMetadataUriFetching()
+        self.swtc = FakeSwtcTokenUriResolver()
         self.resolver = FakeEthTokenUriResolver()
         self.sdk = SwiftNft(config: SwiftNftConfig(
             store: self.store,
             httpClient: self.http,
             ethTokenUriResolver: self.resolver,
-            swtcChainNftClient: self.swtc
+            swtcTokenUriResolver: self.swtc
         ))
         // 镜像 Kotlin：MockWebServer 类用例禁用 SsrfGuard（Fake 客户端不联网）。
         SsrfGuard.enabled = false
@@ -379,7 +379,7 @@ final class SwiftNftTests: XCTestCase {
             ipfsGateway: "https://gateway.example.com/ipfs",
             httpClient: self.http,
             ethTokenUriResolver: self.resolver,
-            swtcChainNftClient: self.swtc
+            swtcTokenUriResolver: self.swtc
         ))
         let payload = """
         [ { "TokenInfo": { "InfoType": "746f6b656e557269", "InfoData": "697066733a2f2f626166792d746573742f6d6574612e6a736f6e" } } ]
@@ -459,7 +459,7 @@ final class FakeNftHttpClient: NftHttpClient, @unchecked Sendable {
 }
 
 /// Fake SWTC erc_info 拉取器。
-final class FakeSwtcMetadataUriFetching: SwtcMetadataUriFetching, @unchecked Sendable {
+final class FakeSwtcTokenUriResolver: ISwtcTokenUriResolver, @unchecked Sendable {
     private let lock = NSLock()
     private var results: [String: String?] = [:]
     private var _requested: [String] = []

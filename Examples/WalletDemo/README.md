@@ -26,10 +26,11 @@
   - **SWTC ownership 兜底**：preferredAvatar 的 NFT 元数据不可解析时（如 `did:swtc:…` 示例的
     ETH NFT `tokenURI` 链上 revert），改用该 DID 自有的 SWTC ownership VC（`generateSwtcNft`
     → erc_info → IPFS 元数据 → 图片，演示两个模块组合）。
-  - **缓存优先**：DID 文档已落本地 sqlite 时跳过链上解析（不转圈）；解析成功的图片 URL 持久化
-    到 UserDefaults，**头像图片文件落盘 `Application Support/WalletDemo/avatars/`**——已落库的 DID
-    进页面直接从本地文件出图，连图片下载的 loading 都不出现；仅首次解析/下载时显示 loading，
-    失败显示具体原因。
+  - **缓存优先（全走 sqlite，不依赖 UserDefaults）**：DID 文档已落本地 sqlite 时跳过链上解析
+    （不转圈）；解析成功的图片 URL 由 `fetchAndCacheNftMeta` 落 `nft_meta`（nft.sqlite），重启后
+    `start()` 并行做**纯本地恢复**——文档/元数据已缓存直接出图，**头像图片文件落盘
+    `Application Support/WalletDemo/avatars/`** 的连下载都省了；未缓存的 DID 链上解析**各并行、
+    互不阻塞**，期间显示 loading，失败显示具体原因。
 - **加载 DApp Demo**：全屏 WKWebView 加载本地 DApp 页面（`dapp.html`，英文内容），四个按钮：
   - `web3_clientVersion`：直接调 `window.ethereum.request(...)`
   - `web3_clientVersion (EIP-6963)`：监听 `eip6963:announceProvider` 按发现协议拿 provider 再调用
