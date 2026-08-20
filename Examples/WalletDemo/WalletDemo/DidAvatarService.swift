@@ -80,7 +80,7 @@ final class DidAvatarService: ObservableObject {
                     default: nil
                     }
                 }),
-                swtcChainNftClient: SwtcNftClient()
+                swtcChainNftClient: SwtcNftClient(getRpcNode: { "https://srje115qd43qw2.swtc.top" })
             ))
             // SwiftDid：自持 did-bridge WebView（默认 EngineDidBridge）+ GRDB 存储 + SwiftNft 接入
             let sdk = try SwiftDid(store: GRDBDidStore(database: didDB), nft: nft)

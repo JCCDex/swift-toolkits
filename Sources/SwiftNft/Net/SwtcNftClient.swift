@@ -2,37 +2,39 @@ import CryptoKit
 import Foundation
 import Security
 
+/// SWTC `erc_info` RPC 节点提供者：返回单个 RPC URL 字符串（nil = 无可用节点 → 解析返回 nil）。
+/// 对齐 Kotlin `DEFAULT_RPC_NODES`（app 侧内置）——Swift 由宿主经 init 注入，模块不内置节点。
+public typealias SwtcRpcNodeProvider = @Sendable () -> String?
+
 /// SWTC 链上元数据 URI 拉取抽象（可注入 Fake；对齐 Kotlin 构造函数注入 `SwtcNftClient`）。
 public protocol SwtcMetadataUriFetching: Sendable {
     func fetchMetadataUri(tokenId: String) async -> String?
 }
 
 /// SWTC `erc_info` RPC 客户端（对齐 Kotlin `SwtcNftClient`）：
-/// - POST `{"method":"erc_info","params":[{"tokenid": tokenId}]}`，rpcNodes 逐个尝试、首个成功即返回；
+/// - POST `{"method":"erc_info","params":[{"tokenid": tokenId}]}`；**RPC 节点由 `getRpcNode` 注入**（单 URL）；
 /// - 15s 超时；**RPC 节点可信可跟随重定向，但重定向目标必须过 `SsrfGuard`**（否则注入节点 302 到私网即绕过）；
 /// - 建连前对注入节点做 `SsrfGuard.check`（http/https + 公网）——Swift 可注入，信任边界比 Kotlin 大；
 /// - 可选证书 pinning（SHA-256/Base64，`sha256/...` 格式）。
 public struct SwtcNftClient: SwtcMetadataUriFetching {
-    public static let defaultRpcNodes = ["https://srje115qd43qw2.swtc.top"]
-
-    public var rpcNodes: [String]
     public var certificatePins: [String]
     public var gateway: String // ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway
     public let timeout: TimeInterval
     public let maxBodyBytes: Int // RPC 响应体上限（防恶意/被黑节点超大响应；post-download 检查）
 
+    private let getRpcNode: SwtcRpcNodeProvider
     private let session: URLSession
     private let delegate: SwtcURLSessionDelegate
 
     public init(
-        rpcNodes: [String] = SwtcNftClient.defaultRpcNodes,
+        getRpcNode: @escaping SwtcRpcNodeProvider,
         certificatePins: [String] = [],
         gateway: String = IpfsResolver.defaultGateway,
         timeout: TimeInterval = 15,
         maxBodyBytes: Int = 2 * 1024 * 1024,
         session: URLSession? = nil
     ) {
-        self.rpcNodes = rpcNodes
+        self.getRpcNode = getRpcNode
         self.certificatePins = certificatePins
         self.gateway = IpfsResolver.normalizedGateway(gateway)
         self.timeout = timeout
@@ -49,13 +51,8 @@ public struct SwtcNftClient: SwtcMetadataUriFetching {
 
     public func fetchMetadataUri(tokenId: String) async -> String? {
         let normalized = tokenId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-        for nodeUrl in self.rpcNodes {
-            if let uri = await requestErcInfoMetadataUri(nodeUrl: nodeUrl, tokenId: normalized) {
-                return uri
-            }
-        }
-        return nil
+        guard !normalized.isEmpty, let nodeUrl = self.getRpcNode() else { return nil }
+        return await self.requestErcInfoMetadataUri(nodeUrl: nodeUrl, tokenId: normalized)
     }
 
     private func requestErcInfoMetadataUri(nodeUrl: String, tokenId: String) async -> String? {

@@ -92,7 +92,10 @@ var targets: [Target] = [
             .target(name: "SwiftDappConnect"), // 测试用 WalletAccount/ChainType
             .product(name: "GRDB", package: "GRDB.swift") // 测试用内存 DatabasePool
         ],
-        path: "Tests/SwiftNftTests"
+        path: "Tests/SwiftNftTests",
+        resources: [
+            .copy("Fixtures") // 真实 DID/NFT 数据（RealDidDataTests 用，见 Fixtures/）
+        ]
     ),
     .target(
         name: "SwiftDid",
@@ -111,7 +114,10 @@ var targets: [Target] = [
             .target(name: "SwiftDappConnect"),
             .product(name: "GRDB", package: "GRDB.swift")
         ],
-        path: "Tests/SwiftDidTests"
+        path: "Tests/SwiftDidTests",
+        resources: [
+            .copy("Fixtures") // 真实 DID 文档（RealDidDocumentTests 用，见 Fixtures/）
+        ]
     )
 ]
 

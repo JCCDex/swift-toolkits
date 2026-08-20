@@ -78,15 +78,16 @@ final class NftHttpClientTests: XCTestCase {
         StubURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "https://rpc.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let client = SwtcNftClient(rpcNodes: ["https://rpc.test"], maxBodyBytes: 1024, session: session)
+        let client = SwtcNftClient(getRpcNode: { "https://rpc.test" }, maxBodyBytes: 1024, session: session)
         let uri = await client.fetchMetadataUri(tokenId: "1")
         XCTAssertNil(uri, "超过 maxBodyBytes 的 RPC 响应拒绝解析")
     }
 }
 
-/// URLProtocol 桩：按 `requestHandler` 返回固定响应（不联网）。
+/// URLProtocol 桩：按 `requestHandler` 返回固定响应（不联网）；`capturedRequests` 记录请求供断言。
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var capturedRequests: [URLRequest] = []
 
     override class func canInit(with _: URLRequest) -> Bool {
         true
@@ -97,6 +98,7 @@ final class StubURLProtocol: URLProtocol {
     }
 
     override func startLoading() {
+        Self.capturedRequests.append(request)
         guard let handler = Self.requestHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return

@@ -1,0 +1,42 @@
+{
+  "expirationDate": "2027-08-07T09:19:12.485122Z",
+  "issuer": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+  "issuanceDate": "2026-08-07T09:19:12.632Z",
+  "id": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq#nft-CrossChainDAONFT-j9pmACHpAV72ngFoSTNshhVtfhgGdQrXpc-43726F737320436861696E2044414F2000000000000000000000000000000008-did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+  "proof": {
+    "proofPurpose": "assertionMethod",
+    "created": "2026-08-07T09:19:12Z",
+    "jws": "eyJhbGciOiJFUzI1NksiLCJiNjQiOmZhbHNlLCJjcml0IjpbImI2NCJdfQ..MEQCIBF9kIGnRMQBoOvj5dXzCzCzBJexnFjsUUqfkY2YARU9AiATzwTQyU_65IrMKLwmexGKxCV1b9FqFzb9dqMv_l2I0A",
+    "verificationMethod": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq#key-1",
+    "type": "EcdsaSecp256k1Signature2019"
+  },
+  "type": [
+    "VerifiableCredential",
+    "NFTOwnership"
+  ],
+  "credentialSubject": {
+    "owner": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+    "status": "Active",
+    "nftIssuer": "j9pmACHpAV72ngFoSTNshhVtfhgGdQrXpc",
+    "id": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+    "standard": "jingtumNFT",
+    "tokenId": "43726F737320436861696E2044414F2000000000000000000000000000000008",
+    "chainId": 315,
+    "tokenName": "Cross Chain DAO NFT"
+  },
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    {
+      "owner": "https://jdid.cn/did/v1#owner",
+      "nftIssuer": "https://jdid.cn/did/v1#nftIssuer",
+      "status": "https://jdid.cn/did/v1#status",
+      "NFTOwnership": "https://jdid.cn/vc/v1#NFTOwnership",
+      "contractAddress": "https://jdid.cn/did/v1#contractAddress",
+      "standard": "https://jdid.cn/did/v1#standard",
+      "version": "https://jdid.cn/did/v1",
+      "tokenName": "https://jdid.cn/did/v1#tokenName",
+      "chainId": "https://jdid.cn/did/v1#chainId",
+      "tokenId": "https://jdid.cn/did/v1#tokenId"
+    }
+  ]
+}

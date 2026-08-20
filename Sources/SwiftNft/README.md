@@ -30,7 +30,7 @@ let nft = SwiftNft(config: SwiftNftConfig(
     })
     // 可选项：ipfsGateway（默认 https://ipfs.jccdex.cn/ipfs/，可换）、
     // httpClient（默认 URLSessionNftHttpClient）、swtcChainNftClient（默认 SwtcNftClient）、
-    // rpcNodes / certificatePins（SWTC 节点与可选证书 pinning）
+    // getRpcNode（SWTC erc_info 节点，nil = 不配置节点）、certificatePins（可选证书 pinning）
 ))
 
 // 直接能力
@@ -49,7 +49,7 @@ try await store.upsertEvmNftItems(entities)
 Sources/SwiftNft/
 ├── SwiftNft.swift                  // 门面：14 方法镜像 NftSdk（薄封装）+ DidNftResolution 协议缝
 ├── SwiftNftConfig.swift            // store / ipfsGateway / httpClient / ethTokenUriResolver /
-│                                   //   swtcChainNftClient / rpcNodes / certificatePins
+│                                   //   swtcChainNftClient / getRpcNode / certificatePins
 ├── Model/NftModels.swift           // Nft / DidAvatarAsset / NftMetadataFields / CredentialImageRequest /
 │                                   //   ResolvedCredentialImage / IEthTokenUriResolver / NftMeta / 持仓实体
 ├── Store/NftStore.swift            // 协议：持仓 CRUD/观察（纯存储）
@@ -58,7 +58,7 @@ Sources/SwiftNft/
 │                                   //   extractMetadataImageUrl / extractSwtcMetadataUri
 ├── Net/NftHttpClient.swift         // 协议 + URLSession 实现（fetchJson/fetchText；不跟随重定向）
 ├── Net/SsrfGuard.swift             // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网放行）
-├── Net/SwtcNftClient.swift         // SWTC erc_info RPC（多节点 fallback + 可选证书 pinning）
+├── Net/SwtcNftClient.swift         // SWTC erc_info RPC（getRpcNode 单节点注入 + 可选证书 pinning）
 ├── Net/EthTokenUriResolver.swift   // EVM tokenURI eth_call 默认实现（RPC URL 由 init 注入，不内置）
 └── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（actor；只缓存成功结果；per-key in-flight 去重）
 ```
@@ -73,14 +73,14 @@ Sources/SwiftNft/
 | 纯函数 | `normalizeAssetUrl(_:baseUrl:)` / `extractResolvedMetadataImageUrl(_:metadataUri:)` / `isSupportedRemoteAssetUrl(_:)` / `extractSwtcMetadataUri(_:)` |
 | 模型 | `Nft` / `DidAvatarAsset` / `NftMetadataFields` / `CredentialImageRequest` / `ResolvedCredentialImage` / `NftMeta` / `SwtcNftEntity` / `EvmNftItemEntity` / `EvmNftCollectionEntity` |
 | 协议 | `DidNftResolution`（SwiftDid 接入缝，宿主可注入自实现）/ `IEthTokenUriResolver`（EVM tokenURI）/ `NftStore` / `NftHttpClient` / `SwtcMetadataUriFetching` |
-| 默认实现 | `EthTokenUriResolver`（eth_call，`init(rpcUrlsForChain:)` 注入 `@Sendable (Int64) -> String?`）/ `SwtcNftClient`（erc_info，多节点 fallback） |
+| 默认实现 | `EthTokenUriResolver`（eth_call，`init(rpcUrlsForChain:)` 注入 `@Sendable (Int64) -> String?`）/ `SwtcNftClient`（erc_info，`init(getRpcNode:)` 注入 `@Sendable () -> String?`，单节点） |
 
 ## Notes
 
 - **EVM tokenURI**：`IEthTokenUriResolver` 是非 throw 注入接口（失败返回 nil）；模块随包提供默认实现 `EthTokenUriResolver`（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `rpcUrlsForChain` 闭包按 chainId 提供单个 URL。
 - **缓存语义（成功才缓存）**：`NftMetadataImageCache` 只缓存**成功**结果（HTTP 500 等瞬时失败不缓存、可重试）；并发同 key 只 fetch 一次（per-key Task in-flight 去重）；`nft_meta`/图片缓存无 TTL（对齐 Kotlin）。
 - **安全边界**：所有拉取 URL 过 `SsrfGuard`（http/https + DNS 解析，回环/私网/链路本地/未解析拒绝，公网放行）；元数据拉取不跟随重定向；**SWTC RPC 例外但重定向目标再查 `SsrfGuard`**；`data:` 直出仅限 `data:image/*`（宿主渲染第三方图片用 `UIImage`/`CGImage`，勿用 WKWebView）；日志不落元数据 payload。
-- **注入信任面**：`rpcNodes` / `ipfsGateway` / `rpcUrlsForChain` 均属宿主配置（默认值对齐 Kotlin 硬编码值，可换）；注入自定义 URLSession 时须保证不跟随重定向/可 pinning（delegate 随 session 固定，勿传 `URLSession.shared`）。
+- **注入信任面**：`getRpcNode` / `ipfsGateway` / `rpcUrlsForChain` 均属宿主配置（模块**不内置任何节点/端点**，对齐 Kotlin 硬编码值由宿主传入）；注入自定义 URLSession 时须保证不跟随重定向/可 pinning（delegate 随 session 固定，勿传 `URLSession.shared`）。
 - **并发**：门面自由线程（非 @MainActor），`NftStore: Sendable`（GRDB DatabasePool 线程安全）。
 
 ## Design Docs

@@ -1,0 +1,38 @@
+{
+  "name": "CCDAO NFT #8",
+  "image": "ipfs://bafybeiequepagic2llma3wv22n3rjwloi35pvc65luyesayx6eb2r3dftu/8.png",
+  "attributes": [
+    {
+      "trait_type": "Type",
+      "value": "Human"
+    },
+    {
+      "trait_type": "Props",
+      "value": "Golden chain"
+    },
+    {
+      "trait_type": "Hat",
+      "value": "/"
+    },
+    {
+      "trait_type": "Hairstyle",
+      "value": "Short hair"
+    },
+    {
+      "trait_type": "Mouth",
+      "value": "Bared teeth smile"
+    },
+    {
+      "trait_type": "Clothing",
+      "value": "Orange sweater"
+    },
+    {
+      "trait_type": "Eyes Color",
+      "value": "Green"
+    },
+    {
+      "trait_type": "Background",
+      "value": "White"
+    }
+  ]
+}

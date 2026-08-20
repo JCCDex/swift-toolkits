@@ -485,18 +485,36 @@ final class FakeEthTokenUriResolver: IEthTokenUriResolver, @unchecked Sendable {
     private let lock = NSLock()
     private var result: String?
     private var _callCount = 0
+    private var _lastContract = ""
+    private var _lastTokenId = ""
+    private var _lastChainId: Int64 = 0
 
     var callCount: Int {
         self.lock.withLock { self._callCount }
+    }
+
+    var lastContract: String {
+        self.lock.withLock { self._lastContract }
+    }
+
+    var lastTokenId: String {
+        self.lock.withLock { self._lastTokenId }
+    }
+
+    var lastChainId: Int64 {
+        self.lock.withLock { self._lastChainId }
     }
 
     func setResult(_ result: String?) {
         self.lock.withLock { self.result = result }
     }
 
-    func resolveEthrTokenUri(contract _: String, tokenId _: String, chainId _: Int64) async -> String? {
+    func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? {
         self.lock.withLock {
             self._callCount += 1
+            self._lastContract = contract
+            self._lastTokenId = tokenId
+            self._lastChainId = chainId
             return self.result
         }
     }

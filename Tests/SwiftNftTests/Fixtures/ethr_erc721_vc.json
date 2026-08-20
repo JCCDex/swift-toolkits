@@ -1,0 +1,68 @@
+{
+  "expirationDate": "2027-07-16T15:59:59.000Z",
+  "issuer": "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B",
+  "issuanceDate": "2026-07-16T02:30:54.936Z",
+  "id": "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B#nft-0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a-4-did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+  "proof": {
+    "proofPurpose": "assertionMethod",
+    "created": "2026-07-16T02:30:54Z",
+    "jws": "eyJhbGciOiJFUzI1NksiLCJiNjQiOmZhbHNlLCJjcml0IjpbImI2NCJdfQ..MEUCIQDOEzcV9EVQlgYGYrXuVRWFs4YPkSMVWDy2C1qm84BZSQIgETiqZFW0PNeyLHO_lGqWuQTIPipVy0aZxpCXbgrjUWg",
+    "verificationMethod": "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B#key-1",
+    "type": "EcdsaSecp256k1Signature2019"
+  },
+  "type": [
+    "VerifiableCredential",
+    "NFTUsageAuthorization"
+  ],
+  "credentialSubject": {
+    "owner": "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B",
+    "status": "Active",
+    "id": "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+    "standard": "ERC-721",
+    "contractAddress": "0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a",
+    "usageRights": [
+      "avatar",
+      "non-commercial-display"
+    ],
+    "restrictions": {
+      "platforms": [
+        "*"
+      ],
+      "derivative": false,
+      "commercial": false,
+      "territories": [
+        "global"
+      ],
+      "sublicense": false
+    },
+    "tokenId": "4",
+    "chainId": 1
+  },
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    {
+      "contractAddress": "https://ccda.ooo/did/v1#contractAddress",
+      "restrictions": {
+        "@id": "https://ccda.ooo/vc/v1#restrictions",
+        "@context": {
+          "platforms": "https://ccda.ooo/vc/v1#platforms",
+          "derivative": "https://ccda.ooo/vc/v1#derivative",
+          "commercial": "https://ccda.ooo/vc/v1#commercial",
+          "territories": "https://ccda.ooo/vc/v1#territories",
+          "sublicense": "https://ccda.ooo/vc/v1#sublicense"
+        }
+      },
+      "nftIssuer": "https://ccda.ooo/did/v1#nftIssuer",
+      "version": "https://ccda.ooo/did/v1",
+      "owner": "https://ccda.ooo/did/v1#owner",
+      "grantee": "https://ccda.ooo/vc/v1#grantee",
+      "standard": "https://ccda.ooo/did/v1#standard",
+      "chainId": "https://ccda.ooo/did/v1#chainId",
+      "tokenId": "https://ccda.ooo/did/v1#tokenId",
+      "NFTUsageAuthorization": "https://ccda.ooo/vc/v1#NFTUsageAuthorization",
+      "usageRights": "https://ccda.ooo/vc/v1#usageRights",
+      "status": "https://ccda.ooo/did/v1#status",
+      "tokenName": "https://ccda.ooo/did/v1#tokenName"
+    }
+  ]
+}
