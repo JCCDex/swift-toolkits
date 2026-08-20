@@ -1,44 +1,51 @@
 import Foundation
+import SwiftAccount
 import SwiftCore
 import SwiftDappConnect
 import SwiftWallet
 
-// MARK: - Demo 钱包状态（地址列表 + 当前地址）
+// MARK: - Demo 钱包状态（地址列表 + 当前地址，由 SwiftAccount 驱动）
 
-/// 地址列表与当前地址状态：WalletService 维护，DemoAccountProvider 读取，
-/// DApp 的 eth_requestAccounts 返回当前地址。
-/// 当前地址持久化到 UserDefaults，重启 App 后恢复上次选择，而非默认第一个账户。
+/// 地址列表与当前地址状态：**由 SwiftAccount 观察流驱动**（列表 = `account.accounts`，
+/// 当前地址 = `account.currentAccount`，持久化在 `current_account` 表），
+/// 不再自维护内存列表 / UserDefaults。
+/// DemoAccountProvider 读取，DApp 的 eth_requestAccounts 返回当前地址。
 @MainActor
 final class DemoWalletState: ObservableObject {
     @Published var accounts: [WalletAccount] = []
-    @Published var currentAddress: String? {
-        didSet { Self.persist(self.currentAddress) }
+    @Published var currentAddress: String?
+
+    private weak var account: SwiftAccount?
+    private var bound = false
+
+    /// 绑定 SwiftAccount：订阅 accounts / currentAccount 观察流（GRDB ValueObservation，首帧即当前值）。
+    func bind(account: SwiftAccount) {
+        guard !self.bound else { return }
+        self.bound = true
+        self.account = account
+        Task { [weak self] in
+            for await list in account.accounts {
+                self?.accounts = list
+            }
+        }
+        Task { [weak self] in
+            for await current in account.currentAccount {
+                self?.currentAddress = current?.address
+            }
+        }
     }
 
+    /// 切换当前账户：委托 `SwiftAccount.setCurrentAccount(accountId:)`（稳定 id `address#chain`）。
     func setCurrent(_ address: String) {
-        self.currentAddress = address
+        guard let account,
+              let matched = self.accounts.first(where: { $0.address.caseInsensitiveCompare(address) == .orderedSame })
+        else { return }
+        Task { try? await account.setCurrentAccount(accountId: matched.id) }
     }
 
     var currentAccount: WalletAccount? {
         guard let currentAddress else { return nil }
         return self.accounts.first { $0.address.caseInsensitiveCompare(currentAddress) == .orderedSame }
-    }
-
-    // MARK: - 当前地址持久化
-
-    private static let currentAddressKey = "walletdemo.currentAddress"
-
-    /// 上次选择的当前地址（无则 nil）
-    static func savedCurrentAddress() -> String? {
-        UserDefaults.standard.string(forKey: self.currentAddressKey)
-    }
-
-    private static func persist(_ address: String?) {
-        if let address {
-            UserDefaults.standard.set(address, forKey: self.currentAddressKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: self.currentAddressKey)
-        }
     }
 }
 

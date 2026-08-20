@@ -1,11 +1,13 @@
 # WalletDemo
 
-演示 `swift-toolkits` 五个模块的组合使用：
+演示 `swift-toolkits` 模块的组合使用：
 
 | 模块 | 在 demo 中的角色 |
 | --- | --- |
-| `SwiftWebviewBridge` | 隐藏 WebView 里的 jcc-wallet 加密库：生成助记词、派生 ETH 账户 |
+| `SwiftCore` | 共享模型（`ChainType`/`Path`/`WalletAccount`） |
+| `SwiftWallet` | 隐藏 WebView 里的 jcc-wallet 加密库门面：生成助记词、派生 ETH 账户 |
 | `SwiftVault` | 密码加密持久化私钥/助记词（Argon2id + AES-256-GCM） |
+| `SwiftAccount` | 账户元数据列表/当前选中（GRDB `accounts` + `current_account` 表）+ 导入编排（`AccountManager`） |
 | `SwiftDappConnect` | 真实 WKWebView 中注入 EIP-1193 provider，DApp 与钱包通信 |
 | `SwiftNft` | NFT 元数据/图片解析：DID 头像 VC → tokenURI/erc_info → 元数据 → 图片 URL |
 | `SwiftDid` | 链上 DID 解析（did-bridge 隐藏 WebView）+ Profile/头像 VC 展示 |
@@ -17,9 +19,12 @@
 - **无钱包**：显示「生成钱包」按钮与提示。
 - **已有钱包**：显示**地址列表**（地址缩写展示前后段如 `0xd65b…8bdb`，点击行切换当前地址、
   点「密钥」查看该地址完整私钥/助记词），并提供「新增钱包」按钮（再次生成新助记词派生新账户）。
+  **列表与当前地址均由 SwiftAccount 驱动**：`DemoWalletState` 订阅 `SwiftAccount.accounts` /
+  `currentAccount` 观察流（GRDB ValueObservation），切换当前地址委托
+  `setCurrentAccount(accountId:)`，当前选中持久化在 `current_account` 表，重启自动恢复。
 - **DID 头像（示例）**：主界面「DID」区块按钮进入**二级全屏页**（与 DApp 页同形态），展示
   `did:swtc:…` 与 `did:ethr:…` 两个示例 DID 的头像：
-  - 解析链：`resolveDid`（链上取档）→ `generateProfileVC`（读 preferredAvatar VC）→ SwiftNft
+  - 解析链：`resolveDid`（链上取档）→ `generateProfileVC`（SwiftDid API，读 preferredAvatar VC）→ SwiftNft
     元数据解析出图片 URL → 行内 AsyncImage 加载；EVM 头像的 `tokenURI(uint256)` 由 SwiftNft
     模块内 `EthTokenUriResolver`（eth_call）提供，RPC 端点由宿主经
     `getRpcNode` 闭包按 chainId 注入。
@@ -41,8 +46,8 @@
 签名链路：`dapp.html` → `window.ethereum.request` → `_tw_` 通道 → `EthMiddleware.signTransaction`
 → `DemoSecretProvider`（委托 `WalletService` 从 SwiftVault 解密）→ `SwiftWallet`（隐藏桥 JS 签名）。
 
-钱包数据（助记词/私钥）经 SwiftVault 加密持久化，重启 App 自动加载已有钱包；
-**当前选中地址持久化到 UserDefaults**，重启后恢复上次选择，而非默认第一个账户。
+钱包数据（助记词/私钥）经 SwiftVault 加密持久化；账户元数据（地址/链/名称）经 SwiftAccount
+落 `account.sqlite`，**当前选中地址持久化在 `current_account` 表**，重启后自动恢复上次选择。
 
 ## 构建与运行
 
@@ -80,8 +85,14 @@ xcodebuild -project WalletDemo.xcodeproj -scheme WalletDemo \
   `_tw_` → native → 回传链路。
 - **vault 持久化**：`vault.pb` 存于 Application Support，重启后仍在。新进程导入前若
   密码已初始化必须先 `unlock`，否则抛 `VaultError.vaultLocked`。
+- **账户元数据走 SwiftAccount**：生成/新增钱包统一走
+  `AccountManager.importSingleAccount(derived:chain:name:isHD:parentId:)`——内部判重（地址+链
+  已存在返回 `addressAlreadyExists`）、助记词/私钥落 vault、元数据落 `accounts` 表；稳定 id
+  为 `address#chain`（Kotlin 对齐），重复导入抛唯一约束错误。列表/当前地址不再自维护
+  （旧实现内存数组 + UserDefaults），改由 `SwiftAccount.accounts` / `currentAccount`
+  观察流驱动，`current_account` 表持久化当前选中。
 - **demo 密码**：固定 `demo-password-1234`（仅演示；真实 App 应引导用户设置并放 Keychain）。
-- **重置**：`simctl uninstall` 删除 App 即清空 vault 数据。
+- **重置**：`simctl uninstall` 删除 App 即清空 vault / account.sqlite 数据。
 
 ## 目录结构
 
@@ -92,8 +103,8 @@ Examples/WalletDemo/
 └── WalletDemo/
     ├── WalletDemoApp.swift      # App 入口
     ├── ContentView.swift        # 主界面：地址列表/切换当前地址、按地址查看密钥、DApp/DID 头像入口
-    ├── WalletService.swift      # SwiftVault + SwiftWebviewBridge 组合（生成/新增钱包、按地址查看密钥）
-    ├── DemoProviders.swift      # DemoWalletState（地址列表/当前地址）+ DAppConnect 中间件桩 Provider
+    ├── WalletService.swift      # SwiftAccount + SwiftVault + SwiftWallet 组合（账户门面/导入、按地址查看密钥）
+    ├── DemoProviders.swift      # DemoWalletState（SwiftAccount 观察流驱动）+ DAppConnect 中间件桩 Provider
     ├── DappView.swift           # WKWebView + SwiftDappConnect 注入（含 eth_requestAccounts）
     ├── DidAvatarService.swift   # DID 头像服务：SwiftDid 解析 + SwiftNft 元数据/图片 + 三层缓存
     ├── DidAvatarView.swift      # DID 头像二级全屏页（AsyncImage + 本地文件直出）

@@ -184,6 +184,7 @@ public final class AccountManager: Sendable {
                 }
 
                 let mnemonic = try await self.vault.getMnemonic(address: root.address, password: password)
+                let language = try await self.vault.getMnemonicLanguage(address: root.address)
 
                 var deriveIndex: Int = if let index {
                     index
@@ -196,7 +197,7 @@ public final class AccountManager: Sendable {
                     account: 0,
                     change: 0,
                     index: deriveIndex,
-                    language: "english"
+                    language: language
                 )
                 while index == nil {
                     let occupied = await (try? self.store.findNonRootAccount(address: subWallet.address, chain: chain)) != nil
@@ -210,7 +211,7 @@ public final class AccountManager: Sendable {
                         account: 0,
                         change: 0,
                         index: deriveIndex,
-                        language: "english"
+                        language: language
                     )
                 }
 

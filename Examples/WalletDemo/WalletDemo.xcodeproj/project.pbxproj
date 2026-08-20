@@ -22,6 +22,8 @@
 		8CA77E2F41E4C5F5A1723167 /* SwiftDappConnect in Frameworks */ = {isa = PBXBuildFile; productRef = 3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */; };
 		C0960BC9CCD6F67BB23283D5 /* SwiftWebviewBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */; };
 		D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */ = {isa = PBXBuildFile; productRef = 39ECC87252B0148CA959D8F8 /* SwiftWallet */; };
+		7A1E2B3C4D5E6F708192A3B4C /* SwiftAccount in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */; };
+		8B2F3C4D5E6F708192A3B4C5 /* SwiftCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D4E5F60718293A4B5C6D7E8F /* SwiftCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +50,8 @@
 				D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */,
 				3D24B6A87E8FBE157B3BF550 /* SwiftNft in Frameworks */,
 				187546B5C60D89B070EE9C2A /* SwiftDid in Frameworks */,
+				7A1E2B3C4D5E6F708192A3B4C /* SwiftAccount in Frameworks */,
+				8B2F3C4D5E6F708192A3B4C5 /* SwiftCore in Frameworks */,
 				50841E3E0E3BF302DA15EA09 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -126,6 +130,8 @@
 				39ECC87252B0148CA959D8F8 /* SwiftWallet */,
 				576E20136FC0F5FF3ECFCAF8 /* SwiftNft */,
 				7BF316FFF25C6855D67EEF0A /* SwiftDid */,
+				9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */,
+				0D4E5F60718293A4B5C6D7E8F /* SwiftCore */,
 				559F113F6F0AEE3A0B0AAC72 /* GRDB */,
 			);
 			productName = WalletDemo;
@@ -436,6 +442,14 @@
 		8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftWebviewBridge;
+		};
+		9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftAccount;
+		};
+		0D4E5F60718293A4B5C6D7E8F /* SwiftCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

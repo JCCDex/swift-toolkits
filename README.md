@@ -3,7 +3,21 @@
 [![CI](https://github.com/JCCDex/swift-toolkits/actions/workflows/ci.yml/badge.svg)](https://github.com/JCCDex/swift-toolkits/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/JCCDex/swift-toolkits/branch/main/graph/badge.svg)](https://codecov.io/gh/JCCDex/swift-toolkits)
 
-面向 iOS 的 Swift 工具库。仓库镜像 `kotlin-toolkits` 的多个模块：Swift 保险库 SDK（`vault`）、隐藏 WebView 桥（`webview-bridge`）、DApp 连接（`dapp-connect`）、NFT 元数据/头像解析（`nft`）、DID 文档管理（`did`）。
+面向 iOS 的 Swift 工具库。仓库镜像 `kotlin-toolkits` 的多个模块：Swift 保险库 SDK（`vault`）、隐藏 WebView 桥（`webview-bridge`）、DApp 连接（`dapp-connect`）、NFT 元数据/头像解析（`nft`）、DID 文档管理（`did`）、共享模型与钱包账户（`core` / `account`）。
+
+## SwiftCore
+
+共享基础模型：`ChainType`（BIP44 链码/是否为 EVM/SWTC）、`Path`（BIP44 派生路径，含 `derivationPath`/`root`）、`WalletAccount`（账户元数据，`isRootHD`）。详见：
+
+[SwiftCore/README.md](Sources/SwiftCore/README.md)
+
+## SwiftAccount
+
+账户元数据管理与导入编排（镜像 Kotlin `:account`）：`AccountStore` 协议 + `GRDBAccountStore`（`accounts`/`current_account` 表）、`AccountManager` 六条流程（导入单账户 / HD 钱包 / 子账户、派生、删除、清空）、`SwiftAccount` 门面（`accounts`/`currentAccount` 观察流 + `setCurrentAccount`）。密钥经 `SwiftVault` 落库，地址派生经 `WalletDeriving`（`SwiftWallet` 实现）。快速接入与 API 详见：
+
+[SwiftAccount/README.md](Sources/SwiftAccount/README.md)
+
+设计文档（对齐 Kotlin `:account`、GRDB 迁移、协议）：[Docs/Account-Swift/README.md](Docs/Account-Swift/README.md)
 
 ## SwiftVault
 
@@ -41,7 +55,7 @@ DID 文档解析/管理、Profile/头像 VC、NFT 凭证签发与验证、pendin
 
 ## 示例 App：WalletDemo
 
-组合演示 SwiftVault / SwiftWebviewBridge / SwiftDappConnect / SwiftNft / SwiftDid：钱包生成与密钥查看、真实 DApp 页（EIP-1193 provider）、DID 头像二级页（缓存优先：文档/元数据/图片逐层落库，已缓存直接出图）。详见：
+组合演示 SwiftCore / SwiftAccount / SwiftVault / SwiftWallet / SwiftDappConnect / SwiftNft / SwiftDid：钱包生成与密钥查看（列表/当前地址/新增均走 SwiftAccount 的 Account API）、真实 DApp 页（EIP-1193 provider）、DID 头像二级页（缓存优先：文档/元数据/图片逐层落库，已缓存直接出图）。详见：
 
 [Examples/WalletDemo/README.md](Examples/WalletDemo/README.md)
 

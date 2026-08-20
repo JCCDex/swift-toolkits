@@ -1,60 +1,62 @@
 import Foundation
+import GRDB
 import os
+import SwiftAccount
 import SwiftCore
 import SwiftDappConnect
 import SwiftVault
-import SwiftWebviewBridge
+import SwiftWallet
 
-/// 钱包服务：组合三个模块——
-/// - SwiftWebviewBridge：隐藏 WebView 里的 jcc-wallet 加密库（生成助记词/派生账户）
+/// 钱包服务：组合模块——
+/// - SwiftWallet：隐藏 WebView 里的 jcc-wallet 加密库门面（生成助记词/派生账户）
 /// - SwiftVault：密码加密持久化私钥/助记词
+/// - **SwiftAccount：账户元数据列表/当前选中（GRDB `accounts` + `current_account` 表）**
+/// - SwiftCore：共享模型（WalletAccount/ChainType/Path）
 @MainActor
 final class WalletService: ObservableObject {
     private let log = Logger(subsystem: "com.swifttoolkits.WalletDemo", category: "wallet")
     @Published var status = ""
     @Published var isLoading = false
 
-    /// 地址列表 + 当前地址（DApp 的 eth_requestAccounts 读取）
+    /// 地址列表 + 当前地址（DApp 的 eth_requestAccounts 读取；由 SwiftAccount 观察流驱动）
     let state = DemoWalletState()
 
     /// demo 固定密码（仅示例；真实 App 应引导用户设置并放入 Keychain）
     private let demoPassword = Data("demo-password-1234".utf8)
 
     private let vault: VaultRepository
-    private let engine = WebviewBridgeEngine.shared
+    private let wallet: SwiftWallet
 
-    /// ETH BIP44 链码（与 SwiftDappConnect `ChainType.eth.bip44Code` 一致）
-    private let chainETH: Int64 = 2_147_483_708
+    /// 账户门面（列表/当前选中/查询）+ 编排器（导入等操作）——列表与操作均走 Account API
+    let account: SwiftAccount
+    let accountManager: AccountManager
 
     init() {
         let baseURL =
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
-        self.vault = VaultRepository(
-            storageURL: baseURL
-                .appendingPathComponent("WalletDemo", isDirectory: true)
-                .appendingPathComponent("vault.pb", isDirectory: false)
+        let dir = baseURL.appendingPathComponent("WalletDemo", isDirectory: true)
+        // 本地 DB 创建失败属环境错误（demo 用 try!）
+        let store = try! GRDBAccountStore(
+            database: try! DatabasePool(path: dir.appendingPathComponent("account.sqlite").path)
         )
+        self.vault = VaultRepository(storageURL: dir.appendingPathComponent("vault.pb", isDirectory: false))
+        self.wallet = SwiftWallet()
+        self.account = SwiftAccount(store: store, vault: self.vault, wallet: self.wallet)
+        self.accountManager = self.account.accountManager
+        // 观察流驱动列表/当前地址（首帧即当前值；current_account 表持久化，重启自动恢复）
+        self.state.bind(account: self.account)
     }
 
-    // MARK: - 启动加载（本地已生成的钱包）
+    // MARK: - 启动（加载本地账户：观察流自动填充，此处仅启动桥）
 
     func loadExistingWallets() async throws {
         guard try await self.vault.hasPassword() else {
             self.status = ""
             return
         }
-        let addresses = try await self.vault.listAccounts()
-        self.state.accounts = addresses.map { self.makeAccount(address: $0) }
-        // 恢复上次选择的当前地址；地址已不存在（如重装/清空）时回退第一个
-        if let saved = DemoWalletState.savedCurrentAddress(),
-           self.state.accounts.contains(where: { $0.address.caseInsensitiveCompare(saved) == .orderedSame }) {
-            self.state.currentAddress = saved
-        } else {
-            self.state.currentAddress = self.state.accounts.first?.address
-        }
-        self.log.notice("currentAddress restored: \(self.state.currentAddress ?? "nil", privacy: .public)")
-        self.status = self.state.accounts.isEmpty ? "" : "已加载 \(self.state.accounts.count) 个钱包"
+        // 列表/当前地址由 state.bind 的观察流自动推送（含重启恢复 current_account）
+        self.status = "已加载 \(self.state.accounts.count) 个钱包"
     }
 
     // MARK: - 生成/新增钱包（助记词 → 派生 ETH 账户 → 导入 SwiftVault）
@@ -64,50 +66,42 @@ final class WalletService: ObservableObject {
         self.isLoading = true
         defer { self.isLoading = false }
         self.status = "正在启动加密桥…"
-        try await self.startBridgeIfNeeded()
+        try self.wallet.start()
 
         self.status = "正在生成助记词…"
-        let mnemonic: GeneratedMnemonic = try await self.engine.callJsMethodAs(
-            method: "generateMnemonic",
-            params: ["length": 128, "language": "english"],
-            as: GeneratedMnemonic.self
-        )
+        let mnemonic = try await self.wallet.generateMnemonic()
 
         self.status = "正在派生 ETH 账户…"
-        let derived: DerivedChildResult = try await self.engine.callJsMethodAs(
-            method: "deriveChild",
-            params: [
-                "mnemonic": mnemonic.value,
-                "chain": self.chainETH,
-                "account": 0,
-                "change": 0,
-                "index": 0,
-                "language": mnemonic.language
-            ],
-            as: DerivedChildResult.self
+        let derived = try await self.wallet.deriveFromMnemonic(
+            mnemonic: mnemonic.value,
+            chain: ChainType.eth.bip44Code
         )
 
-        self.status = "正在加密入库…"
+        self.status = "正在导入账户…"
+        // vault 解锁/初始化（AccountManager.importSingleAccount 内部把助记词+私钥落 vault）
         if try await !self.vault.hasPassword() {
             _ = try await self.vault.initializePassword(self.demoPassword)
         } else {
-            // vault.pb 已存在（上次运行持久化）：新进程需先解锁，否则导入会抛 vaultLocked
-            _ = try await self.vault.unlock(self.demoPassword)
+            _ = try await self.vault.unlock(self.demoPassword) // vault.pb 已存在：新进程先解锁
         }
-        try await self.vault.importMnemonic(
-            address: derived.address,
-            mnemonic: Data(mnemonic.value.utf8),
-            privateKey: Data(derived.keypair.privateKey.utf8),
-            pathPrefix: "m/44'/60'/0'/0/0",
-            language: mnemonic.language
+        let result = await self.accountManager.importSingleAccount(
+            derived: TraditionalDeriveResult(
+                address: derived.address,
+                keypair: derived.keypair,
+                mnemonic: mnemonic,
+                path: derived.path
+            ),
+            chain: .eth,
+            name: "Demo Wallet",
+            isHD: false,
+            parentId: nil
         )
-
-        // 刷新地址列表，新钱包设为当前地址
-        let account = self.makeAccount(address: derived.address)
-        if !self.state.accounts.contains(where: { $0.address.caseInsensitiveCompare(derived.address) == .orderedSame }) {
-            self.state.accounts.append(account)
+        guard case let .success(accountId) = result else {
+            self.status = "导入失败：\(result)"
+            return
         }
-        self.state.currentAddress = derived.address
+        // 新钱包设为当前地址（Account API）
+        try? await self.account.setCurrentAccount(accountId: accountId)
         self.status = "钱包已生成：\(derived.address)"
     }
 
@@ -138,42 +132,5 @@ final class WalletService: ObservableObject {
     /// SWTC secret（demo 与私钥同源存储）。
     func secret(for address: String) async -> String? {
         await self.privateKey(for: address)
-    }
-
-    // MARK: - 私有
-
-    private func makeAccount(address: String) -> WalletAccount {
-        WalletAccount(address: address, chain: .eth, name: "Demo Wallet", isHD: false)
-    }
-
-    private func startBridgeIfNeeded() async throws {
-        // initialize/start 幂等：重复调用复用已有 WebView，不重复创建。
-        self.engine.initialize(config: WebviewBridgeConfig.bridge(named: "wallet-bridge"))
-        try self.engine.start()
-    }
-}
-
-// MARK: - JS 桥返回模型（与 wallet-bridge.js 返回值对应）
-
-struct GeneratedMnemonic: Decodable {
-    let value: String
-    let language: String
-}
-
-struct DerivedChildResult: Decodable {
-    let address: String
-    let keypair: Keypair
-    let path: Path?
-
-    struct Keypair: Decodable {
-        let privateKey: String
-        let publicKey: String
-    }
-
-    struct Path: Decodable {
-        let chain: Int64
-        let account: Int
-        let change: Int
-        let index: Int
     }
 }

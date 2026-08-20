@@ -31,6 +31,10 @@ targets:
         product: SwiftNft
       - package: SwiftToolkits
         product: SwiftDid
+      - package: SwiftToolkits
+        product: SwiftAccount
+      - package: SwiftToolkits
+        product: SwiftCore
       - package: GRDB
         product: GRDB
     settings:
