@@ -25,24 +25,24 @@ enum SampleDid {
     ]
 }
 
-/// DID 头像服务：组合 SwiftDid（链上解析 + Profile/头像 VC）与 SwiftNft（元数据/图片解析）。
+/// DID 头像服务：组合 SwiftDid（链上解析 + 头像 VC）与 SwiftNft（元数据/图片解析）。
 ///
-/// 解析链：`resolveDid`（本地已有文档则跳过，避免 loading 等待）→ `generateProfileVC`
-/// （读 preferredAvatar VC）→ nft.image；preferredAvatar 的 NFT 元数据不可解析时（如
-/// tokenURI 链上 revert）兜底用 DID 自有的 SWTC ownership VC（`generateSwtcNft` → erc_info）。
+/// 解析链**全部走 SwiftDid SDK 公开 API，demo 零解析逻辑**：
+/// `resolveDid`（本地已有文档则跳过，避免 loading 等待）→ `generateProfileVC`（读
+/// preferredAvatar VC，SDK 内部经 SwiftNft 解析出图片 URL 并落 `nft_meta` 缓存）。
 ///
 /// 缓存全部走本地 sqlite，**不依赖 UserDefaults**：
 /// - DID 文档落 `did.sqlite`（did_documents），解析成功后图片 URL 落 `nft.sqlite`
-///   （`nft_meta.image`，经 `fetchAndCacheNftMeta`）；
-/// - 重启后 `start()` 并行做**纯本地恢复**：文档已缓存 → 停转圈；`nft_meta` 已有图 →
-///   直接出图（图片文件已落盘的连下载都省了）；未缓存/无图的才走链上解析，且**各 DID 并行**。
+///   （`nft_meta.image`，SDK 的 `resolveSwtcAvatar`/`resolveEthrAvatar` 本地命中即返回）；
+/// - 重启后**头像图片已落盘（`avatars/<did>.img`）的直接出图，不显示 loading、跳过解析**；
+///   未落盘的并行解析：文档/元数据已缓存 → SDK 内部本地直接出图；未缓存的走链上解析，
+///   且**各 DID 并行**。
 @MainActor
 final class DidAvatarService: ObservableObject {
     @Published var items: [DidAvatarItem] = SampleDid.list.map { DidAvatarItem(did: $0) }
     @Published var started = false
 
     private var sdk: SwiftDid?
-    private var nftStore: GRDBNftStore?
     private let log = Logger(subsystem: "com.swifttoolkits.WalletDemo", category: "did-avatar")
 
     func start() async {
@@ -72,38 +72,21 @@ final class DidAvatarService: ObservableObject {
             let sdk = try SwiftDid(store: GRDBDidStore(database: didDB), nft: nft)
             try sdk.start()
             self.sdk = sdk
-            self.nftStore = nftStore
 
-            // 1) 纯本地恢复（并行）：DID 文档已落 sqlite → 停转圈；
-            //    nft_meta 已缓存图片 URL → 直接出图（本地文件存在则连下载都省）。
-            await withTaskGroup(of: (Int, Bool, URL?).self) { group in
+            // 1) 本地图片文件预检：上次解析成功已落盘 `avatars/<did>.img` 的头像
+            //    直接出图（localImagePath）、不显示 loading，并跳过网络/链上解析。
+            await withTaskGroup(of: Void.self) { group in
                 for index in self.items.indices where self.items[index].imageURL == nil {
-                    group.addTask {
-                        let (cached, url) = await self.localCachedAvatar(did: self.items[index].did)
-                        return (index, cached, url)
-                    }
-                }
-                for await (index, cached, url) in group {
-                    if cached {
-                        self.items[index].isLoading = false // 文档已缓存：不再转圈
-                    }
-                    if let url {
-                        self.items[index].imageURL = url
-                        if let path = Self.localImageURL(for: self.items[index].did),
-                           FileManager.default.fileExists(atPath: path.path) {
-                            self.items[index].localImagePath = path.path
-                        } else {
-                            // URL 已落 sqlite 但图片文件缺失：后台补落盘，
-                            // 本次 AsyncImage 下载的同时写文件，下次直接出本地图。
-                            self.cacheImageFile(url: url, did: self.items[index].did)
-                        }
-                    }
+                    group.addTask { await self.preloadLocalImage(index: index) }
                 }
             }
 
-            // 2) 并行解析缺失头像：未缓存 DID 走链上解析（各自独立、互不阻塞），期间显示 loading。
+            // 2) 并行解析缺失头像（各 DID 独立、互不阻塞）：未落盘的才走 SDK——
+            //    已缓存（文档 + nft_meta）的由 SDK 内部本地直接出图；未缓存的走链上解析，
+            //    期间显示 loading。
             await withTaskGroup(of: Void.self) { group in
-                for index in self.items.indices where self.items[index].imageURL == nil {
+                for index in self.items.indices
+                    where self.items[index].imageURL == nil && self.items[index].localImagePath == nil {
                     group.addTask { await self.loadAvatar(index: index) }
                 }
             }
@@ -113,11 +96,21 @@ final class DidAvatarService: ObservableObject {
         }
     }
 
+    /// 本地图片文件预检（纯文件系统检查，无解析）：`avatars/<did>.img` 已存在 →
+    /// 直接出图、不转圈。
+    private func preloadLocalImage(index: Int) async {
+        guard let path = Self.localImageURL(for: self.items[index].did),
+              FileManager.default.fileExists(atPath: path.path)
+        else { return }
+        self.items[index].localImagePath = path.path
+        self.items[index].isLoading = false
+    }
+
     private func loadAvatar(index: Int) async {
         let did = self.items[index].did
         guard let sdk else { return }
 
-        // 本地已缓存 DID 文档 → 跳过链上解析、不显示 loading（start() 恢复阶段已停转圈，此处幂等）
+        // 本地已缓存 DID 文档 → 跳过链上解析、不显示 loading（SDK getDidDocument 纯本地）
         let cached = await (try? sdk.getDidDocument(did)) != nil
         if !cached {
             switch await sdk.resolveDid(did) {
@@ -134,88 +127,22 @@ final class DidAvatarService: ObservableObject {
             self.items[index].isLoading = false // 已缓存：不再转圈
         }
 
-        guard let profileVC = await sdk.generateProfileVC(did) else {
-            self.fail(index, "无 Profile")
-            return
-        }
-        if let image = profileVC.nft?.image, let url = URL(string: image) {
-            self.succeed(index, url)
-            return
-        }
-
-        // 兜底：preferredAvatar 的 NFT 元数据不可解析（如 tokenURI 链上 revert）
-        // → 用 DID 自有的 SWTC ownership VC（erc_info → 元数据 → 图片）
-        if let entity = try? await sdk.getDidDocument(did),
-           let vc = Self.swtcOwnershipVC(in: entity.doc) {
-            let nft = await sdk.generateSwtcNft(vc)
-            if let image = nft?.image, let url = URL(string: image) {
-                self.succeed(index, url)
-                return
-            }
-        }
-        self.fail(index, "头像 NFT 元数据不可解析")
-    }
-
-    // MARK: - 本地恢复（纯 sqlite，不依赖 UserDefaults）
-
-    /// 纯本地恢复：DID 文档已落 `did_documents` → 沿 preferredAvatar VC 查 `nft_meta.image`
-    /// （图片 URL 由 `fetchAndCacheNftMeta` 落库），返回（文档是否缓存, 图片 URL?）。
-    private func localCachedAvatar(did: String) async -> (cached: Bool, url: URL?) {
-        guard let sdk, let nftStore,
-              let entity = try? await sdk.getDidDocument(did)
-        else { return (false, nil) }
-        // 文档已缓存；preferredAvatar VC 的 contract/tokenId → nft_meta.image
-        guard let avatarId = Self.preferredAvatarId(in: entity.doc),
-              let subject = Self.credentialSubject(in: entity.doc, id: avatarId),
-              let tokenId = subject["tokenId"] as? String,
-              let contract = (subject["contractAddress"] as? String) ?? (subject["nftIssuer"] as? String)
-        else { return (true, nil) }
-        guard let meta = try? await nftStore.getNftMeta(contract: contract, tokenId: tokenId),
-              let image = meta.image, !image.isEmpty,
+        // 头像 NFT 由 SDK generateProfileVC 解析（preferredAvatar VC → SwiftNft 元数据/图片，缓存优先）
+        guard let profileVC = await sdk.generateProfileVC(did),
+              let image = profileVC.nft?.image, !image.isEmpty,
               let url = URL(string: image)
-        else { return (true, nil) }
-        return (true, url)
-    }
-
-    /// Profile service 的 `serviceEndpoint.preferredAvatar`（VC id）。
-    private static func preferredAvatarId(in doc: String) -> String? {
-        guard let data = doc.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let services = root["service"] as? [Any]
-        else { return nil }
-        for element in services {
-            guard let service = element as? [String: Any],
-                  (service["type"] as? String) == "Profile",
-                  let endpoint = service["serviceEndpoint"] as? [String: Any],
-                  let avatarId = endpoint["preferredAvatar"] as? String,
-                  !avatarId.isEmpty
-            else { continue }
-            return avatarId
+        else {
+            self.fail(index, "头像 NFT 元数据不可解析")
+            return
         }
-        return nil
-    }
-
-    /// 按 VC id 找 credentials 里的 `credentialSubject`。
-    private static func credentialSubject(in doc: String, id: String) -> [String: Any]? {
-        guard let data = doc.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let credentials = root["credentials"] as? [Any]
-        else { return nil }
-        for element in credentials {
-            guard let vc = element as? [String: Any],
-                  (vc["id"] as? String)?.caseInsensitiveCompare(id) == .orderedSame,
-                  let subject = vc["credentialSubject"] as? [String: Any]
-            else { continue }
-            return subject
-        }
-        return nil
+        self.succeed(index, url)
     }
 
     private func succeed(_ index: Int, _ url: URL) {
         self.items[index].isLoading = false
         self.items[index].imageURL = url
         self.items[index].errorText = nil
-        // 图片 URL 已由 fetchAndCacheNftMeta 落 `nft_meta`（sqlite），无需 UserDefaults；
+        // 图片 URL 已由 SDK（SwiftNft fetchAndCacheNftMeta）落 `nft_meta`（sqlite），无需 UserDefaults；
         // 仅把图片文件落本地磁盘，下次直接从文件出图。
         self.cacheImageFile(url: url, did: self.items[index].did)
     }
@@ -259,29 +186,6 @@ final class DidAvatarService: ObservableObject {
         for index in self.items.indices {
             self.fail(index, message)
         }
-    }
-
-    /// 在文档 credentials 里找 DID 自有的 SWTC ownership VC：
-    /// type 含 `NFTOwnership`、subject.standard == `jingtumNFT`、subject.owner == 文档 id。
-    private static func swtcOwnershipVC(in doc: String) -> String? {
-        guard let data = doc.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let docID = root["id"] as? String,
-              let credentials = root["credentials"] as? [Any]
-        else { return nil }
-        for element in credentials {
-            guard let vc = element as? [String: Any],
-                  let types = vc["type"] as? [Any],
-                  types.contains(where: { ($0 as? String)?.caseInsensitiveCompare("NFTOwnership") == .orderedSame }),
-                  let subject = vc["credentialSubject"] as? [String: Any],
-                  let standard = subject["standard"] as? String,
-                  standard.caseInsensitiveCompare("jingtumNFT") == .orderedSame,
-                  let owner = subject["owner"] as? String, owner == docID
-            else { continue }
-            guard let vcData = try? JSONSerialization.data(withJSONObject: vc) else { continue }
-            return String(data: vcData, encoding: .utf8)
-        }
-        return nil
     }
 
     private static func makeStores() throws -> (DatabasePool, DatabasePool) {

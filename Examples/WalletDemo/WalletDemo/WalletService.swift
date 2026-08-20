@@ -36,6 +36,8 @@ final class WalletService: ObservableObject {
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
         let dir = baseURL.appendingPathComponent("WalletDemo", isDirectory: true)
+        // 卸载后首次启动目录不存在：GRDB 不会自动建父目录，必须先创建（环境错误 demo 用 try!）
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // 本地 DB 创建失败属环境错误（demo 用 try!）
         let store = try! GRDBAccountStore(
             database: try! DatabasePool(path: dir.appendingPathComponent("account.sqlite").path)
