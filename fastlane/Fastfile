@@ -30,6 +30,9 @@ end
 
 # 用 xcov 从 .xcresult 生成覆盖率报告（HTML + JSON + Markdown）。
 def generate_xcov_report(xcresult:, output_dir:)
+  # 先清理输出目录：xcov 的 xccovarchive rename 在目标已存在（上次运行残留）时
+  # 报 "Directory not empty" 失败——每次全新生成，避免残留导致 lane 失败。
+  FileUtils.rm_rf(output_dir)
   FileUtils.mkdir_p(output_dir)
   xcov(
     is_swift_package: true,
@@ -185,6 +188,42 @@ platform :ios do
     ios_test(output_dir: "#{coverage_dir}/ios")
 
     UI.success("All tests completed. Coverage in #{coverage_dir}/")
+  end
+
+  # ── Lane: llvm-cov HTML 报告（coverage/html，历史查看入口） ─────────────
+  # iOS 模拟器测试的覆盖率在 xcresult 里是 Xcode 私有 xccov 格式，llvm-cov 无法解析；
+  # coverage/html 的 llvm-cov 风格报告（index.html + control.js + style.css + coverage/）
+  # 由本 lane 用 `swift test --enable-code-coverage`（macOS，标准 profdata）生成，
+  # 包含 SwiftDappConnect / SwiftDid / SwiftNft 等全部模块。
+  desc "Generate llvm-cov HTML report at coverage/html (macOS tests)"
+  lane :html_report do |options|
+    root         = package_root
+    coverage_dir = options[:output_dir] || "#{root}/coverage/html"
+    ignore       = "Tests/|\\.build/|/checkouts/"
+
+    Dir.chdir(root) do
+      sh("swift", "test", "--enable-code-coverage")
+      profdata = ".build/debug/codecov/default.profdata"
+      binary   = Dir.glob(".build/debug/*.xctest/Contents/MacOS/*").first
+      UI.user_error!("xctest binary not found under .build/debug") if binary.nil?
+
+      FileUtils.rm_rf(coverage_dir)
+      FileUtils.mkdir_p(coverage_dir)
+      sh("xcrun", "llvm-cov", "show",
+         "-instr-profile", profdata, "-object", binary,
+         "-format=html", "-output-dir", coverage_dir,
+         "-project-title", "swift-toolkits (macOS tests)",
+         "-ignore-filename-regex", ignore)
+      sh("xcrun", "llvm-cov", "report",
+         "-instr-profile", profdata, binary,
+         "-ignore-filename-regex", ignore,
+         out: "#{root}/coverage/summary.txt")
+      sh("xcrun", "llvm-cov", "export",
+         "-instr-profile", profdata, binary,
+         "-format=lcov", "-ignore-filename-regex", ignore,
+         out: "#{root}/coverage/lcov.info")
+      UI.success("llvm-cov HTML report written to #{coverage_dir}/index.html")
+    end
   end
 
   # ── Lane: only run iOS tests (no coverage, fast path) ───────────────────
