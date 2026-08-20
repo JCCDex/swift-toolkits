@@ -39,14 +39,6 @@ public final class WebviewBridgeClient: NSObject {
         self.isInitialized = true
     }
 
-    var isInitializedForTest: Bool {
-        self.isInitialized
-    }
-
-    var currentConfigForTest: WebviewBridgeConfig {
-        self.config
-    }
-
     public func start() throws {
         guard self.isInitialized else { throw WebviewBridgeError.notInitialized }
         guard self.runtime == nil else { return } // 复用已有 WebView

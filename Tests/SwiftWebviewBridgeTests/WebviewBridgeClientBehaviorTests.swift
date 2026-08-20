@@ -23,13 +23,20 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
 
     // MARK: - 启动
 
-    func test_start_loadsRealBridge() throws {
+    func test_start_loadsRealBridge() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
         try client.start()
 
-        XCTAssertTrue(client.isInitializedForTest)
+        // 公开行为验证：桥已就绪 → JS 调用能往返并返回真实结果
+        let raw = try await client.callJsMethod(
+            method: "validateMnemonic",
+            params: ["mnemonic": validBip39Mnemonic],
+            timeoutMs: Self.timeoutMs,
+            readyWaitMs: Self.readyWaitMs
+        )
+        XCTAssertEqual(raw, "true")
     }
 
     func test_start_fromBackground_thenCall_resolves() async throws {

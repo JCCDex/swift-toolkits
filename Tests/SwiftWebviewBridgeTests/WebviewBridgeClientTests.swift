@@ -8,12 +8,11 @@ final class WebviewBridgeClientTests: XCTestCase {
 
         client.initialize(config: WebviewBridgeConfig(bridgeFileName: "custom.html"))
 
-        XCTAssertTrue(client.isInitializedForTest)
-        XCTAssertEqual(client.currentConfigForTest.bridgeFileName, "custom.html")
-    }
-
-    func test_isInitialized_false_beforeInitialize() {
-        XCTAssertFalse(WebviewBridgeClient().isInitializedForTest)
+        // 公开行为验证：初始化后 start() 会用所配置的 bridgeFileName 找资源，
+        // 找不到抛 missingBridgeResource（未初始化时抛的是 notInitialized）。
+        XCTAssertThrowsError(try client.start()) { error in
+            XCTAssertEqual(error as? WebviewBridgeError, .missingBridgeResource("custom.html"))
+        }
     }
 
     func test_defaultConfig_usesStableDefaults() {

@@ -422,9 +422,6 @@ public final class WebviewBridgeClient: NSObject {
         isInitialized = true
     }
 
-    internal var isInitializedForTest: Bool { isInitialized }
-    internal var currentConfigForTest: WebviewBridgeConfig { config }
-
     public func start() throws {
         guard isInitialized else { throw WebviewBridgeError.notInitialized }
         guard runtime == nil else { return }          // 复用已有 WebView
@@ -817,10 +814,6 @@ public final class WebviewBridgeEngine {
     public func destroy() {
         client.destroy()
     }
-
-    // 对应 Kotlin internal 测试钩子
-    internal var isInitializedForTest: Bool { client.isInitializedForTest }
-    internal var currentConfigForTest: WebviewBridgeConfig { client.currentConfigForTest }
 }
 ```
 

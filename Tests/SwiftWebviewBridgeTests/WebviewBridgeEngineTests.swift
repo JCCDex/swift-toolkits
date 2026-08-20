@@ -20,8 +20,11 @@ final class WebviewBridgeEngineTests: XCTestCase {
 
         engine.initialize(config: WebviewBridgeConfig(bridgeFileName: "custom.html"))
 
-        XCTAssertTrue(engine.isInitializedForTest)
-        XCTAssertEqual(engine.currentConfigForTest.bridgeFileName, "custom.html")
+        // 公开行为验证：初始化后 start() 会用所配置的 bridgeFileName 找资源，
+        // 找不到抛 missingBridgeResource（未初始化时抛的是 notInitialized）。
+        XCTAssertThrowsError(try engine.start()) { error in
+            XCTAssertEqual(error as? WebviewBridgeError, .missingBridgeResource("custom.html"))
+        }
     }
 
     func test_start_and_destroy_areSafe_afterInitialize() throws {
@@ -29,8 +32,6 @@ final class WebviewBridgeEngineTests: XCTestCase {
 
         try engine.start()
         engine.destroy()
-
-        XCTAssertTrue(engine.isInitializedForTest)
     }
 
     func test_config_defaults_areStable() {

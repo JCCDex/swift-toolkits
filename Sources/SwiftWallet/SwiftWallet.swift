@@ -2,9 +2,9 @@ import Foundation
 import SwiftWebviewBridge
 
 /// 钱包桥抽象（对应 Kotlin `IWalletBridge`）：隐藏 WebView 调用的最小面，
-/// 测试可注入 Fake 实现（对应 Kotlin `installBridgeForTest`）。
+/// 宿主/测试可注入自定义实现（对应 Kotlin `installBridgeForTest`）。
 @MainActor
-protocol WalletBridge: AnyObject {
+public protocol WalletBridge: AnyObject {
     func start() throws
     func destroy()
     func call(
@@ -24,19 +24,21 @@ protocol WalletBridge: AnyObject {
 
 /// 真实桥：复用 SwiftWebviewBridge 的隐藏 WebView（内置 wallet-bridge.html 与钱包 JS 资产）。
 @MainActor
-final class EngineWalletBridge: WalletBridge {
+public final class EngineWalletBridge: WalletBridge {
     private let engine = WebviewBridgeEngine.shared
 
-    func start() throws {
+    public init() {}
+
+    public func start() throws {
         self.engine.initialize(config: WebviewBridgeConfig.bridge(named: "wallet-bridge"))
         try self.engine.start()
     }
 
-    func destroy() {
+    public func destroy() {
         self.engine.destroy()
     }
 
-    func call(
+    public func call(
         method: String,
         params: [String: Any]?,
         timeoutMs: TimeInterval,
@@ -50,7 +52,7 @@ final class EngineWalletBridge: WalletBridge {
         )
     }
 
-    func callAs<T: Decodable>(
+    public func callAs<T: Decodable>(
         method: String,
         params: [String: Any]?,
         as type: T.Type,
@@ -80,13 +82,9 @@ public final class SwiftWallet: WalletDeriving {
     private let bridge: any WalletBridge
     private var started = false
 
-    /// 真实桥（默认）
-    public init() {
-        self.bridge = EngineWalletBridge()
-    }
-
-    /// 测试注入（对应 Kotlin `installBridgeForTest`）
-    init(bridge: any WalletBridge) {
+    /// 真实桥（默认）：复用 SwiftWebviewBridge 的隐藏 WebView；
+    /// 测试/宿主可注入自定义桥（对应 Kotlin `installBridgeForTest`）。
+    public init(bridge: any WalletBridge = EngineWalletBridge()) {
         self.bridge = bridge
     }
 

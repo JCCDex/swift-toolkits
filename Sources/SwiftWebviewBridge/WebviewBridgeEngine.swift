@@ -93,13 +93,4 @@ public final class WebviewBridgeEngine {
     public func destroy() {
         self.client.destroy()
     }
-
-    /// 对应 Kotlin internal 测试钩子
-    var isInitializedForTest: Bool {
-        self.client.isInitializedForTest
-    }
-
-    var currentConfigForTest: WebviewBridgeConfig {
-        self.client.currentConfigForTest
-    }
 }
