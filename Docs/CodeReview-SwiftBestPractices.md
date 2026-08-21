@@ -148,11 +148,13 @@ if !expirationDate.isEmpty,
 | 4 | 导入路径 2–4 次全量 store load/save 往返（`importMnemonic`/`importSecret` 内部先调 `importPrivateKey` 再自己 load+append+save） | `VaultRepository.swift:128-168` |
 | 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` |
 | 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` |
-| 7 | **7 处 `try` 冗余**：`try store.keys.append(...)` 等 —— `Array.append` 不抛错，编译器告警 "no calls to throwing functions occur within 'try' expression"（已实测验证） | `VaultRepository.swift:119,142,161,181,291,301,313` |
+
+> ⚠️ **更正（第二轮 pro 复核）**：第一轮曾把 `try store.keys.append(...)`（`:119,142,161,181,291,301,313`）判为「冗余 try」——**该结论错误**。`Array.append` 本身不抛错，但这些 `try` 覆盖的是**实参里的抛错调用**（`self.cipher.encrypt(...)`、`self.requireSessionKey()`、`keyDeriver.deriveKey(...)`），`VaultCipher.encrypt`/`VaultKeyDeriver.deriveKey` 均为 `throws`（`VaultCipher.swift:4-5`、`VaultKeyDeriver.swift:4`），故 `try` 是必要的。整库干净重编译**零告警**印证了这一点。
 
 **SwiftVault 补充细节（第二轮审查新增，均验证）：**
 
 - P0-1 的 `*Internal` 方法**被测试使用**（`VaultTests.swift:350,396,398`）且有文档说明是「刻意 public 但不稳定」（`Docs/Account-Swift/04-migration-and-testing.md:26`）→ 改 `private` 需配套把测试改为 `@testable import SwiftVault`（本包测试已是 @testable 风格，可安全收紧）
+- **更正**：`VaultKeyDeriver`（及 `Argon2idVaultKeyDeriver`）非 `Sendable` 但存于 actor 内部——**这不是问题**（actor 隔离本就保护非 Sendable 状态；仅当跨越隔离边界时才需 Sendable）。干净编译确认无告警。
 - **Wipe 的 Data COW 陷阱**：`sessionKey = key` 后对局部 `key` 做 `wipe()` 会因 COW 共享缓冲区**同时清零 store 里的 sessionKey**——擦除必须针对唯一持有者、在引用断开后进行；`Wipe.swift` 目前生产零引用（仅测试调用 `VaultTests.swift:429-449`）
 - **README 与签名不符**：`Sources/SwiftVault/README.md:53-62` 文档写 `try await`，实际 API 是同步 `throws`（文档需修正或补 async 重载）
 - 导入往返精确计数：`importPrivateKey` = 2 load + 1 save（`:114,118,125`）；`importMnemonic`/`importSecret` = 4 load + 2 save（`:135,137,141,150`）；`importPrivateKeys`（`:170-189`）已是正确的批量范式，前两者应改造成同款
@@ -340,3 +342,62 @@ enum Hex {
 ---
 
 *评审基于 commit 9d6286e（2025-08-21）。未修改任何源码。*
+
+---
+
+## 附录：第二轮 Pro 复核（跨模块 + 编译验证）
+
+> 方法：① 强制干净重编译全部目标（`touch` 全部 Sources/*.swift 后 `swift build`），在 Swift 6 严格并发（swift-tools 6.2 默认开启）下采集真实编译告警/错误；② 跨模块横向 grep + 逐点核对。**未修改任何源码。**
+
+## 一、编译验证结果（新增，最有价值）
+
+**整库 Swift 6 严格并发下干净重编译 = 0 warning / 0 error**（仅剩 7 条"模块 README 未声明资源"的打包提示）。
+
+由此带来的两处**对第一轮结论的更正**：
+
+1. ~~VaultRepository 7 处 `try store.keys.append(...)` 冗余~~ —— **错误**。`try` 覆盖的是实参中的抛错调用（`cipher.encrypt`/`requireSessionKey`/`deriveKey`，均为 `throws`），是必要的。
+2. ~~`VaultKeyDeriver` 非 Sendable 存于 actor 是问题~~ —— **错误**。actor 隔离保护非 Sendable 状态，属正常用法。
+
+同时说明：第一轮子代理标注的「`DAppConnectError`/`SwiftWalletError` 缺 Sendable 跨 actor 边界」在**当前代码路径下不构成编译错误**（这些错误在跨隔离边界前已被本地 catch），属**前瞻性/未来维护**项而非现存缺陷——因此其优先级应降为 P2，而非 P1。
+
+## 二、跨模块重复实现（按模块审查会漏掉的部分）
+
+| 重复项 | 出现位置 | 建议 |
+|---|---|---|
+| **hex 编码 `String(format: "%02x")` 逐字节** | `Keccak256.swift:74`、`WebAppInterface.swift:65`、`EthTokenUriResolver.swift:63` + `ChecksumUtils.swift:23-30`（手写 nibble，第 4 种） | 收敛到 SwiftCore 一个 `Hex.encode([UInt8])`（查找表版） |
+| **`optString` JSON 标量取值** | `DidJson.swift:25`、`NftUrlUtils.swift:170`（同签名不同默认值语义） | 合一 |
+| **`isBlank` 空白判断** | `DidJson.swift:47`（死代码）、`DidCredentialHelper.swift:193`、`NftUrlUtils.swift:248` | 合一，删死代码 |
+| **`nilIfBlank`** | `NftUrlUtils.swift:241-245`（public String 扩展）、`SwiftDid.swift:862-866`（private String 扩展） | 合一 |
+| **`firstValue()` AsyncStream 取首元素** | `SwiftDappConnect/AsyncSequence+First.swift:6`、`SwiftNft/SwiftNft.swift:508` | 提到 SwiftCore |
+| **嵌套 JSON 路径读取 `readString`/`readValue`** | `SwiftNft/SwiftNft.swift:450,475`、`SwiftDid/SwiftDid.swift:612,637`（逐字同款 `$.` 剥离 + 点分路径遍历） | 合一 |
+| **O(n²) String `index(_:offsetBy:)` 随机访问** | `ChecksumUtils.swift:25`、`NftUrlUtils.swift:220-224`（`decodeHexToUtf8`）、`EthTokenUriResolver.swift:128-134`（subscript 扩展） | 统一走 UTF8 视图 / 数组下标 |
+
+## 三、Sendable / 并发审计（跨模块汇总）
+
+**公开 Error 枚举缺 `Sendable`（4 个 + 2 个 internal）** —— 前瞻性 P2：
+`DAppConnectError`（`Models.swift:16`）、`SwiftDidError`（`DidModels.swift:204`）、`VaultError`（`VaultModels.swift:32`）、`SwiftWalletError`（`SwiftWallet.swift:239`）；internal：`ChecksumError`、`CredentialDataError`。对比：`AccountOperationError`/`AccountStoreError`/`WebviewBridgeError` 已带 `Sendable`——建议补齐统一。
+
+**`@unchecked Sendable` / `nonisolated(unsafe)` 15 处审计：**
+
+| 类型 | 判定 |
+|---|---|
+| `GRDBAccountStore` / `GRDBDidStore` / `GRDBNftStore` | ✅ 合理（GRDB `DatabasePool` 线程安全）；但缺一行「为什么安全」注释 |
+| `NoRedirectDelegate`（`NftHttpClient.swift:113`） | ✅ 无状态，合理 |
+| `BridgeDidResolver`（`DidResolver.swift:11`） | ⚠️ 仅因持有 `@MainActor EngineBridge`；改 `@MainActor` 可去掉 `@unchecked` |
+| `ContinuationBox` / `ReadyWaitBox`（`ContinuationBox.swift:6,23`） | ❌ **真实竞态**（`onCancel` 不在主线程）→ 已列 P0-2 |
+| `TinkVaultCipher`（`TinkVaultCipher.swift:6`） | ⚠️ 可变 `cachedHandle` 挂 `@unchecked`，需确认 `registerAead` 幂等/线程安全 |
+| `SsrfGuard.enabled`（`SsrfGuard.swift:17`） | ⚠️ `nonisolated(unsafe) static var` 可变全局（仅 DEBUG 测试用） |
+
+## 四、架构层观察
+
+1. **错误吞掉是全库系统性模式**，非单点：SwiftDid 写 API→`Bool`、SwiftNft `fetchMetadataFields`→`.empty`、SwiftWallet `buildSwtcNftTransfer`→`[:]`、SwiftAccount `persistVault`→`try?`、Vault 导入重复→静默 continue。建议定一条统一策略（公开 API 一律 `throws` 或带 `Result`，内部再决定是否降级），否则错误可观测性会持续恶化。
+2. **地址规范化策略不统一**：`VaultRepository.normalizedAddress`（`lowercased()`）、GRDB `LOWER(address)`（函数使索引失效）、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize`（小写+去默认端口）——同一「地址相等」语义有 4 种实现，EIP-55 checksum 大小写规则要求混合大小写地址需区分校验，建议收敛为「存储层统一小写 + 比较层 `caseInsensitiveCompare` 或规范化后比较」。
+3. **桥抽象半途而废**：`EngineBridge`（`@MainActor` 协议）被 SwiftWallet/SwiftDid/WebviewBridge 三方共享，但 `SwiftDid.start()` 只对具体类型 `WebviewBridgeEngine` 调 `start()`（`SwiftDid.swift:66-68`），协议没有 `start` 需求——要么协议补 `start`，要么移除对具体类型的依赖。
+4. **模块名=类名冲突**：`SwiftNft` 模块名与门面类 `SwiftNft.SwiftNft` 同名（`SwiftDid.swift:12-13` 注释已自认）——`import SwiftNft` 后类型位置会解析到类，`SwiftNft.Nft` 限定拼写不可用。属命名债务，建议门面类改名（如 `NftClient`）。
+
+## 五、第二轮结论
+
+- 第一轮 P0 六项**全部维持**（其中 P0-4 Nft 溢出、P0-1 Vault 访问控制、P0-6 Did 过期 fail-open 均已在第二轮复验）。
+- 第一轮有两处**事实性错误已被纠正**（`try append`、`VaultKeyDeriver` Sendable）。
+- 新增最关键的正面结论：**代码库在 Swift 6 严格并发下零编译告警零错误**——并发/Sendable 纪律的编译器级验证通过。
+- 新增一批跨模块去重与架构一致性建议（表二~四），这些是单模块审查无法发现的。
