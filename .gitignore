@@ -66,3 +66,5 @@ fastlane/test_output
 coverage
 .claude
 .bundle
+Docs/Swift-Language
+.modcache
