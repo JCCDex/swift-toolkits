@@ -108,6 +108,12 @@ private func persistVault(_ derived: TraditionalDeriveResult) async throws { /* 
 
 ### P0-6 SwiftDid：`verifyCredential` 过期校验 fail-open
 
+> ✅ **已修复（2025-08-21）**：非空 `expirationDate` 改为先解析、解析失败直接
+> `CredentialVerificationResult(verified: false, errorKind: "invalidExpirationDate")`（fail-closed），
+> 不再跳过过期检查进入桥接验证。新增 2 个回归测试
+> （`testVerifyCredentialMalformedExpirationFailsClosed` / `testVerifyCredentialFutureExpirationProceedsToBridge`），
+> 畸形日期 → 不调桥直接失败、未来日期 → 仍正常调桥；`SwiftDidTests` 6 个 verifyCredential 用例全过。
+
 `Sources/SwiftDid/SwiftDid.swift:517-522`
 
 ```swift
@@ -339,11 +345,11 @@ enum Hex {
 
 ## 建议行动顺序
 
-1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ Vault 内部方法改 private → Bridge 两个并发修复 → Nft 溢出界长 → Did 过期校验 fail-closed。
+1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ Vault 内部方法改 private → Bridge 两个并发修复 → Nft 溢出界长。
 2. **P1 高价值**：DappConnect 的 currentChain 污染（#1）+ `eth_accounts` 静默化（#2）+ 管线移出 MainActor；Account 的 removeAccount 同名陷阱 + 空私钥路径；Vault 的 KDF 去重 + biometric 迁移。
 3. **性能批**：hex 工具合并、Keccak lane 读入、GRDB 表达式索引、主线程 JSON 异步化。
 4. **命名批**：`get*`/`load*`/`Webview` 大小写/`Hd` 统一（API 破坏性改动，建议与下一主版本号一起发）。
-5. 补测试：Bridge `clearAll` 悬挂、box 并发、Nft 溢出、Account 空私钥、Did 过期解析失败。
+5. 补测试：Bridge `clearAll` 悬挂、box 并发、Nft 溢出、Account 空私钥。
 
 ---
 
@@ -352,10 +358,13 @@ enum Hex {
 - **P0-5（2025-08-21）**：`AccountManager.persistVault` 改为 `async throws`，`try?` 全部改为 `try await`；
   `importSingleAccount` 同步 `try await`，错误经 `runOperation` 映射为 `.failure`，不再出现「账户成功但私钥未入库」。
   新增 3 个回归测试（vault 锁定 × privateKey/mnemonic/secret 分支），`AccountManagerTests` 20/20 通过。
+- **P0-6（2025-08-21）**：`SwiftDid.verifyCredential` 过期校验 fail-open 修复——非空 `expirationDate`
+  解析失败即返回 `verified: false, errorKind: "invalidExpirationDate"`（fail-closed），不再跳过过期检查。
+  新增 2 个回归测试（畸形日期 fail-closed / 未来日期正常调桥），`SwiftDidTests` 6 个 verifyCredential 用例全过。
 
 ---
 
-*评审基于 commit 9d6286e（2025-08-21）；P0-5 修复已落地（未单独注明 commit，见 git log）。*
+*评审基于 commit 9d6286e（2025-08-21）；P0-5 / P0-6 修复已落地（见修复记录与 git log）。*
 
 ---
 
@@ -411,7 +420,7 @@ enum Hex {
 
 ## 五、第二轮结论
 
-- 第一轮 P0 六项**全部维持**（其中 P0-4 Nft 溢出、P0-1 Vault 访问控制、P0-6 Did 过期 fail-open 均已在第二轮复验；**P0-5 Account 吞错已修复**，见修复记录）。
+- 第一轮 P0 六项**全部维持**（其中 P0-4 Nft 溢出、P0-1 Vault 访问控制已在第二轮复验；**P0-5 Account 吞错、P0-6 Did 过期 fail-open 已修复**，见修复记录）。
 - 第一轮有两处**事实性错误已被纠正**（`try append`、`VaultKeyDeriver` Sendable）。
 - 新增最关键的正面结论：**代码库在 Swift 6 严格并发下零编译告警零错误**——并发/Sendable 纪律的编译器级验证通过。
 - 新增一批跨模块去重与架构一致性建议（表二~四），这些是单模块审查无法发现的。

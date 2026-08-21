@@ -515,10 +515,15 @@ public final class SwiftDid: DidSDK {
             throw SwiftDidError.invalidPayload
         }
         let expirationDate = DidJson.optString(credential, "expirationDate")
-        if !expirationDate.isEmpty,
-           let date = DidJson.parseISO8601(expirationDate),
-           date < Date() {
-            return CredentialVerificationResult(verified: false)
+        if !expirationDate.isEmpty {
+            // P0-6：非空但无法解析的 expirationDate（攻击者可控字段）不得跳过过期检查——fail-closed。
+            // 与 DidJson.parseISO8601 的「解析失败 = 无法比较」契约一致：present-but-malformed 视为校验失败。
+            guard let date = DidJson.parseISO8601(expirationDate) else {
+                return CredentialVerificationResult(verified: false, errorKind: "invalidExpirationDate")
+            }
+            if date < Date() {
+                return CredentialVerificationResult(verified: false)
+            }
         }
         if DidCredentialHelper.credentialIncludesType(credentialJson, DidCredentialHelper.vcTypeUsageAuthorization) {
             if await (self.checkGranteeCredentialUpdate(credentialJson)).isUpdate {

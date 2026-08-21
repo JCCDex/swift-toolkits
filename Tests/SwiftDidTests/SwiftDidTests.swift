@@ -120,6 +120,24 @@ final class SwiftDidTests: XCTestCase {
         XCTAssertEqual(self.bridge.calls.count, 0, "过期直接 false，不调桥")
     }
 
+    func testVerifyCredentialMalformedExpirationFailsClosed() async throws {
+        // P0-6：非空但无法解析的 expirationDate（攻击者可控）不得跳过过期检查——fail-closed
+        let malformed = #"{"expirationDate":"not-a-date"}"#
+        let result = try await did.verifyCredential(malformed)
+        XCTAssertFalse(result.verified, "畸形过期时间 → 不得通过")
+        XCTAssertEqual(result.errorKind, "invalidExpirationDate", "带明确 errorKind 便于排查")
+        XCTAssertEqual(self.bridge.calls.count, 0, "畸形过期时间直接失败，不调桥")
+    }
+
+    func testVerifyCredentialFutureExpirationProceedsToBridge() async throws {
+        // 有效未来日期仍应走到桥接验证（防过度拦截）
+        self.bridge.stub("verifyCredential") { _ in #"{"verified":true,"results":[],"errorKind":"","error":""}"# }
+        let future = #"{"expirationDate":"2999-01-01T00:00:00Z"}"#
+        let result = try await did.verifyCredential(future)
+        XCTAssertTrue(result.verified)
+        XCTAssertEqual(self.bridge.calls.count, 1, "未来日期 → 调桥验证")
+    }
+
     func testVerifyCredentialHappyPathPreservesErrorKind() async throws {
         self.bridge.stub("verifyCredential") { _ in #"{"verified":true,"results":[],"errorKind":"","error":""}"# }
         let result = try await did.verifyCredential(#"{"type":["VerifiableCredential"]}"#)
