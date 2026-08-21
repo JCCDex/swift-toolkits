@@ -62,6 +62,13 @@ func clearAll() {
 
 ### P0-4 SwiftNft：`decodeAbiString` 整数溢出 → 恶意合约可触发运行时崩溃
 
+> ✅ **已修复（2025-08-21）**：`length` 解析后在乘法前先按剩余数据量界住
+> （`length <= (normalized.count - 128) / 2`），`length * 2` 不再可能溢出；同时移除被
+> 该界长隐含的冗余尾部 guard。新增 2 个回归测试
+> （`testDecodeAbiStringRejectsOverflowLength` 覆盖 2^62 / 2^63-1 两个溢出临界值、
+> `testDecodeAbiStringLengthExactlyFitsData` 覆盖 length=可用数据长度的边界防过度拦截），
+> `EthTokenUriResolverTests` 18/18、完整 `SwiftNftTests` 129/129 通过。
+
 `Sources/SwiftNft/Net/EthTokenUriResolver.swift:78-81`
 
 ```swift
@@ -76,8 +83,7 @@ ABI 长度字是 64 hex 位（最大 2^64-1），`length` 可解析到 [2^62, 2^
 ```swift
 // 修复：先按剩余长度界住，再做乘法
 guard normalized.count >= 128 else { return nil }
-let maxLength = (normalized.count - 128) / 2
-guard let length = Int(normalized[64 ..< 128], radix: 16), length >= 0, length <= maxLength else { return nil }
+guard let length = Int(normalized[64 ..< 128], radix: 16), length >= 0, length <= (normalized.count - 128) / 2 else { return nil }
 let dataEnd = 128 + length * 2   // 此时 length*2 不会溢出
 ```
 
@@ -345,16 +351,20 @@ enum Hex {
 
 ## 建议行动顺序
 
-1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ Vault 内部方法改 private → Bridge 两个并发修复 → Nft 溢出界长。
+1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ ~~Nft 溢出界长~~（✅ 已修复，见 P0-4）→ Vault 内部方法改 private → Bridge 两个并发修复。
 2. **P1 高价值**：DappConnect 的 currentChain 污染（#1）+ `eth_accounts` 静默化（#2）+ 管线移出 MainActor；Account 的 removeAccount 同名陷阱 + 空私钥路径；Vault 的 KDF 去重 + biometric 迁移。
 3. **性能批**：hex 工具合并、Keccak lane 读入、GRDB 表达式索引、主线程 JSON 异步化。
 4. **命名批**：`get*`/`load*`/`Webview` 大小写/`Hd` 统一（API 破坏性改动，建议与下一主版本号一起发）。
-5. 补测试：Bridge `clearAll` 悬挂、box 并发、Nft 溢出、Account 空私钥。
+5. 补测试：Bridge `clearAll` 悬挂、box 并发、Account 空私钥。
 
 ---
 
 ## 修复记录
 
+- **P0-4（2025-08-21）**：`EthTokenUriResolver.decodeAbiString` 整数溢出修复——`length` 在乘法前先按
+  剩余数据量界住（`length <= (normalized.count - 128) / 2`），恶意合约的 2^62..<2^63 长度字不再
+  触发 `length * 2` 溢出崩溃。新增 2 个回归测试（2^62 / 2^63-1 溢出临界值 → nil、
+  length=可用数据长度边界 → 正常解码），`EthTokenUriResolverTests` 18/18、`SwiftNftTests` 129/129 通过。
 - **P0-5（2025-08-21）**：`AccountManager.persistVault` 改为 `async throws`，`try?` 全部改为 `try await`；
   `importSingleAccount` 同步 `try await`，错误经 `runOperation` 映射为 `.failure`，不再出现「账户成功但私钥未入库」。
   新增 3 个回归测试（vault 锁定 × privateKey/mnemonic/secret 分支），`AccountManagerTests` 20/20 通过。
@@ -364,7 +374,7 @@ enum Hex {
 
 ---
 
-*评审基于 commit 9d6286e（2025-08-21）；P0-5 / P0-6 修复已落地（见修复记录与 git log）。*
+*评审基于 commit 9d6286e（2025-08-21）；P0-4 / P0-5 / P0-6 修复已落地（见修复记录与 git log）。*
 
 ---
 
@@ -420,7 +430,7 @@ enum Hex {
 
 ## 五、第二轮结论
 
-- 第一轮 P0 六项**全部维持**（其中 P0-4 Nft 溢出、P0-1 Vault 访问控制已在第二轮复验；**P0-5 Account 吞错、P0-6 Did 过期 fail-open 已修复**，见修复记录）。
+- 第一轮 P0 六项**全部维持**（P0-1 Vault 访问控制已在第二轮复验；**P0-4 Nft 溢出、P0-5 Account 吞错、P0-6 Did 过期 fail-open 已修复**，见修复记录）。
 - 第一轮有两处**事实性错误已被纠正**（`try append`、`VaultKeyDeriver` Sendable）。
 - 新增最关键的正面结论：**代码库在 Swift 6 严格并发下零编译告警零错误**——并发/Sendable 纪律的编译器级验证通过。
 - 新增一批跨模块去重与架构一致性建议（表二~四），这些是单模块审查无法发现的。

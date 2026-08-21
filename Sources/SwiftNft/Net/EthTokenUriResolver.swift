@@ -75,12 +75,16 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
         }
         guard normalized.count >= 128 else { return nil } // offset + length 至少 128 hex 位
 
-        guard let length = Int(normalized[64 ..< 128], radix: 16), length >= 0 else { return nil }
-        let dataStart = 128
-        let dataEnd = dataStart + length * 2
-        guard normalized.count >= dataEnd else { return nil }
+        guard let length = Int(normalized[64 ..< 128], radix: 16),
+              length >= 0,
+              // P0-4：length 来自链上不可信数据（64 hex 位，可解析到 2^62..<2^63）；
+              // 必须在乘法前按剩余数据量界住——否则 length * 2 溢出 Int64 → 运行时
+              // 崩溃（恶意合约的 tokenURI 返回值即可远程触发）。
+              length <= (normalized.count - 128) / 2
+        else { return nil }
+        let dataEnd = 128 + length * 2
 
-        let dataHex = String(normalized[dataStart ..< dataEnd])
+        let dataHex = String(normalized[128 ..< dataEnd])
         var bytes = [UInt8]()
         bytes.reserveCapacity(length)
         var index = dataHex.startIndex

@@ -85,6 +85,28 @@ final class EthTokenUriResolverTests: XCTestCase {
         XCTAssertNil(EthTokenUriResolver.decodeAbiString(bad))
     }
 
+    func testDecodeAbiStringRejectsOverflowLength() {
+        // P0-4：length 字来自链上不可信数据。旧实现 length * 2 在 2^62..<2^63 区间
+        // 溢出 Int64 → 运行时崩溃（恶意合约远程可触发）；修复后必须在乘法前界长 → nil。
+        // 布局：offset(62 个 0+"20") + length(64 hex) + 数据（对齐 [64..<128] 读取约定）。
+        // 2^62 = 0x4000000000000000
+        let twoTo62 = "0x" + String(repeating: "0", count: 62) + "20"
+            + String(repeating: "0", count: 48) + "4000000000000000" + "6869"
+        XCTAssertNil(EthTokenUriResolver.decodeAbiString(twoTo62), "length=2^62 不得溢出崩溃，应返回 nil")
+        // 最大可解析值 2^63-1 = 0x7fffffffffffffff
+        let maxInt64 = "0x" + String(repeating: "0", count: 62) + "20"
+            + String(repeating: "0", count: 48) + "7fffffffffffffff" + "6869"
+        XCTAssertNil(EthTokenUriResolver.decodeAbiString(maxInt64), "length=2^63-1 不得溢出崩溃，应返回 nil")
+    }
+
+    func testDecodeAbiStringLengthExactlyFitsData() {
+        // 边界：length 恰好等于可用数据长度 → 正常解码（防过度拦截）
+        XCTAssertEqual(EthTokenUriResolver.decodeAbiString(self.abiEncode("hi")), "hi")
+        let exactlyFits = "0x" + String(repeating: "0", count: 62) + "20"
+            + String(repeating: "0", count: 62) + "02" + "6869"
+        XCTAssertEqual(EthTokenUriResolver.decodeAbiString(exactlyFits), "hi", "length=可用数据长度应解码成功")
+    }
+
     // MARK: normalizeTokenMetadataUri
 
     func testNormalizeIpfsUriToGateway() {
