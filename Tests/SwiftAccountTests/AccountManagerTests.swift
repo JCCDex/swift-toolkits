@@ -69,6 +69,43 @@ final class AccountManagerTests: XCTestCase {
         XCTAssertTrue(inKeys)
     }
 
+    // MARK: - P0-5：vault 落库失败必须向上抛（不得「账户成功但私钥未入库」）
+
+    func testImportSingleAccountFailsWhenVaultLocked() async throws {
+        // vault 未初始化密码 → requireSessionKey 抛 vaultLocked；persistVault 不得用 try? 吞掉
+        let derived = TraditionalDeriveResult(address: "0xabc", keypair: self.keypair("0xabc"), path: nil)
+        let result = await self.manager.importSingleAccount(
+            derived: derived, chain: .eth, name: "acc", isHD: false, parentId: nil
+        )
+        XCTAssertEqual(result, .failure(.failure("vaultLocked")), "vault 锁定 → 应返回 failure 而非 success")
+        let saved = try await self.store.findByAddress("0xabc")
+        XCTAssertNil(saved, "vault 落库失败时不得写入账户元数据（P0-5 回归：曾报成功但私钥未入库）")
+    }
+
+    func testImportSingleAccountMnemonicBranchFailsWhenVaultLocked() async throws {
+        let mnemonic = Mnemonic(
+            value: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            language: "english"
+        )
+        let derived = TraditionalDeriveResult(address: "0xabc", keypair: self.keypair("0xabc"), mnemonic: mnemonic, path: nil)
+        let result = await self.manager.importSingleAccount(
+            derived: derived, chain: .eth, name: "acc", isHD: false, parentId: nil
+        )
+        XCTAssertEqual(result, .failure(.failure("vaultLocked")), "mnemonic 分支同样向上抛，不得吞错")
+        let saved = try await self.store.findByAddress("0xabc")
+        XCTAssertNil(saved)
+    }
+
+    func testImportSingleAccountSecretBranchFailsWhenVaultLocked() async throws {
+        let derived = TraditionalDeriveResult(address: "0xabc", keypair: self.keypair("0xabc"), secret: "s3cr3t", path: nil)
+        let result = await self.manager.importSingleAccount(
+            derived: derived, chain: .eth, name: "acc", isHD: false, parentId: nil
+        )
+        XCTAssertEqual(result, .failure(.failure("vaultLocked")), "secret 分支同样向上抛，不得吞错")
+        let saved = try await self.store.findByAddress("0xabc")
+        XCTAssertNil(saved)
+    }
+
     // MARK: - importHdWallet
 
     func testImportHdWalletRootAndChildren() async throws {

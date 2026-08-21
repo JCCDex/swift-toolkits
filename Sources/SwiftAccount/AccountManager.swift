@@ -34,8 +34,7 @@ public final class AccountManager: Sendable {
                 return .failure(.addressAlreadyExists)
             }
 
-            await self.persistVault(derived)
-
+            try await self.persistVault(derived)
             let walletAccount = WalletAccount(
                 // id 用默认 UUID（对齐 Kotlin：id 是调用方可控的业务键；判重依赖 address，
                 // 见 importSingleAccount 入口的 findNonRootAccount 预检）
@@ -269,10 +268,13 @@ public final class AccountManager: Sendable {
     // MARK: - 内部
 
     /// 密钥落库（mnemonic / secret / privateKey 三选一，对齐 Kotlin persistVaultMaterial）。
-    private func persistVault(_ derived: TraditionalDeriveResult) async {
+    ///
+    /// vault 写入失败必须向上抛（P0-5：曾用 `try?` 吞错，导致 `importSingleAccount` 报成功
+    /// 但私钥从未入库——账户元数据存在却无法签名）。`runOperation` 负责把错误映射为 failure。
+    private func persistVault(_ derived: TraditionalDeriveResult) async throws {
         let keypair = derived.keypair
         if let mnemonic = derived.mnemonic {
-            try? await self.vault.importMnemonic(
+            try await self.vault.importMnemonic(
                 address: derived.address,
                 mnemonic: Data(mnemonic.value.utf8),
                 privateKey: Data(keypair.privateKey.utf8),
@@ -280,13 +282,13 @@ public final class AccountManager: Sendable {
                 language: mnemonic.language
             )
         } else if let secret = derived.secret {
-            try? await self.vault.importSecret(
+            try await self.vault.importSecret(
                 address: derived.address,
                 privateKey: Data(keypair.privateKey.utf8),
                 secret: Data(secret.utf8)
             )
         } else {
-            try? await self.vault.importPrivateKey(address: derived.address, privateKey: Data(keypair.privateKey.utf8))
+            try await self.vault.importPrivateKey(address: derived.address, privateKey: Data(keypair.privateKey.utf8))
         }
     }
 
