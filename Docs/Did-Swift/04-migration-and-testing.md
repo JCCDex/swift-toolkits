@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `DidSdk` | `SwiftDid`（@MainActor 门面） | 同构 |
 | `IDidBridge` | `DidBridge` 协议 | 可注入 Fake（对齐 Kotlin Fake 桥） |
-| `AndroidDidWebRuntime` | `EngineDidBridge` | 自持 `WebviewBridgeClient` 加载 `did-bridge.html`（独立隐藏 WebView，不复用共享引擎） |
+| `AndroidDidWebRuntime` | `WebviewBridgeEngine` | 自持 `WebviewBridgeClient` 加载 `did-bridge.html`（独立隐藏 WebView，不复用共享引擎） |
 | `IDidResolver.resolve(did)` | `DidResolver.resolve(did)`（协议，默认 = 桥调 `didResolve`；`SwiftDid.resolveDid` 委托之） | 桥透传 `didResolve` |
 | `DidCoreService` | `DidCoreService` | 观察/取档/写操作编排 **+ pending 对账状态机**（四张表，见 01 §6） |
 | `IDidStore` + Room | `DidStore` 协议 + `GRDBDidStore` | **GRDB 替代 Room**（Swift 生态等价物） |
@@ -19,7 +19,7 @@
 ## 2. 实现注意点 / 坑
 
 1. **存储用 GRDB 替代 Room**：引入第三方依赖 [GRDB.swift](https://github.com/groue/GRDB.swift)（`from: "7.0.0"`，对应 Kotlin 的 `room-runtime`）。`GRDBDidStore` 映射 `DidRoomDatabase` + `DidRoomDao` + `DidRoomEntity` 三层：`did_documents` 表（did 唯一索引）+ `did_pending` 表（pending 对账，见 01 §6）、`DatabaseMigrator` 建表迁移、`ValueObservation.values(in:)` 直接得到 `AsyncStream`。存储直接选 `DatabasePool`（WAL）：观察流与写操作并存，避免从 Queue 事后迁移的成本（见 02 §4）；注意 Record 的 Codable 映射与 Room 的字段命名差异。
-2. **did-bridge.js 网关保持硬编码（不注入）**：`EngineDidBridge.start()` 直接用 SwiftWebviewBridge 默认 bundle 加载 `did-bridge.html`（`resolveBridgeURL` 自动落到 `bridge/` 子目录），无临时 bundle / 占位符替换 / `ipfsBaseURL` 配置面（见 03 §3）。迁移时与 Kotlin `:webview-bridge` 的 `did-bridge.js` 做 `diff` 对齐，避免方法集漂移——网关行是两边共有的硬编码，**无差异**（`security-review.md` D5 为已知接受项）。
+2. **did-bridge.js 网关保持硬编码（不注入）**：`WebviewBridgeEngine.start()` 直接用 SwiftWebviewBridge 默认 bundle 加载 `did-bridge.html`（`resolveBridgeURL` 自动落到 `bridge/` 子目录），无临时 bundle / 占位符替换 / `ipfsBaseURL` 配置面（见 03 §3）。迁移时与 Kotlin `:webview-bridge` 的 `did-bridge.js` 做 `diff` 对齐，避免方法集漂移——网关行是两边共有的硬编码，**无差异**（`security-review.md` D5 为已知接受项）。
 3. **keccak-256（首选专门轻量依赖，自实现仅兜底）**：CryptoKit 不提供 keccak-256；**优先选专门的轻量 keccak 依赖**（避免为单个算法引入整个 CryptoSwift），如独立 keccak 包（`swift-crypto`/CryptoKit 也不含 keccak-256，勿指望从它取）；若选 CryptoSwift 须注明「仅取 Keccak variant（0x01 padding，非 SHA3-256）」。确需 `Util/Keccak256.swift` 自实现时，必须与 BouncyCastle 做 KAT 全量交叉验证并固定 CI（仅 `""`/`"abc"` 两条标准向量不够）；供 `ChecksumUtils.toChecksumAddress`（EIP-55）与 VCID 生成复用。
 4. **Flow → AsyncStream**：`observeDidDocument` 的增量语义由 GRDB `ValueObservation` 原生提供（写后自动重放），不再需要手写快照流。
 5. **写操作编排顺序 + pending 对账**：`resolveBaseDoc → didStat(previousCid) → 修改 → publishDid → save` 的顺序与错误回滚语义照搬 Kotlin `DidCoreService`；**同时照搬四张 pending 表的状态机**（`pendingCreateDids`/`pendingUpdateAvatar`/`pendingUpdateNickname`/`pendingDeleteUpdated`，见 01 §6）——否则写后立即观察会把刚写的数据用链上旧数据冲掉。别在桥层偷懒（否则 previousCid 链断裂）。**Swift 增强：pending 表持久化到 GRDB**（可拆四张或合并 `did_pending` 单表 kind 列，表结构见 02 §4），写落库、对账命中后删除，消除「写后重启」窗口。**注意 TTL**：publish 失败会导致 pending 永久滞留，`did_pending` 需带时间戳 + 过期清理（语义见 01 §6：24h 阈值、首次写入为基准不续期、按 kind 确认才清除、过期失效）。

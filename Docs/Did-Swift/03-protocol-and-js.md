@@ -34,7 +34,7 @@
 const client = new IpfsClient({ baseURL: "https://wodecards.wh.jccdex.cn:8550" });
 ```
 
-**决策（2026-08 实现）**：网关**保持硬编码、不做注入**——`EngineDidBridge.start()` 直接用 SwiftWebviewBridge 默认 bundle 加载 `did-bridge.html`（`resolveBridgeURL` 自动落到 `bridge/` 子目录），**无临时 bundle、无占位符替换、无 `ipfsBaseURL` 配置面**（`SwiftDid` init / `SwiftDidError` 均不含网关相关项）。
+**决策（2026-08 实现）**：网关**保持硬编码、不做注入**——`WebviewBridgeEngine.start()` 直接用 SwiftWebviewBridge 默认 bundle 加载 `did-bridge.html`（`resolveBridgeURL` 自动落到 `bridge/` 子目录），**无临时 bundle、无占位符替换、无 `ipfsBaseURL` 配置面**（`SwiftDid` init / `SwiftDidError` 均不含网关相关项）。
 
 > ⚠️ 已知接受项：`security-review.md` D5（生产网关写死在库资产里，单点故障 + 换环境不可配）**未修复**，与 Kotlin `:did` 现状一致（Kotlin 的 `:nft` 同样硬编码 `DEFAULT_IPFS_GATEWAY_BASE_URL`）。若日后需要可配置网关，再回到注入方案（占位符替换 + 临时 bundle / `WKUserScript` 预置全局），届时注意：占位化会令 Swift 与 Kotlin 的 `did-bridge.js` 产生永久差异，diff 对齐时需白名单放行这处唯一允许的差异。
 

@@ -3,6 +3,7 @@ import SwiftCore
 import SwiftDappConnect
 @testable import SwiftDid
 import SwiftNft
+import SwiftWebviewBridge
 import XCTest
 
 /// 门面测试：Fake 桥 + GRDB 临时文件库（对齐 Kotlin DidSdkTest 的关键用例面）。
@@ -247,9 +248,9 @@ final class SwiftDidTests: XCTestCase {
 
 // MARK: - Fakes
 
-/// Fake 桥（@MainActor，与 DidBridge 协议一致）：方法级脚本化响应 + 调用记录。
+/// Fake 桥（@MainActor，遵循 EngineBridge 协议）：方法级脚本化响应 + 调用记录。
 @MainActor
-final class FakeDidBridge: DidBridge {
+final class FakeDidBridge: EngineBridge {
     private var handlers: [String: ([String: Any]?) throws -> String] = [:]
     private(set) var calls: [(method: String, params: [String: Any]?)] = []
 
@@ -257,10 +258,16 @@ final class FakeDidBridge: DidBridge {
         self.handlers[method] = handler
     }
 
+    func start() throws {}
+
     func call(method: String, params: [String: Any]?) async throws -> String {
         self.calls.append((method, params))
         guard let handler = handlers[method] else { return "null" }
         return try handler(params)
+    }
+
+    func call(method: String, params: [String: Any]?, timeoutMs _: TimeInterval, readyWaitMs _: TimeInterval) async throws -> String {
+        try await self.call(method: method, params: params)
     }
 
     func callAs<T: Decodable>(method: String, params: [String: Any]?, as _: T.Type) async throws -> T {
@@ -272,6 +279,10 @@ final class FakeDidBridge: DidBridge {
             throw SwiftDidError.invalidPayload
         }
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    func callAs<T: Decodable>(method: String, params: [String: Any]?, as type: T.Type, timeoutMs _: TimeInterval, readyWaitMs _: TimeInterval) async throws -> T {
+        try await self.callAs(method: method, params: params, as: type)
     }
 
     func destroy() {}

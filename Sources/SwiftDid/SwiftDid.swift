@@ -2,6 +2,7 @@ import Foundation
 import SwiftCore
 import SwiftDappConnect
 import SwiftNft
+import SwiftWebviewBridge
 
 // MARK: - 阶段二 DTO 归属（见 Nft-Swift 02 §2）
 
@@ -32,7 +33,7 @@ public protocol DidAvatarCredentialSource: AnyObject, Sendable {
 /// pending 对账互斥简单）；`DidStore` / `DidResolver` / `DidNftResolution` 等 I/O 协议自由线程。
 @MainActor
 public final class SwiftDid: DidSDK {
-    private let bridge: any DidBridge
+    private let bridge: any EngineBridge
     private let store: any DidStore
     private let core: DidCoreService
     private let resolver: any DidResolver
@@ -43,7 +44,7 @@ public final class SwiftDid: DidSDK {
 
     public init(
         store: any DidStore,
-        bridge: any DidBridge = EngineDidBridge(),
+        bridge: any EngineBridge = WebviewBridgeEngine(bridgeFileName: "did-bridge.html"),
         nft: (any DidNftResolution)? = nil,
         avatarResolver: (any DidAvatarResolver)? = nil,
         avatarCredentialSource: (any DidAvatarCredentialSource)? = nil
@@ -62,7 +63,7 @@ public final class SwiftDid: DidSDK {
 
     public func start() throws {
         guard !self.started else { return }
-        if let engine = bridge as? EngineDidBridge {
+        if let engine = bridge as? WebviewBridgeEngine {
             try engine.start() // 网关保持 did-bridge.js 硬编码（见 Did-Swift 03 §3），无需注入
         }
         // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）

@@ -1,73 +1,6 @@
 import Foundation
+import SwiftCore
 import SwiftWebviewBridge
-
-/// 钱包桥抽象（对应 Kotlin `IWalletBridge`）：隐藏 WebView 调用的最小面，
-/// 宿主/测试可注入自定义实现（对应 Kotlin `installBridgeForTest`）。
-@MainActor
-public protocol WalletBridge: AnyObject {
-    func start() throws
-    func destroy()
-    func call(
-        method: String,
-        params: [String: Any]?,
-        timeoutMs: TimeInterval,
-        readyWaitMs: TimeInterval
-    ) async throws -> String
-    func callAs<T: Decodable>(
-        method: String,
-        params: [String: Any]?,
-        as type: T.Type,
-        timeoutMs: TimeInterval,
-        readyWaitMs: TimeInterval
-    ) async throws -> T
-}
-
-/// 真实桥：复用 SwiftWebviewBridge 的隐藏 WebView（内置 wallet-bridge.html 与钱包 JS 资产）。
-@MainActor
-public final class EngineWalletBridge: WalletBridge {
-    private let engine = WebviewBridgeEngine.shared
-
-    public init() {}
-
-    public func start() throws {
-        self.engine.initialize(config: WebviewBridgeConfig.bridge(named: "wallet-bridge"))
-        try self.engine.start()
-    }
-
-    public func destroy() {
-        self.engine.destroy()
-    }
-
-    public func call(
-        method: String,
-        params: [String: Any]?,
-        timeoutMs: TimeInterval,
-        readyWaitMs: TimeInterval
-    ) async throws -> String {
-        try await self.engine.callJsMethod(
-            method: method,
-            params: params,
-            timeoutMs: timeoutMs,
-            readyWaitMs: readyWaitMs
-        )
-    }
-
-    public func callAs<T: Decodable>(
-        method: String,
-        params: [String: Any]?,
-        as type: T.Type,
-        timeoutMs: TimeInterval,
-        readyWaitMs: TimeInterval
-    ) async throws -> T {
-        try await self.engine.callJsMethodAs(
-            method: method,
-            params: params,
-            as: type,
-            timeoutMs: timeoutMs,
-            readyWaitMs: readyWaitMs
-        )
-    }
-}
 
 // MARK: - SwiftWallet
 
@@ -79,12 +12,12 @@ public final class EngineWalletBridge: WalletBridge {
 public final class SwiftWallet: WalletDeriving {
     public static let shared = SwiftWallet()
 
-    private let bridge: any WalletBridge
+    private let bridge: any EngineBridge
     private var started = false
 
-    /// 真实桥（默认）：复用 SwiftWebviewBridge 的隐藏 WebView；
+    /// 真实桥（默认）：`WebviewBridgeEngine` 加载 `wallet-bridge.html`；
     /// 测试/宿主可注入自定义桥（对应 Kotlin `installBridgeForTest`）。
-    public init(bridge: any WalletBridge = EngineWalletBridge()) {
+    public init(bridge: any EngineBridge = WebviewBridgeEngine(bridgeFileName: "wallet-bridge.html")) {
         self.bridge = bridge
     }
 
@@ -289,16 +222,12 @@ public final class SwiftWallet: WalletDeriving {
 
     private func call(method: String, params: [String: Any]?) async throws -> String {
         try self.ensureStarted()
-        return try await self.bridge.call(
-            method: method, params: params, timeoutMs: 30000, readyWaitMs: 15000
-        )
+        return try await self.bridge.call(method: method, params: params)
     }
 
     private func callAs<T: Decodable>(method: String, params: [String: Any]?) async throws -> T {
         try self.ensureStarted()
-        return try await self.bridge.callAs(
-            method: method, params: params, as: T.self, timeoutMs: 30000, readyWaitMs: 15000
-        )
+        return try await self.bridge.callAs(method: method, params: params, as: T.self)
     }
 
     /// 对齐 Kotlin `String.toBoolean()`：仅 "true"（忽略大小写与首尾空白）为 true。

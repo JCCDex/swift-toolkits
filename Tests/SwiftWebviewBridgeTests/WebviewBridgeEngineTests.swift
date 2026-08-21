@@ -9,18 +9,16 @@ final class WebviewBridgeEngineTests: XCTestCase {
     private static let readyWaitMs: TimeInterval = 120_000
     private static let timeoutMs: TimeInterval = 180_000
 
-    private func makeEngine() -> WebviewBridgeEngine {
-        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
-        engine.initialize(config: .bridge(named: "wallet-bridge"))
+    private func makeEngine() throws -> WebviewBridgeEngine {
+        let engine = WebviewBridgeEngine(bridgeFileName: "wallet-bridge.html")
+        try engine.start() // 新语义：start() 内部完成 initialize + 启动 WebView
         return engine
     }
 
-    func test_initialize_setsConfig() {
-        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
+    func test_start_usesConfiguredBridgeFileName() {
+        let engine = WebviewBridgeEngine(bridgeFileName: "custom.html")
 
-        engine.initialize(config: WebviewBridgeConfig(bridgeFileName: "custom.html"))
-
-        // 公开行为验证：初始化后 start() 会用所配置的 bridgeFileName 找资源，
+        // 公开行为验证：start() 会用构造时的 bridgeFileName 找资源，
         // 找不到抛 missingBridgeResource（未初始化时抛的是 notInitialized）。
         XCTAssertThrowsError(try engine.start()) { error in
             XCTAssertEqual(error as? WebviewBridgeError, .missingBridgeResource("custom.html"))
@@ -28,7 +26,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_start_and_destroy_areSafe_afterInitialize() throws {
-        let engine = self.makeEngine()
+        let engine = try self.makeEngine()
 
         try engine.start()
         engine.destroy()
@@ -43,10 +41,10 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callMethods_roundTripThroughRealWebView() async throws {
-        let engine = self.makeEngine()
+        let engine = try self.makeEngine()
         defer { engine.destroy() }
 
-        let raw = try await engine.callJsMethod(
+        let raw = try await engine.call(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -54,7 +52,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
         )
         XCTAssertEqual(raw, "true")
 
-        let typed: MnemonicResult = try await engine.callJsMethodAs(
+        let typed: MnemonicResult = try await engine.callAs(
             method: "generateMnemonic",
             params: ["length": 128],
             as: MnemonicResult.self,
@@ -66,10 +64,10 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callJsMethod_afterDestroy_recreatesRuntimeAndResolves() async throws {
-        let engine = self.makeEngine()
+        let engine = try self.makeEngine()
         defer { engine.destroy() }
 
-        let first = try await engine.callJsMethod(
+        let first = try await engine.call(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -79,7 +77,7 @@ final class WebviewBridgeEngineTests: XCTestCase {
 
         engine.destroy()
 
-        let second = try await engine.callJsMethod(
+        let second = try await engine.call(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -89,10 +87,10 @@ final class WebviewBridgeEngineTests: XCTestCase {
     }
 
     func test_callJsMethod_throwsWhenNotInitialized() async {
-        let engine = WebviewBridgeEngine(client: WebviewBridgeClient())
+        let engine = WebviewBridgeEngine(bridgeFileName: "wallet-bridge.html")
 
         do {
-            _ = try await engine.callJsMethod(method: "ping")
+            _ = try await engine.call(method: "ping", params: nil)
             XCTFail("expected notInitialized")
         } catch let error as WebviewBridgeError {
             XCTAssertEqual(error, .notInitialized)

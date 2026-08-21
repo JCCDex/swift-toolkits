@@ -1,11 +1,12 @@
 import Foundation
 @testable import SwiftWallet
+import SwiftWebviewBridge
 import Testing
 
 // MARK: - Fake 桥（对应 Kotlin `installBridgeForTest`）
 
 @MainActor
-final class FakeWalletBridge: WalletBridge {
+final class FakeWalletBridge: EngineBridge {
     var recordedCalls: [(method: String, params: [String: Any]?)] = []
     var responses: [String: String] = [:]
     var startCallCount = 0
@@ -21,12 +22,27 @@ final class FakeWalletBridge: WalletBridge {
 
     func call(
         method: String,
+        params: [String: Any]?
+    ) async throws -> String {
+        try await self.call(method: method, params: params, timeoutMs: 30000, readyWaitMs: 15000)
+    }
+
+    func call(
+        method: String,
         params: [String: Any]?,
         timeoutMs _: TimeInterval,
         readyWaitMs _: TimeInterval
     ) async throws -> String {
         self.recordedCalls.append((method, params))
         return self.responses[method] ?? ""
+    }
+
+    func callAs<T: Decodable>(
+        method: String,
+        params: [String: Any]?,
+        as type: T.Type
+    ) async throws -> T {
+        try await self.callAs(method: method, params: params, as: type, timeoutMs: 30000, readyWaitMs: 15000)
     }
 
     func callAs<T: Decodable>(

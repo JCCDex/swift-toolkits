@@ -126,13 +126,13 @@ import SwiftWebviewBridge
 
 /// 桥抽象（对应 Kotlin `IDidBridge`）：可注入 Fake 测试。
 @MainActor
-protocol DidBridge: AnyObject {
+protocol EngineBridge: AnyObject {
     func call(method: String, params: [String: Any]?) async throws -> String
     func callAs<T: Decodable>(method: String, params: [String: Any]?, as type: T.Type) async throws -> T
 }
 
 @MainActor
-final class EngineDidBridge: DidBridge {
+final class WebviewBridgeEngine: DidBridge {
     /// 不复用 WebviewBridgeEngine.shared（已被 wallet-bridge 占用，单例只能承载一个页面）：
     /// 自持独立 client 加载 did-bridge.html，对应 Kotlin AndroidDidWebRuntime 的独立 WebView。
     private let client = WebviewBridgeClient()
@@ -169,7 +169,7 @@ protocol DidResolver: AnyObject {
 
 @MainActor
 public final class SwiftDid: DidSDK {
-    private let bridge: any DidBridge
+    private let bridge: any EngineBridge
     private let store: any DidStore
     private let nft: (any DidNftResolution)?            // 预留：SwiftNft 模块接入点（未来）
     private let avatarResolver: (any DidAvatarResolver)? // 宿主注入头像解析（对齐 Kotlin IDidAvatarResolver）
@@ -179,7 +179,7 @@ public final class SwiftDid: DidSDK {
 
     public init(
         store: any DidStore,                        // 宿主提供 GRDBDidStore（或自实现）
-        bridge: any DidBridge = EngineDidBridge(),
+        bridge: any EngineBridge = WebviewBridgeEngine(),
         nft: (any DidNftResolution)? = nil,         // 预留：SwiftNft 模块接入点（未来）
         avatarResolver: (any DidAvatarResolver)? = nil, // 宿主注入（对齐 Kotlin IDidAvatarResolver）
         avatarCredentialSource: (any DidAvatarCredentialSource)? = nil // 宿主头像候选源
@@ -197,7 +197,7 @@ public final class SwiftDid: DidSDK {
         guard !self.started else { return }
         // 网关保持 did-bridge.js 硬编码（见 03 §3），无注入面。
         // 启动时顺带做一次 did_pending 全表 TTL 清理（不启动定时器）。
-        if let engine = bridge as? EngineDidBridge { try engine.start() }
+        if let engine = bridge as? WebviewBridgeEngine { try engine.start() }
         try self.store.deleteExpiredPending(
             now: Int64(Date().timeIntervalSince1970 * 1000),
             ttlMillis: SwiftDid.pendingTTLMillis

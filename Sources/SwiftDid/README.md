@@ -65,7 +65,7 @@ Sources/SwiftDid/
 │   ├── DidResolver.swift           // 链上解析协议（桥方法透传）
 │   └── DidDocumentEditor.swift     // DID 文档编辑（增删凭证/改 Profile）
 ├── Bridge/
-│   └── DidBridge.swift             // 桥协议（类型化 did-bridge 方法面）+ EngineDidBridge
+│   └── DidBridge.swift             // 桥协议（类型化 did-bridge 方法面）+ WebviewBridgeEngine
 │                                   //   （WebviewBridgeClient 实现，默认 bundle，网关硬编码）
 └── Util/
     ├── Keccak256.swift             // keccak-256 自实现（EIP-55 checksum 用）

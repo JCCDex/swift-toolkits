@@ -1,4 +1,5 @@
 import Foundation
+import SwiftWebviewBridge
 
 /// 链上解析抽象（对应 Kotlin `IDidResolver`，见 Did-Swift 02 §3）。
 /// 自由线程（不加 @MainActor）；默认实现 `BridgeDidResolver` 经 @MainActor 桥时异步 hop 到主 actor。
@@ -8,9 +9,9 @@ public protocol DidResolver: AnyObject, Sendable {
 
 /// 默认实现：桥调 `didResolve`（`"null"` / `"{}"` / 空串由调用方判 missing）。
 public final class BridgeDidResolver: DidResolver, @unchecked Sendable {
-    private let bridge: any DidBridge
+    private let bridge: any EngineBridge
 
-    public init(bridge: any DidBridge) {
+    public init(bridge: any EngineBridge) {
         self.bridge = bridge
     }
 

@@ -64,7 +64,7 @@ let signature = try await did.ipfsPersonalSign(privateKey: "0x...", data: bytes)
 
 ## 关键设计点
 
-- **零 JS 改动（网关保持硬编码）**：复用现有 `did-bridge.js`，其硬编码的 IPFS 网关 `https://wodecards.wh.jccdex.cn:8550` **保持原样、不做注入**（`EngineDidBridge` 直接用 SwiftWebviewBridge 默认 bundle 加载，见 03 §3）；`security-review.md` D5 为已知接受项，与 Kotlin `:did` 现状一致。
+- **零 JS 改动（网关保持硬编码）**：复用现有 `did-bridge.js`，其硬编码的 IPFS 网关 `https://wodecards.wh.jccdex.cn:8550` **保持原样、不做注入**（`WebviewBridgeEngine` 直接用 SwiftWebviewBridge 默认 bundle 加载，见 03 §3）；`security-review.md` D5 为已知接受项，与 Kotlin `:did` 现状一致。
 - **SwiftDid 自持 DID 隐藏 WebView（不复用共享引擎）**：`WebviewBridgeEngine.shared` 一个 client 只能承载一个 bridge 页面（已被 SwiftWallet 占用）；SwiftDid 自持 `WebviewBridgeClient` 加载 `did-bridge.html`，与 Kotlin 的独立 WebView 对齐（详见 02 §1/§3）。
 - **模型镜像**：`Did` / `Profile` / `Nft` / `ProfileVC` / `VerificationMethod` / `DidEntity` / 凭证模型等与 Kotlin 数据类一一对应。
 - **写操作链**：`publishDid` + `didStat`（previousCid）+ `resolveBaseDoc` 的编排逻辑保留在 Swift 服务层（`DidCoreService` 等价，**含 pending 对账状态机**，见 01 §6），桥只做方法透传。**Swift 增强：pending 表持久化到 GRDB**，消除 Kotlin 内存态的重启丢失窗口。
