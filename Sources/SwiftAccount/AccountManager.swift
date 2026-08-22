@@ -228,12 +228,14 @@ public final class AccountManager: Sendable {
     // MARK: - 删除
 
     /// 删除账户：先验密码；账户不存在 → 幂等成功；同地址仅此一条时同步删 vault 密钥。
+    /// 单次 KDF：`unlock`（校验 + 建立 sessionKey）→ `removeAddressUnlocked`（已解锁路径不再派生，
+    /// 见 review B-3——原 `verifyPassword` + `removeAddress` 两次完整派生）。
     public func removeAccount(
         accountId: String,
         password: Data
     ) async -> AccountOperationResult<Void> {
         await self.runOperation {
-            if try await !self.vault.verifyPassword(password) {
+            if try await !self.vault.unlock(password) {
                 return .failure(.wrongPassword())
             }
             guard let account = try await self.store.findById(accountId) else {
@@ -242,7 +244,7 @@ public final class AccountManager: Sendable {
             let count = try await self.store.getSameAccountsCount(address: account.address)
             try await self.store.removeAccount(accountId: account.id)
             if count == 1 {
-                try await self.vault.removeAddress(address: account.address, password: password)
+                try await self.vault.removeAddressUnlocked(address: account.address)
             }
             return .success(())
         }

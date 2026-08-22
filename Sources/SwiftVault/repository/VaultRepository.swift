@@ -70,41 +70,11 @@ public actor VaultRepository {
     }
 
     public func verifyPassword(_ password: Data) throws -> Bool {
-        let store = try loadStore()
-        guard let passwordEnvelope = store.password else {
-            return false
-        }
-
-        let key = try keyDeriver.deriveKey(
-            password: password,
-            salt: passwordEnvelope.salt,
-            parameters: PasswordKDFParameters(
-                iterations: passwordEnvelope.iterations,
-                memoryKiB: passwordEnvelope.memoryKiB,
-                parallelism: passwordEnvelope.parallelism,
-                keyByteCount: passwordEnvelope.keyByteCount
-            )
-        )
-        return Self.constantTimeEquals(Self.computeProof(for: key), passwordEnvelope.proof)
+        try self.deriveAndVerifyKey(password) != nil
     }
 
     public func unlock(_ password: Data) throws -> Bool {
-        let store = try loadStore()
-        guard let passwordEnvelope = store.password else {
-            return false
-        }
-
-        let key = try keyDeriver.deriveKey(
-            password: password,
-            salt: passwordEnvelope.salt,
-            parameters: PasswordKDFParameters(
-                iterations: passwordEnvelope.iterations,
-                memoryKiB: passwordEnvelope.memoryKiB,
-                parallelism: passwordEnvelope.parallelism,
-                keyByteCount: passwordEnvelope.keyByteCount
-            )
-        )
-        guard Self.constantTimeEquals(Self.computeProof(for: key), passwordEnvelope.proof) else {
+        guard let key = try self.deriveAndVerifyKey(password) else {
             return false
         }
         self.sessionKey = key
@@ -264,6 +234,12 @@ public actor VaultRepository {
 
     public func removeAddress(address: String, password: Data) throws {
         try self.ensureUnlocked(with: password)
+        try self.removeAddressUnlocked(address: address)
+    }
+
+    /// 已解锁路径：调用方已 `unlock`（密码已验证），不再二次 KDF（见 review B-3：
+    /// `AccountManager.removeAccount` 原 `verifyPassword` + `removeAddress` 两次完整派生）。
+    public func removeAddressUnlocked(address: String) throws {
         var store = try loadStore()
         store.keys.removeAll(where: { $0.matches(address: address) })
         store.mnemonics.removeAll(where: { $0.matches(address: address) })
@@ -402,8 +378,28 @@ public actor VaultRepository {
         return sessionKey
     }
 
+    /// 单次 KDF 派生 + proof 校验（verifyPassword/unlock/ensureUnlocked 共用，见 review B-3）：
+    /// 密码正确 → 返回派生 key；错误/未设密码 → nil。
+    private func deriveAndVerifyKey(_ password: Data) throws -> Data? {
+        let store = try loadStore()
+        guard let envelope = store.password else { return nil }
+        let key = try keyDeriver.deriveKey(
+            password: password,
+            salt: envelope.salt,
+            parameters: PasswordKDFParameters(
+                iterations: envelope.iterations,
+                memoryKiB: envelope.memoryKiB,
+                parallelism: envelope.parallelism,
+                keyByteCount: envelope.keyByteCount
+            )
+        )
+        guard Self.constantTimeEquals(Self.computeProof(for: key), envelope.proof) else { return nil }
+        return key
+    }
+
     private func ensureUnlocked(with password: Data) throws {
         if self.isUnlocked {
+            // 已解锁分支仍校验传入密码（安全契约：密码错误必须报错，见 VaultTests wrongPassword 断言）
             guard try self.verifyPassword(password) else {
                 throw VaultError.wrongPassword
             }

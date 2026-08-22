@@ -337,8 +337,15 @@ if !expirationDate.isEmpty,
 1. ✅ **已实现**：Keccak absorb 逐字节组装 UInt64 lane（`Keccak256.swift:47-51`）——改为
    `withUnsafeBytes` + `loadUnaligned` 按 8 字节 lane 读入（每块 17 次 lane 异或取代 136 次
    div/mod + 移位），KAT 10/10（含长消息多块向量）验证哈希一致。
-2. **`permute` 每次调用重新分配 `c/d/b` 三个 25 元素数组**（`Keccak256.swift:78-80`，非每轮分配——24 轮复用同一批）；32 字节输入仅 1 次 permute，收益有限，可接受或提升到 `hash()` 复用。
-3. **Argon2 重复派生**：`AccountManager.removeAccount`（`verifyPassword` + `unlock` 两次完整 64 MiB KDF）；`VaultRepository.verifyPassword`/`unlock`/`ensureUnlocked` 三处重复实现且已解锁分支仍重算 → 提取 `deriveAndVerifyKey` 助手，单次派生复用。
+2. ✅ **已实现**：`permute` 每次调用重新分配 `c/d/b` 三个 25 元素数组——工作区提升到
+   `hash()` 一次性分配、多块/多次 permute 复用（`permute(&state, c:&c, d:&d, b:&b)`，
+   KAT 10/10 回归验证哈希一致）。
+3. ✅ **已实现**：Argon2 重复派生——`VaultRepository.verifyPassword`/`unlock`/`ensureUnlocked`
+   三处重复的「派生 + proof 校验」收敛为私有 `deriveAndVerifyKey` 助手（单点实现，未设密码
+   → nil、密码错 → nil、正确 → 派生 key）；`AccountManager.removeAccount` 由
+   `verifyPassword` + `removeAddress`（两次完整 64 MiB KDF）改为 `unlock` +
+   `removeAddressUnlocked`（单次派生，已解锁路径不再二次 KDF；`removeAddressUnlocked` 为
+   新增公开 API，调用方须已解锁——注释已声明）。
 4. ✅ **已实现**：随机数生成——`VaultRepository.randomData` 改 `SecRandomCopyBytes`
    （密码学安全源 + 批量生成，替代逐字节 `UInt8.random`，`VaultRepository.swift:426-432`）。
 

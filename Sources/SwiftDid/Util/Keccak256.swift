@@ -40,6 +40,10 @@ enum Keccak256 {
         padded[padded.count - 1] |= 0x80
 
         var state = [UInt64](repeating: 0, count: 25)
+        // permute 工作区一次分配、多块复用（原每次 permute 重新分配 c/d/b，见 review B-2）。
+        var c = [UInt64](repeating: 0, count: 5)
+        var d = [UInt64](repeating: 0, count: 5)
+        var b = [UInt64](repeating: 0, count: 25)
 
         // Absorb：按 8 字节 lane 一次读入（每块 17 个 lane 异或进 state[0..<17]；
         // loadUnaligned 对 Data 无对齐假设，避免逐字节 div/mod + 移位组装）。
@@ -54,7 +58,7 @@ enum Keccak256 {
                 }
             }
             offset = end
-            Self.permute(&state)
+            Self.permute(&state, c: &c, d: &d, b: &b)
         }
 
         // Squeeze：取状态前 32 字节
@@ -67,7 +71,7 @@ enum Keccak256 {
             }
             index += 8
             if index >= 25 * 8 {
-                Self.permute(&state)
+                Self.permute(&state, c: &c, d: &d, b: &b)
                 index = 0
             }
         }
@@ -78,18 +82,14 @@ enum Keccak256 {
         Hex.encode([UInt8](data))
     }
 
-    private static func permute(_ a: inout [UInt64]) {
-        var c = [UInt64](repeating: 0, count: 5)
-        var d = [UInt64](repeating: 0, count: 5)
-        var b = [UInt64](repeating: 0, count: 25)
-
+    private static func permute(_ a: inout [UInt64], c: inout [UInt64], d: inout [UInt64], b: inout [UInt64]) {
         for round in 0 ..< 24 {
             // θ
             for x in 0 ..< 5 {
                 c[x] = a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20]
             }
             for x in 0 ..< 5 {
-                d[x] = c[(x + 4) % 5] ^ Self.rotl(c[(x + 1) % 5], 1)
+                d[x] = c[(x + 4) % 5] ^ self.rotl(c[(x + 1) % 5], 1)
             }
             for x in 0 ..< 5 {
                 for y in 0 ..< 5 {
@@ -98,7 +98,7 @@ enum Keccak256 {
             }
             // ρ + π
             for i in 0 ..< 25 {
-                b[self.permutationIndexes[i]] = Self.rotl(a[i], UInt64(self.rotationOffsets[i]))
+                b[self.permutationIndexes[i]] = self.rotl(a[i], UInt64(self.rotationOffsets[i]))
             }
             // χ
             for y in 0 ..< 5 {
