@@ -102,6 +102,22 @@ final class PromiseGatewayTests: XCTestCase {
         XCTAssertEqual(gateway.pendingCount, 0)
     }
 
+    func test_clearAll_resumesPendingCallbacksWithError() {
+        // P0-3 回归：clearAll 必须恢复 pending 调用者——否则其续体永久悬挂
+        let gateway = PromiseGateway()
+        var results: [Result<String, Error>] = []
+        gateway.register(id: "id-1", timeoutMs: 60000) { results.append($0) }
+        gateway.register(id: "id-2", timeoutMs: 60000) { results.append($0) }
+
+        gateway.clearAll()
+
+        XCTAssertEqual(gateway.pendingCount, 0)
+        XCTAssertEqual(results.count, 2, "pending 调用者必须被恢复（P0-3：不得悬挂）")
+        for result in results {
+            XCTAssertEqual(result.failureError as? WebviewBridgeError, .webViewUnavailable)
+        }
+    }
+
     // MARK: - waitForReady
 
     func test_waitForReady_returnsWhenReady() async throws {

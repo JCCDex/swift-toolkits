@@ -110,10 +110,16 @@ final class PromiseGateway {
     }
 
     func clearAll() {
-        for call in self.pending.values {
-            call.timeoutTask.cancel()
-        }
+        // P0-3：必须恢复 pending 调用者——否则其 withCheckedThrowingContinuation 永不
+        // resume（destroy 中途调用时超时任务被取消、迟到 JS 结果也因 pending 已清而
+        // no-op），调用者永久悬挂并强持有 client/box/闭包。与 finish 同款
+        // 「先取走再回调」，重入安全；超时任务先取消（后到者全部 no-op）。
+        let calls = Array(self.pending.values)
         self.pending.removeAll()
+        for call in calls {
+            call.timeoutTask.cancel()
+            call.onResult(.failure(WebviewBridgeError.webViewUnavailable))
+        }
         self.readyListeners.removeAll()
         self.isReady = false
     }

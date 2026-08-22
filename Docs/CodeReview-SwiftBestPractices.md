@@ -4,8 +4,6 @@
 > 评审方式：逐文件静态审查（子代理并行 × 7 模块）+ 主代理亲自通读核心文件交叉验证 + `swift build` 增量构建验证。
 > 结论：**无强制解包 / 无 `try!` / 无 `fatalError`**（全库 grep 验证）；Swift 6 并发纪律总体优秀。主要问题集中在：访问控制过宽、错误被静默吞掉、主线程阻塞 I/O/JSON、KDF 与存储 IO 重复执行、命名一致性。
 
----
-
 ## P0 — 必须修复（6 项）
 
 ### P0-1 SwiftVault：`getPrivateKeyInternal` 等三个方法为 `public`，绕过密码校验
@@ -22,7 +20,7 @@ private func getPrivateKeyInternal(address: String) throws -> Data
 ### P0-2 SwiftWebviewBridge：`ContinuationBox` / `ReadyWaitBox` 跨线程 double-resume 竞态 → 崩溃
 
 > ✅ **已修复（2025-08-22）**：两处 `onCancel` 统一跳回主线程（`WebviewBridgeClient.callJsMethod`
-> 的 resume + `PromiseGateway.waitForReady` 的 `box.cancel()`），消除取消线程对 box / 
+> 的 resume + `PromiseGateway.waitForReady` 的 `box.cancel()`），消除取消线程对 box /
 > `gateway.readyListeners` 的并发访问；`ContinuationBox` 另加 `NSLock`（`install` / `take` 原子化，
 > 先到先赢）作纵深防御，`ReadyWaitBox` 保持 @MainActor-only 并更新注释。
 > 新增 3 个回归测试：`test_continuationBox_concurrentResume_resumesExactlyOnce`（确定性并发双路
@@ -51,6 +49,12 @@ final class ContinuationBox<T: Sendable>: @unchecked Sendable {
 ```
 
 ### P0-3 SwiftWebviewBridge：`clearAll()` / `destroy()` 让 in-flight 续体永久悬挂
+
+> ✅ **已修复（2025-08-22）**：`clearAll()` 现在先取走全部 pending 调用、清空表，再逐个
+> `timeoutTask.cancel()` + `onResult(.failure(.webViewUnavailable))`——destroy 中途的调用者
+> 以 `webViewUnavailable` 恢复，不再永久悬挂。新增 2 个回归测试
+> （`test_clearAll_resumesPendingCallbacksWithError` 网关层、`test_callJsMethod_destroyWhileInFlight_resumesWithError`
+> 客户端层，FakeRuntime 注入），快速套件 30/30、完整 `SwiftWebviewBridgeTests` 通过。
 
 `Sources/SwiftWebviewBridge/PromiseGateway.swift:107-114`、`WebviewBridgeClient.swift:56-71`
 
@@ -360,16 +364,20 @@ enum Hex {
 
 ## 建议行动顺序
 
-1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ ~~Nft 溢出界长~~（✅ 已修复，见 P0-4）→ ~~Bridge 跨线程 double-resume~~（✅ 已修复，见 P0-2）→ Vault 内部方法改 private → Bridge clearAll 悬挂。
+1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ ~~Nft 溢出界长~~（✅ 已修复，见 P0-4）→ ~~Bridge 跨线程 double-resume~~（✅ 已修复，见 P0-2）→ ~~Bridge clearAll 悬挂~~（✅ 已修复，见 P0-3）→ Vault 内部方法改 private。
 2. **P1 高价值**：DappConnect 的 currentChain 污染（#1）+ `eth_accounts` 静默化（#2）+ 管线移出 MainActor；Account 的 removeAccount 同名陷阱 + 空私钥路径；Vault 的 KDF 去重 + biometric 迁移。
 3. **性能批**：hex 工具合并、Keccak lane 读入、GRDB 表达式索引、主线程 JSON 异步化。
 4. **命名批**：`get*`/`load*`/`Webview` 大小写/`Hd` 统一（API 破坏性改动，建议与下一主版本号一起发）。
-5. 补测试：Bridge `clearAll` 悬挂、Account 空私钥。
+5. 补测试：Account 空私钥。
 
 ---
 
 ## 修复记录
 
+- **P0-3（2025-08-22）**：`PromiseGateway.clearAll()` 恢复 pending 调用者——先取走全部 pending、
+  清空表，再逐个取消超时任务并以 `.webViewUnavailable` 回调（destroy 中途的 `callJsMethod`
+  不再永久悬挂）。新增 2 个回归测试（网关层 `test_clearAll_resumesPendingCallbacksWithError`、
+  客户端层 `test_callJsMethod_destroyWhileInFlight_resumesWithError`），`SwiftWebviewBridgeTests` 45/45 通过。
 - **P0-2（2025-08-22）**：SwiftWebviewBridge 跨线程 double-resume 修复——两处 `onCancel` 跳回主线程
   （`callJsMethod` 的 resume、`waitForReady` 的 `box.cancel()`），`ContinuationBox` 加 `NSLock`
   （`install`/`take` 原子化）作纵深防御。新增 3 个回归测试（box 并发双路 resume 确定性用例 +
@@ -387,7 +395,7 @@ enum Hex {
 
 ---
 
-*评审基于 commit 9d6286e（2025-08-21）；P0-2 / P0-4 / P0-5 / P0-6 修复已落地（见修复记录与 git log）。*
+*评审基于 commit 9d6286e（2025-08-21）；P0-2 / P0-3 / P0-4 / P0-5 / P0-6 修复已落地（见修复记录与 git log）。*
 
 ---
 
@@ -443,7 +451,7 @@ enum Hex {
 
 ## 五、第二轮结论
 
-- 第一轮 P0 六项**全部维持**（P0-1 Vault 访问控制已在第二轮复验；**P0-2 Bridge double-resume、P0-4 Nft 溢出、P0-5 Account 吞错、P0-6 Did 过期 fail-open 已修复**，见修复记录）。
+- 第一轮 P0 六项**全部维持**（P0-1 Vault 访问控制已在第二轮复验；**P0-2 / P0-3 Bridge、P0-4 Nft 溢出、P0-5 Account 吞错、P0-6 Did 过期 fail-open 已修复**，见修复记录）。
 - 第一轮有两处**事实性错误已被纠正**（`try append`、`VaultKeyDeriver` Sendable）。
 - 新增最关键的正面结论：**代码库在 Swift 6 严格并发下零编译告警零错误**——并发/Sendable 纪律的编译器级验证通过。
 - 新增一批跨模块去重与架构一致性建议（表二~四），这些是单模块审查无法发现的。

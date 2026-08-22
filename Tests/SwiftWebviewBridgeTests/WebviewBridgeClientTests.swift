@@ -148,6 +148,36 @@ final class WebviewBridgeClientTests: XCTestCase {
 
         client.destroy()
     }
+
+    func test_callJsMethod_destroyWhileInFlight_resumesWithError() async throws {
+        // P0-3 回归：调用 in-flight 时 destroy() —— clearAll 必须恢复调用者
+        // （修复前续体永不 resume，callJsMethod 永久悬挂并强持有 client/box）。
+        let gateway = PromiseGateway()
+        let client = WebviewBridgeClient(gateway: gateway, runtimeFactory: { FakeRuntime() })
+        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html"))
+        try client.start()
+        gateway.onBridgeReady() // 模拟 JS 就绪
+
+        let task = Task { () -> String in
+            try await client.callJsMethod(method: "ping", timeoutMs: 60000, readyWaitMs: 60000)
+        }
+        // 等调用注册完成（pending 已入表）
+        while gateway.pendingCount == 0 {
+            await Task.yield()
+        }
+
+        client.destroy() // 中途销毁 → gateway.clearAll()
+
+        do {
+            _ = try await task.value
+            XCTFail("expected webViewUnavailable")
+        } catch let error as WebviewBridgeError {
+            XCTAssertEqual(error, .webViewUnavailable, "destroy 后 in-flight 调用以 webViewUnavailable 恢复")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+        XCTAssertEqual(gateway.pendingCount, 0)
+    }
 }
 
 /// 最小 Fake：不创建真实 WKWebView（轻量，供取消竞态回归测试使用）。
