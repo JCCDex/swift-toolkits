@@ -3,6 +3,8 @@ import Foundation
 #if canImport(Tink)
     import Tink
 
+    /// @unchecked Sendable：本实现仅供 `VaultRepository` actor 内部使用——encrypt/decrypt
+    /// 均在 actor 串行执行，可变 cachedHandle（:51/:57/:60）不会并发访问（见 review 三、Sendable 审计）。
     public final class TinkVaultCipher: VaultCipher, @unchecked Sendable {
         private let keysetName: String
         private let accessGroup: String?

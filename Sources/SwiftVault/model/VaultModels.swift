@@ -30,7 +30,7 @@ public struct VaultPrivateKeyImport: Sendable, Hashable {
     }
 }
 
-public enum VaultError: Error, Equatable {
+public enum VaultError: Error, Equatable, Sendable {
     case vaultLocked
     case passwordNotInitialized
     case wrongPassword

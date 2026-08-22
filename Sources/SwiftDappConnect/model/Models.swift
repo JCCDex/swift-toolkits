@@ -13,7 +13,7 @@ public struct SignTransactionResult: Sendable, Equatable {
 }
 
 /// DAppConnect 错误，jsonRpcCode 与 Kotlin 异常错误码一致。
-public enum DAppConnectError: Error, Equatable {
+public enum DAppConnectError: Error, Equatable, Sendable {
     case userRejected(String = "User rejected") // 4001（EIP-1193）
     case unauthorized(String = "Account not authorized") // 4100（Kotlin 定义了但路由层从未抛出）
     case chainNotSupported(chainId: Int64) // 4902（EIP-3326）

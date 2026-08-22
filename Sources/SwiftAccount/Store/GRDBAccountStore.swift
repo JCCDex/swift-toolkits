@@ -9,6 +9,7 @@ import SwiftCore
 /// - 查询按 `LOWER(address)` 归一化（对齐 Kotlin DAO `COLLATE NOCASE`）；
 /// - `addAccount`/`addAccounts` 普通 INSERT（冲突抛错，对齐 Kotlin `@Insert` ABORT）；
 ///   `current_account` 用 `ON CONFLICT(id) DO UPDATE`（固定单行）。
+/// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
 public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
     private let database: DatabasePool
 

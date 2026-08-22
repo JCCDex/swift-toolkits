@@ -26,6 +26,7 @@ extension EvmNftCollectionEntity: FetchableRecord, TableRecord {
 /// - 查询 LOWER() 归一化 address/contract（对齐 Kotlin DAO SQL）；
 /// - **upsert 用 `ON CONFLICT DO UPDATE`（不用 `INSERT OR REPLACE`）**：REPLACE 删旧插新会让
 ///   `nft_meta` 自增 id 变化（Kotlin 为此手动 `copy(id=existing.id)`），且有行替换副作用（见 Nft-Swift 02 §5）。
+/// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
 public final class GRDBNftStore: NftStore, @unchecked Sendable {
     private let database: DatabasePool
 

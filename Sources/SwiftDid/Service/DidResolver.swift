@@ -8,7 +8,10 @@ public protocol DidResolver: AnyObject, Sendable {
 }
 
 /// 默认实现：桥调 `didResolve`（`"null"` / `"{}"` / 空串由调用方判 missing）。
-public final class BridgeDidResolver: DidResolver, @unchecked Sendable {
+/// `@MainActor`：持有的 `EngineBridge` 是 @MainActor 协议；MainActor 隔离类隐式 Sendable，
+/// 可去掉 `@unchecked Sendable`（见 review 三、Sendable 审计）。
+@MainActor
+public final class BridgeDidResolver: DidResolver {
     private let bridge: any EngineBridge
 
     public init(bridge: any EngineBridge) {

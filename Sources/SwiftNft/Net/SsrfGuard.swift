@@ -14,6 +14,8 @@ import Foundation
 /// 需改用 Network.framework `NWConnection` 连已校验 IP + TLS server-name（见 Nft-Swift 02 §4/§8）。
 enum SsrfGuard {
     #if DEBUG
+        /// nonisolated(unsafe)：仅 DEBUG 测试旁路开关——测试在发起 fetch 前一次性设置，
+        /// 无并发读写（见 review 三、Sendable 审计）；勿在运行时动态切换。
         nonisolated(unsafe) static var enabled = true
     #endif
 

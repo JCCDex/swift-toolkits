@@ -409,6 +409,9 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **Sendable 批（2025-08-22）**：三、Sendable 审计全部落地——6 个 Error 枚举补 `Sendable`；
+  `BridgeDidResolver` 改 `@MainActor` 去掉 `@unchecked`；GRDB×3 / NoRedirectDelegate / TinkVaultCipher
+  （actor 限定） / SsrfGuard.enabled（DEBUG 一次性）补「为什么安全」注释。7 模块 293 测试通过。
 - **架构批（2025-08-22）**：四 #3——`SwiftDid.start()` 移除对 `WebviewBridgeEngine` 具体类型的
   特判，改为协议统一 `try self.bridge.start()`（与 SwiftWallet 一致；自定义 EngineBridge 不再
   被静默跳过），新增回归测试 `testStartInvokesBridgeStartExactlyOnce`。
@@ -512,19 +515,21 @@ if !expirationDate.isEmpty,
 
 ## 三、Sendable / 并发审计（跨模块汇总）
 
-**公开 Error 枚举缺 `Sendable`（4 个 + 2 个 internal）** —— 前瞻性 P2：
-`DAppConnectError`（`Models.swift:16`）、`SwiftDidError`（`DidModels.swift:204`）、`VaultError`（`VaultModels.swift:32`）、`SwiftWalletError`（`SwiftWallet.swift:239`）；internal：`ChecksumError`、`CredentialDataError`。对比：`AccountOperationError`/`AccountStoreError`/`WebviewBridgeError` 已带 `Sendable`——建议补齐统一。
+> ✅ **已全部落地（2025-08-22）**：见下。
 
-**`@unchecked Sendable` / `nonisolated(unsafe)` 15 处审计：**
+**公开 Error 枚举缺 `Sendable`（4 个 + 2 个 internal）** —— ✅ 已补齐：
+`DAppConnectError`（`Models.swift:16`）、`SwiftDidError`（`DidModels.swift:204`）、`VaultError`（`VaultModels.swift:32`）、`SwiftWalletError`（`SwiftWallet.swift:239`）；internal：`ChecksumError`、`CredentialDataError`——全部补 `Sendable`（payload 均为 Sendable 标量，纯前瞻性）。
+
+**`@unchecked Sendable` / `nonisolated(unsafe)` 审计：**
 
 | 类型 | 判定 |
 |---|---|
-| `GRDBAccountStore` / `GRDBDidStore` / `GRDBNftStore` | ✅ 合理（GRDB `DatabasePool` 线程安全）；但缺一行「为什么安全」注释 |
-| `NoRedirectDelegate`（`NftHttpClient.swift:113`） | ✅ 无状态，合理 |
-| `BridgeDidResolver`（`DidResolver.swift:11`） | ⚠️ 仅因持有 `@MainActor EngineBridge`；改 `@MainActor` 可去掉 `@unchecked` |
-| `ContinuationBox` / `ReadyWaitBox`（`ContinuationBox.swift:6,23`） | ❌ **真实竞态**（`onCancel` 不在主线程）→ 已列 P0-2 |
-| `TinkVaultCipher`（`TinkVaultCipher.swift:6`） | ⚠️ 可变 `cachedHandle` 挂 `@unchecked`，需确认 `registerAead` 幂等/线程安全 |
-| `SsrfGuard.enabled`（`SsrfGuard.swift:17`） | ⚠️ `nonisolated(unsafe) static var` 可变全局（仅 DEBUG 测试用） |
+| `GRDBAccountStore` / `GRDBDidStore` / `GRDBNftStore` | ✅ 合理（GRDB `DatabasePool` 线程安全）——已补「为什么安全」注释 |
+| `NoRedirectDelegate`（`NftHttpClient.swift:113`） | ✅ 无状态——已补注释 |
+| `BridgeDidResolver`（`DidResolver.swift:11`） | ✅ 已改 `@MainActor`（隐式 Sendable），**去掉 `@unchecked`** |
+| `ContinuationBox` / `ReadyWaitBox`（`ContinuationBox.swift:6,23`） | ✅ 已修复（P0-2：onCancel 跳主线程 + box 加锁） |
+| `TinkVaultCipher`（`TinkVaultCipher.swift:6`） | ✅ 确认安全：仅供 `VaultRepository` actor 使用，`cachedHandle` 无并发访问——已补注释 |
+| `SsrfGuard.enabled`（`SsrfGuard.swift:17`） | ✅ 已补注释：仅 DEBUG 测试一次性设置、无并发读写 |
 
 ## 四、架构层观察
 

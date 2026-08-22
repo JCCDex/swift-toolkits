@@ -236,6 +236,6 @@ public final class SwiftWallet: WalletDeriving {
     }
 }
 
-public enum SwiftWalletError: Error, Equatable {
+public enum SwiftWalletError: Error, Equatable, Sendable {
     case notInitialized
 }

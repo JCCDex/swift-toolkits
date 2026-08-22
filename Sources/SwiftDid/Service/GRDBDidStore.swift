@@ -12,6 +12,7 @@ extension DidPending: FetchableRecord, TableRecord {
 /// - `did_pending` 表：`(kind, did)` 联合主键，value 存 kind 相关负载，updatedAt 供 TTL 过期清理；
 ///   **upsert 不刷新 updatedAt**（首次写入为基准、不续期）。
 /// - 观察流用 ValueObservation → AsyncStream（写后自动重放）；存储直接用 DatabasePool（WAL）。
+/// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
 public final class GRDBDidStore: DidStore, @unchecked Sendable {
     private let database: DatabasePool
 

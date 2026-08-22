@@ -68,7 +68,7 @@ enum DidCredentialHelper {
         }
     }
 
-    enum CredentialDataError: Error, Equatable {
+    enum CredentialDataError: Error, Equatable, Sendable {
         case invalid(String)
     }
 

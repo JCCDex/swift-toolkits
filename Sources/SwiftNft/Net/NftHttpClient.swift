@@ -110,6 +110,7 @@ public struct URLSessionNftHttpClient: NftHttpClient {
 }
 
 /// 不跟随重定向的 delegate（`willPerformHTTPRedirection` → completionHandler(nil)）。
+/// @unchecked Sendable：无状态 delegate（不持有可变数据），见 review 三、Sendable 审计。
 final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     nonisolated func urlSession(
         _: URLSession,

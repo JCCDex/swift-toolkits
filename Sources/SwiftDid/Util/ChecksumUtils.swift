@@ -47,7 +47,7 @@ public enum ChecksumUtils {
         return (try? self.toChecksumAddress(rawAddress)) ?? fallback
     }
 
-    public enum ChecksumError: Error, Equatable {
+    public enum ChecksumError: Error, Equatable, Sendable {
         case invalidLength(Int)
         case invalidCharacters
     }

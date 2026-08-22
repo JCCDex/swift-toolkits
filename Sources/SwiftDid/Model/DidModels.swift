@@ -201,7 +201,7 @@ public enum DidResolveOutcome {
     case document(String)
 }
 
-public enum SwiftDidError: Error, Equatable {
+public enum SwiftDidError: Error, Equatable, Sendable {
     case notInitialized
     case invalidPayload
     case invalidCredential
