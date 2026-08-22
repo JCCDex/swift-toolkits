@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftCore
 import SwiftDappConnect
 import SwiftNft
@@ -32,6 +33,22 @@ public protocol DidAvatarCredentialSource: AnyObject, Sendable {
 /// pending 对账互斥简单）；`DidStore` / `DidResolver` / `DidNftResolution` 等 I/O 协议自由线程。
 @MainActor
 public final class SwiftDid: DidSDK {
+    private static let logger = Logger(subsystem: "com.jccdex.toolkits.swiftdid", category: "SwiftDid")
+
+    /// 写操作失败日志：含操作名 + 安全错误摘要 + did（`.public`，Release 也可见）。
+    /// 刻意不直接打 `String(describing: error)`：① Logger 默认 `.private`，Release 会被打码成
+    /// `<private>`；② NSError 的 description 含 userInfo，可能泄漏 payload（对齐 SwiftNft
+    /// `logFailure` 的隐私纪律——NSError 只打 domain#code，纯枚举打 case 名）。
+    private static func logWriteError(_ operation: String, error: Error, did: String?) {
+        let summary = if let nsError = error as NSError? {
+            "\(nsError.domain)#\(nsError.code)"
+        } else {
+            String(describing: error)
+        }
+        let didSuffix = did.map { " did=\($0)" } ?? ""
+        self.logger.error("\(operation, privacy: .public) failed: \(summary, privacy: .public)\(didSuffix, privacy: .public)")
+    }
+
     private let bridge: any EngineBridge
     private let store: any DidStore
     private let core: DidCoreService
@@ -155,7 +172,10 @@ public final class SwiftDid: DidSDK {
                 controller: DidJson.optString(item, "controller"),
                 type: DidJson.optString(item, "type"),
                 publicKeyBase58: DidJson.optString(item, "publicKeyBase58"),
-                isSelf: DidJson.optString(item, "controller").caseInsensitiveCompare(did) == .orderedSame
+                // DID 规范允许空格分隔的多 controller；逐一比较（review SwiftDid 补充细节）
+                isSelf: DidJson.optString(item, "controller")
+                    .split(separator: " ")
+                    .contains { $0.caseInsensitiveCompare(did) == .orderedSame }
             )
         }
         return Did(id: did, created: Self.formatUtc(created), updated: Self.formatUtc(updated), verificationMethods: verificationMethods)
@@ -165,7 +185,8 @@ public final class SwiftDid: DidSDK {
         guard let entity = try? await core.getDidDocument(did),
               let root = DidJson.parseObject(entity.doc) else { return nil }
         let profile = self.getProfile(root)
-        let credentials = DidJson.optArray(root, "credentials") ?? []
+        // 与 DidCredentialHelper.readCredentials 同款双键别名（`credential` / `credentials`，review SwiftDid 补充细节）
+        let credentials = DidCredentialHelper.credentials(in: root)
         var nft: Nft?
         if let profile {
             if let vc = self.findCredentialById(credentials, profile.preferredAvatar) {
@@ -304,6 +325,7 @@ public final class SwiftDid: DidSDK {
             }
             return false
         } catch {
+            Self.logWriteError("uploadInitialDidDoc", error: error, did: did)
             return false
         }
     }
@@ -336,6 +358,7 @@ public final class SwiftDid: DidSDK {
             }
             return ok
         } catch {
+            Self.logWriteError("updateDidNickname", error: error, did: did)
             return false
         }
     }
@@ -363,19 +386,18 @@ public final class SwiftDid: DidSDK {
                     return service
                 }
             }
-            let credentials = DidJson.optArray(json, "credentials") ?? []
-            var updatedCredentials = credentials.filter { element in
-                guard let cred = element as? [String: Any] else { return true }
-                return DidJson.optString(cred, "id").caseInsensitiveCompare(selectedAvatar.credentialId) != .orderedSame
-            }
-            updatedCredentials.append(DidJson.parseObject(vcJson) ?? [:])
+            // upsert 原位替换（旧实现 filter+append 会把匹配项挪到数组末尾，破坏顺序；见 review SwiftDid 补充细节）
+            let credentials = DidCredentialHelper.credentials(in: json)
+            json["credentials"] = DidDocumentEditor.upsertCredential(
+                credentials, incoming: DidJson.parseObject(vcJson) ?? [:], byId: selectedAvatar.credentialId
+            )
             DidDocumentEditor.setServices(updatedServices, on: &json)
-            json["credentials"] = updatedCredentials
             let (ok, _) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
                 try await self.core.saveNewAvatarDid(d, doc: doc)
             }
             return ok
         } catch {
+            Self.logWriteError("updateDidAvatar", error: error, did: did)
             return false
         }
     }
@@ -390,6 +412,7 @@ public final class SwiftDid: DidSDK {
             }
             return false
         } catch {
+            Self.logWriteError("publishDidDelete", error: error, did: did)
             return false
         }
     }
@@ -412,6 +435,7 @@ public final class SwiftDid: DidSDK {
             }
             return DidWriteResult(success: ok, didDocument: finalDoc)
         } catch {
+            Self.logWriteError("addCredentialToDid", error: error, did: did)
             return DidWriteResult(success: false)
         }
     }
@@ -436,6 +460,7 @@ public final class SwiftDid: DidSDK {
             }
             return DidWriteResult(success: ok, didDocument: finalDoc)
         } catch {
+            Self.logWriteError("deleteCredentialFromDid", error: error, did: did)
             return DidWriteResult(success: false)
         }
     }
@@ -449,8 +474,14 @@ public final class SwiftDid: DidSDK {
         let matchedIndex = DidCredentialHelper.findCredentialIndex(credentials, vcid)
         guard matchedIndex >= 0, let matched = credentials[matchedIndex] as? [String: Any] else { return QueryVcidResult(isValid: false) }
         let credentialJson = DidJson.stringify(matched)
-        let verifyResult = await (try? self.verifyCredential(credentialJson)) ?? CredentialVerificationResult(verified: false)
-        return QueryVcidResult(isValid: verifyResult.verified, credential: credentialJson)
+        do {
+            let verifyResult = try await self.verifyCredential(credentialJson)
+            return QueryVcidResult(isValid: verifyResult.verified, credential: credentialJson)
+        } catch {
+            // 桥接/校验错误不得与「无效 VC」混淆（review SwiftDid 补充细节）：记日志后按无效处理
+            Self.logger.error("queryAndValidateVcid verify failed: \(error)")
+            return QueryVcidResult(isValid: false)
+        }
     }
 
     public func bindVcidToDid(privateKey: String, did: String, currentDoc: String, credentialJson: String) async -> DidWriteResult {
@@ -471,6 +502,7 @@ public final class SwiftDid: DidSDK {
             }
             return DidWriteResult(success: ok, didDocument: finalDoc)
         } catch {
+            Self.logWriteError("bindVcidToDid", error: error, did: did)
             return DidWriteResult(success: false)
         }
     }
@@ -504,6 +536,7 @@ public final class SwiftDid: DidSDK {
             }
             return DidWriteResult(success: ok, didDocument: finalDoc)
         } catch {
+            Self.logWriteError("updatePreferredAvatar", error: error, did: did)
             return DidWriteResult(success: false)
         }
     }
@@ -776,12 +809,10 @@ public final class SwiftDid: DidSDK {
         try await self.bridge.call(method: "generateVC", params: self.buildGenerateVcParams(privateKey: privateKey, ownerDid: ownerDid, credentialData: credentialData))
     }
 
-    private func buildGenerateVcParams(privateKey: String, ownerDid: String, credentialData: UnifiedNftCredentialData) -> [String: Any] {
-        do {
-            try DidCredentialHelper.validateCredentialData(credentialData)
-        } catch {
-            return [:]
-        }
+    /// 校验失败必须向上抛（P1：#3 旧实现返回 `[:]` 空参继续调桥，错误信息全丢、
+    /// 下游报错无法定位；调用方（写操作）catch 后会记日志并返回失败）。
+    private func buildGenerateVcParams(privateKey: String, ownerDid: String, credentialData: UnifiedNftCredentialData) throws -> [String: Any] {
+        try DidCredentialHelper.validateCredentialData(credentialData)
         return [
             "id": DidCredentialHelper.generateVcId(credentialData),
             "types": DidCredentialHelper.vcTypesFor(credentialData),

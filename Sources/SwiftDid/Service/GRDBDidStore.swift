@@ -13,6 +13,8 @@ extension DidPending: FetchableRecord, TableRecord {
 ///   **upsert 不刷新 updatedAt**（首次写入为基准、不续期）。
 /// - 观察流用 ValueObservation → AsyncStream（写后自动重放）；存储直接用 DatabasePool（WAL）。
 /// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
+/// （DatabasePool 本身 Sendable，final class + 只读 Sendable 属性本可隐式 Sendable；保留
+/// @unchecked 以兼容 GRDB 版本差异，见 review SwiftDid 补充细节。）
 public final class GRDBDidStore: DidStore, @unchecked Sendable {
     private let database: DatabasePool
 
@@ -37,6 +39,12 @@ public final class GRDBDidStore: DidStore, @unchecked Sendable {
                 t.column("updatedAt", .integer).notNull()
                 t.primaryKey(["kind", "did"])
             }
+        }
+        // v2（review 性能专项 C-4）：observeAll 的 ORDER BY updatedAt DESC 与
+        // deleteExpiredPending 的 updatedAt < ? 此前无索引 → 全表扫描。
+        migrator.registerMigration("v2") { db in
+            try db.create(index: "idx_did_documents_updatedAt", on: "did_documents", columns: ["updatedAt"])
+            try db.create(index: "idx_did_pending_updatedAt", on: "did_pending", columns: ["updatedAt"])
         }
         try migrator.migrate(database)
     }
@@ -101,11 +109,12 @@ public final class GRDBDidStore: DidStore, @unchecked Sendable {
         }
     }
 
-    public func loadPending(kind: String, did: String) async throws -> [DidPending] {
+    /// `(kind, did)` 联合主键唯一 → 最多一行；返回 `DidPending?`（review SwiftDid 补充细节）。
+    public func loadPending(kind: String, did: String) async throws -> DidPending? {
         try await self.database.read { db in
-            try DidPending.fetchAll(
+            try DidPending.fetchOne(
                 db,
-                sql: "SELECT * FROM did_pending WHERE kind = ? AND did = ? ORDER BY updatedAt ASC",
+                sql: "SELECT * FROM did_pending WHERE kind = ? AND did = ?",
                 arguments: [kind, did]
             )
         }

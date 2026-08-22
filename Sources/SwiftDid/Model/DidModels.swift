@@ -202,8 +202,8 @@ public enum DidResolveOutcome {
 }
 
 public enum SwiftDidError: Error, Equatable, Sendable {
-    case notInitialized
+    /// 入参结构非法（不可解析 / 字段缺失 / 校验失败）。
     case invalidPayload
+    /// VC 语义校验不通过（缺 @context/type/credentialSubject/issuer、验签失败等）。
     case invalidCredential
-    case didNotFound
 }

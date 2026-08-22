@@ -9,18 +9,18 @@ import Foundation
 /// 4. 四张 pending 表合并为 `did_pending` 单表（kind 列）持久化到 GRDB，消除重启窗口；TTL 24h、
 ///    首次写入为基准不续期、按 kind 确认才清除、过期失效。
 @MainActor
-public final class DidCoreService {
+final class DidCoreService {
     static let pendingCreate = "create"
     static let pendingAvatar = "avatar"
     static let pendingNickname = "nickname"
     static let pendingDelete = "delete"
 
-    public static let pendingTTLMillis: Int64 = 24 * 60 * 60 * 1000
+    static let pendingTTLMillis: Int64 = 24 * 60 * 60 * 1000
 
     private let store: any DidStore
     private let resolver: any DidResolver
 
-    public init(store: any DidStore, resolver: any DidResolver) {
+    init(store: any DidStore, resolver: any DidResolver) {
         self.store = store
         self.resolver = resolver
     }
@@ -55,7 +55,7 @@ public final class DidCoreService {
             // 删除防复活（Swift 修正 #3）：链上旧文档仍服务且 `updated == 删除时间戳` → 不复活、清表、返回缺失。
             // 必须**先于**下方 `localDoc == nil` 的 upsert 分支执行，否则已删除 DID 会被旧文档复活。
             if let chainUpdated = DidJson.extractUpdated(chainDoc),
-               let pendingDelete = try? await store.loadPending(kind: Self.pendingDelete, did: did).first,
+               let pendingDelete = try? await store.loadPending(kind: Self.pendingDelete, did: did),
                chainUpdated == pendingDelete.value {
                 try? await self.store.deletePending(kind: Self.pendingDelete, did: did)
                 return .missing
@@ -67,7 +67,7 @@ public final class DidCoreService {
             }
 
             // avatar pending：链上头像未刷新到 pending 值 → 保护本地
-            if let pendingAvatar = try? await store.loadPending(kind: Self.pendingAvatar, did: did).first {
+            if let pendingAvatar = try? await store.loadPending(kind: Self.pendingAvatar, did: did) {
                 let chainAvatar = DidJson.readProfileField(chainDoc, "preferredAvatar")
                 if chainAvatar != pendingAvatar.value {
                     return .document(localDoc.doc)
@@ -75,7 +75,7 @@ public final class DidCoreService {
                 try? await self.store.deletePending(kind: Self.pendingAvatar, did: did)
             }
             // nickname pending：同上
-            if let pendingNickname = try? await store.loadPending(kind: Self.pendingNickname, did: did).first {
+            if let pendingNickname = try? await store.loadPending(kind: Self.pendingNickname, did: did) {
                 let chainNickname = DidJson.readProfileField(chainDoc, "nickname")
                 if chainNickname != pendingNickname.value {
                     return .document(localDoc.doc)
@@ -86,7 +86,7 @@ public final class DidCoreService {
             // `updated` 比较（Swift 修正 #1：Date，勿字符串比较）
             let localUpdated = DidJson.extractUpdated(localDoc.doc).flatMap { DidJson.parseISO8601($0) }
             let chainUpdated = DidJson.extractUpdated(chainDoc).flatMap { DidJson.parseISO8601($0) }
-            if let chainUpdated, localUpdated == nil || chainUpdated > localUpdated! {
+            if let chainUpdated, localUpdated.map({ chainUpdated > $0 }) ?? true {
                 try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Self.nowMillis()))
                 return .document(chainDoc)
             }
@@ -98,12 +98,12 @@ public final class DidCoreService {
 
     private func handleMissingChainDocument(_ did: String, _ localDoc: DidEntity?) async -> DidResolveOutcome {
         // create pending 命中：初始 DID 刚发布、链上尚未可见 → 保留本地
-        if let _ = try? await store.loadPending(kind: Self.pendingCreate, did: did).first {
+        if let _ = try? await store.loadPending(kind: Self.pendingCreate, did: did) {
             try? await self.store.deletePending(kind: Self.pendingCreate, did: did)
             return localDoc.map { .document($0.doc) } ?? .missing
         }
         // delete pending 命中：链上缺失（tombstone 已传播）→ 删除已确认，清表
-        if let _ = try? await store.loadPending(kind: Self.pendingDelete, did: did).first {
+        if let _ = try? await store.loadPending(kind: Self.pendingDelete, did: did) {
             try? await self.store.deletePending(kind: Self.pendingDelete, did: did)
         }
         try? await self.store.delete(did)

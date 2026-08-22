@@ -103,7 +103,7 @@ final class DidCoreServiceTests: XCTestCase {
         guard case let .document(kept) = outcome else { return XCTFail() }
         XCTAssertEqual(kept, self.doc(updated: "2025-01-01T00:00:00.000Z"), "create pending 命中 → 保留本地")
         let createPending = try await store.loadPending(kind: DidCoreService.pendingCreate, did: "did:swtc:fff")
-        XCTAssertEqual(createPending.count, 0, "命中后清表")
+        XCTAssertNil(createPending, "命中后清表")
     }
 
     // MARK: - 删除防复活（Swift 修正，Kotlin 死代码陷阱）
@@ -117,7 +117,7 @@ final class DidCoreServiceTests: XCTestCase {
         let resurrected = try await store.get("did:swtc:ggg")
         XCTAssertNil(resurrected)
         let deletePending = try await store.loadPending(kind: DidCoreService.pendingDelete, did: "did:swtc:ggg")
-        XCTAssertEqual(deletePending.count, 0, "确认后清表")
+        XCTAssertNil(deletePending, "确认后清表")
     }
 
     func testMissingChainClearsDeletePending() async throws {
@@ -126,7 +126,7 @@ final class DidCoreServiceTests: XCTestCase {
         let outcome = await core.resolveAndSaveDid("did:swtc:hhh")
         guard case .missing = outcome else { return XCTFail() }
         let deletePending2 = try await store.loadPending(kind: DidCoreService.pendingDelete, did: "did:swtc:hhh")
-        XCTAssertEqual(deletePending2.count, 0)
+        XCTAssertNil(deletePending2)
     }
 
     // MARK: - avatar / nickname pending 保护
@@ -140,7 +140,7 @@ final class DidCoreServiceTests: XCTestCase {
         guard case let .document(kept) = outcome else { return XCTFail() }
         XCTAssertEqual(kept, localDoc, "链上头像是旧值 → 保护本地新头像")
         let avatarPending = try await store.loadPending(kind: DidCoreService.pendingAvatar, did: "did:swtc:iii")
-        XCTAssertEqual(avatarPending.count, 1, "pending 保留")
+        XCTAssertNotNil(avatarPending, "pending 保留")
     }
 
     func testAvatarPendingClearedWhenChainCatchesUp() async throws {
@@ -150,7 +150,7 @@ final class DidCoreServiceTests: XCTestCase {
         let outcome = await core.resolveAndSaveDid("did:swtc:jjj")
         guard case .document = outcome else { return XCTFail() }
         let avatarPending2 = try await store.loadPending(kind: DidCoreService.pendingAvatar, did: "did:swtc:jjj")
-        XCTAssertEqual(avatarPending2.count, 0, "链上已到位 → 清表")
+        XCTAssertNil(avatarPending2, "链上已到位 → 清表")
     }
 
     func testNicknamePendingProtectsLocal() async throws {

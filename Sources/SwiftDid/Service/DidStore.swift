@@ -15,7 +15,8 @@ public protocol DidStore: AnyObject, Sendable {
 
     /// upsert-by-(kind, did)，**不刷新 updatedAt**（TTL 以首次写入为基准、不续期）。
     func savePending(_ pending: DidPending) async throws
-    func loadPending(kind: String, did: String) async throws -> [DidPending]
+    /// `(kind, did)` 联合主键唯一 → 最多一行；返回 `DidPending?`（review SwiftDid 补充细节）。
+    func loadPending(kind: String, did: String) async throws -> DidPending?
     func deletePending(kind: String, did: String) async throws
     func deleteExpiredPending(now: Int64, ttlMillis: Int64) async throws
 }

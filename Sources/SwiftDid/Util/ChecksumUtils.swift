@@ -4,8 +4,8 @@ import Foundation
 ///
 /// 注意：与 Kotlin 一致——**长度/字符非法直接抛错**（非「原样返回」）；40 位合法 hex 一律重新
 /// checksum（对已校验地址幂等）。调用方（generateVcId / buildAvatarCredentialId 等）用 `try?` 兜底。
-public enum ChecksumUtils {
-    public static func toChecksumAddress(_ rawAddress: String) throws -> String {
+enum ChecksumUtils {
+    static func toChecksumAddress(_ rawAddress: String) throws -> String {
         var clean = rawAddress
         if clean.hasPrefix("0x") || clean.hasPrefix("0X") {
             clean = String(clean.dropFirst(2))
@@ -37,17 +37,17 @@ public enum ChecksumUtils {
     }
 
     /// 出错（长度/字符非法）时返回传入的默认值（替代 `try? ... ?? fallback` 组合）。
-    public static func toChecksumAddress(_ rawAddress: String, or fallback: String) -> String {
+    static func toChecksumAddress(_ rawAddress: String, or fallback: String) -> String {
         (try? self.toChecksumAddress(rawAddress)) ?? fallback
     }
 
     /// 可选地址版本：nil 直接返回默认值（替代 `map { toChecksumAddress($0, or: "") } ?? ""` 的双重默认）。
-    public static func toChecksumAddress(_ rawAddress: String?, or fallback: String) -> String {
+    static func toChecksumAddress(_ rawAddress: String?, or fallback: String) -> String {
         guard let rawAddress else { return fallback }
         return (try? self.toChecksumAddress(rawAddress)) ?? fallback
     }
 
-    public enum ChecksumError: Error, Equatable, Sendable {
+    enum ChecksumError: Error, Equatable, Sendable {
         case invalidLength(Int)
         case invalidCharacters
     }

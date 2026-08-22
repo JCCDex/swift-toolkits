@@ -6,7 +6,7 @@ import SwiftCore
 /// 自实现说明（见 Nft-Swift/Did-Swift 04 坑 #3）：CryptoKit / swift-crypto 不含 keccak-256；
 /// 设计首选专门轻量依赖，自实现仅兜底——本实现以经典 ρ/π 常量表 + 标准测试向量做 KAT 全量交叉验证
 /// （`Keccak256Tests`：空串 / "abc" / 0x61-0x80 序列 / 长消息 / EIP-55 地址向量）。
-public enum Keccak256 {
+enum Keccak256 {
     private static let roundConstants: [UInt64] = [
         0x0000_0000_0000_0001, 0x0000_0000_0000_8082, 0x8000_0000_0000_808A, 0x8000_0000_8000_8000,
         0x0000_0000_0000_808B, 0x0000_0000_8000_0001, 0x8000_0000_8000_8081, 0x8000_0000_0000_8009,
@@ -26,7 +26,7 @@ public enum Keccak256 {
         0, 10, 20, 5, 15, 16, 1, 11, 21, 6, 7, 17, 2, 12, 22, 23, 8, 18, 3, 13, 14, 24, 9, 19, 4
     ]
 
-    public static func hash(data: Data) -> Data {
+    static func hash(data: Data) -> Data {
         let rate = 136 // 1088 位速率（256 位输出）
 
         // Keccak padding：0x01 0x00... 0x80（多字节填充，rate 整数倍）
@@ -74,7 +74,7 @@ public enum Keccak256 {
         return out
     }
 
-    public static func hex(data: Data) -> String {
+    static func hex(data: Data) -> String {
         Hex.encode([UInt8](data))
     }
 

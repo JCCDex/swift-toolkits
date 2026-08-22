@@ -11,14 +11,14 @@ public protocol DidResolver: AnyObject, Sendable {
 /// `@MainActor`：持有的 `EngineBridge` 是 @MainActor 协议；MainActor 隔离类隐式 Sendable，
 /// 可去掉 `@unchecked Sendable`（见 review 三、Sendable 审计）。
 @MainActor
-public final class BridgeDidResolver: DidResolver {
+final class BridgeDidResolver: DidResolver {
     private let bridge: any EngineBridge
 
-    public init(bridge: any EngineBridge) {
+    init(bridge: any EngineBridge) {
         self.bridge = bridge
     }
 
-    public func resolve(_ did: String) async throws -> String {
+    func resolve(_ did: String) async throws -> String {
         try await self.bridge.call(method: "didResolve", params: ["did": did])
     }
 }

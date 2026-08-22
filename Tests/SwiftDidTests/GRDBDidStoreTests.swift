@@ -56,9 +56,9 @@ final class GRDBDidStoreTests: XCTestCase {
         try await self.store.savePending(DidPending(kind: "avatar", did: "did:swtc:ccc", value: "avatar-1", updatedAt: 100))
         try await self.store.savePending(DidPending(kind: "avatar", did: "did:swtc:ccc", value: "avatar-2", updatedAt: 200))
         let rows = try await store.loadPending(kind: "avatar", did: "did:swtc:ccc")
-        XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.first?.value, "avatar-2", "同 (kind,did) 只保留一条，value 更新")
-        XCTAssertEqual(rows.first?.updatedAt, 100, "updatedAt 以首次写入为基准、不续期（TTL 语义）")
+        XCTAssertNotNil(rows)
+        XCTAssertEqual(rows?.value, "avatar-2", "同 (kind,did) 只保留一条，value 更新")
+        XCTAssertEqual(rows?.updatedAt, 100, "updatedAt 以首次写入为基准、不续期（TTL 语义）")
     }
 
     func testPendingDeleteAndExpiredCleanup() async throws {
@@ -66,10 +66,10 @@ final class GRDBDidStoreTests: XCTestCase {
         try await self.store.savePending(DidPending(kind: "delete", did: "did:swtc:ddd", value: "t", updatedAt: 100))
         try await self.store.deletePending(kind: "create", did: "did:swtc:ddd")
         let createRows = try await store.loadPending(kind: "create", did: "did:swtc:ddd")
-        XCTAssertEqual(createRows.count, 0)
+        XCTAssertNil(createRows)
 
         try await self.store.deleteExpiredPending(now: 200, ttlMillis: 50) // 100 < 150 → 过期
         let deleteRows = try await store.loadPending(kind: "delete", did: "did:swtc:ddd")
-        XCTAssertEqual(deleteRows.count, 0)
+        XCTAssertNil(deleteRows)
     }
 }

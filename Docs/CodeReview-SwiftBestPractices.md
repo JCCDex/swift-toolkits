@@ -238,23 +238,23 @@ if !expirationDate.isEmpty,
 
 ### SwiftDid
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | 8 个公开写 API 全部 `catch { return false / DidWriteResult(success: false) }`：校验失败与传输失败不可区分、零日志，联调只能靠猜 | `SwiftDid.swift:262-509` |
-| 2 | `start()` 只对具体类型 `WebviewBridgeEngine` 调 `engine.start()`，`destroy()` 走协议 `bridge.destroy()` —— 协议里没有 start，类型判断破坏抽象 | `SwiftDid.swift:64-79` |
-| 3 | `buildGenerateVcParams` 校验失败返回空字典 `[:]`，空参继续调桥接 `generateVC`（静默失败、错误信息全丢）→ 应抛错 | `SwiftDid.swift:819-835` |
-| 4 | `SwiftDidError` 部分 case 从未抛出（死代码）；门面 866 行，建议拆分 | `SwiftDid.swift` |
-| 5 | `formatUtc`/`parseISO8601` 每次新建 `ISO8601DateFormatter`（创建开销大）；建议 `Date.ISO8601FormatStyle`（Sendable、免分配） | `DidJson.swift:89-124` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | 8 个公开写 API 全部 `catch { return false / DidWriteResult(success: false) }`：校验失败与传输失败不可区分、零日志，联调只能靠猜 | `SwiftDid.swift:262-509` | ✅ 已加 `os.Logger`：`logWriteError(_:error:did:)` —— `.public` 隐私（Release 可见）+ 安全错误摘要（NSError 只打 `domain#code` 防 payload 泄漏，纯枚举打 case 名）+ `did` 上下文 |
+| 2 | `start()` 只对具体类型 `WebviewBridgeEngine` 调 `engine.start()`，`destroy()` 走协议 `bridge.destroy()` —— 类型判断破坏抽象 | `SwiftDid.swift:64-79` | ✅ 已修复（见四 #3 / commit 8f9ab98） |
+| 3 | `buildGenerateVcParams` 校验失败返回空字典 `[:]`，空参继续调桥接 `generateVC`（静默失败、错误信息全丢）→ 应抛错 | `SwiftDid.swift:819-835` | ✅ 已改 `throws`，错误向上抛（调用方 catch 记日志） |
+| 4 | `SwiftDidError` 部分 case 从未抛出（死代码）；门面 866 行，建议拆分 | `SwiftDid.swift` | ✅ 死代码 case（`notInitialized`/`didNotFound`）已删；门面拆分未做（独立重构项） |
+| 5 | `formatUtc`/`parseISO8601` 每次新建 `ISO8601DateFormatter`（创建开销大）；建议 `Date.ISO8601FormatStyle`（Sendable、免分配） | `DidJson.swift:89-124` | ✅ 已改 `Date.ISO8601FormatStyle`（含小数/无小数双策略解析，删 ISO8601DateFormatter 扩展） |
 
-**SwiftDid 补充细节（第二轮审查新增，均验证）：**
+**SwiftDid 补充细节（第二轮审查新增，均验证；✅ = 已修复）：**
 
-- 全库唯一强制解包：`DidCoreService.swift:89` `chainUpdated > localUpdated!`（`||` 短路保护，安全但脆弱）→ 改 `guard let` 或 `localUpdated.map { chainUpdated > $0 } ?? true`
-- GRDB 缺索引：`observeAll` 每次变更全表扫描 + `ORDER BY updatedAt DESC`；`deleteExpiredPending` 的 `updatedAt < ?` 无索引 → v1 迁移补 `did_documents(updatedAt)` / `did_pending(updatedAt)` 索引
-- 死代码：`SwiftDidError.notInitialized` / `didNotFound` 从未抛出；`DidJson.isBlank` 无调用（与 `DidCredentialHelper.isBlank`、`nilIfBlank` 共三份空白判断，合并留一份）
-- 重复实现：`DidDocumentEditor.credentials(from:)` 与 `DidCredentialHelper.readCredentials` 逐字相同（应互调）；`previousCid` 变换出现 3 次（`updateDidNickname`/`updateDidAvatar`/`applyPreviousCid`）→ 抽 `updatingIpfsStoragePreviousCid(in:previousCid:)`
-- `loadPending` 主键 `(kind, did)` 唯一却返回 `[DidPending]`（调用方都用 `.first`）→ 协议应返回 `DidPending?`
-- 访问控制：`Keccak256`/`ChecksumUtils`/`BridgeDidResolver`/`DidCoreService` 均 `public` 但仅模块内使用（测试用 `@testable`）→ 收紧为 `internal`；`GRDBDidStore` 的 `@unchecked Sendable` 可尝试去掉（`DatabasePool` 本身 Sendable）
-- 其他：`queryAndValidateVcid` 用 `try?` 丢弃桥接错误通道（`SwiftDid.swift:452`）；`generateProfileVC` 忽略 `credential` 别名（`:168`）；`isSelf` 未处理多 controller 空格分隔（`:158`）；`updateDidAvatar` 更新后 credential 数组重排（`:366-371`）
+- ✅ 全库唯一强制解包：`DidCoreService.swift:89` `chainUpdated > localUpdated!` 已改 `localUpdated.map { chainUpdated > $0 } ?? true`
+- ✅ GRDB 缺索引：`observeAll` 的 `ORDER BY updatedAt DESC` 与 `deleteExpiredPending` 的 `updatedAt < ?` 已加 v2 迁移索引（`idx_did_documents_updatedAt` / `idx_did_pending_updatedAt`）
+- ✅ 死代码：`SwiftDidError.notInitialized` / `didNotFound` 已删；`DidJson.isBlank` 已删（去重批）
+- ✅ 重复实现：`credentials(from:)` vs `readCredentials`、`previousCid` 变换 ×3（去重批）
+- ✅ `loadPending` 主键 `(kind, did)` 唯一但返回 `[DidPending]` → 协议/实现/调用点改为 `DidPending?`（测试断言同步）
+- ✅ 访问控制：`Keccak256`/`ChecksumUtils`/`BridgeDidResolver`/`DidCoreService` 已收紧为 `internal`（演示未使用、测试 @testable）；`GRDBDidStore` 的 `@unchecked Sendable` 保留（DatabasePool 本身 Sendable，final+只读本可隐式；保留以兼容 GRDB 版本差异，已注释）
+- ✅ 其他：`queryAndValidateVcid` 桥接错误已记日志（不再与"无效 VC"混淆）；`generateProfileVC` 用 `credentials(in:)` 双键别名；`isSelf` 处理多 controller 空格分隔；`updateDidAvatar` 改 `upsertCredential` 原位替换（不再 filter+append 打乱顺序）
 
 ### SwiftWallet
 
@@ -409,6 +409,15 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **SwiftDid 补充批（2025-08-22）**：强制解包改 `map ?? true`；GRDB v2 迁移补
+  `did_documents(updatedAt)`/`did_pending(updatedAt)` 索引；`loadPending` 协议/实现改 `DidPending?`
+  （调用点与测试断言同步）；`Keccak256`/`ChecksumUtils`/`BridgeDidResolver`/`DidCoreService` 收紧
+  `internal`；`queryAndValidateVcid` 错误记日志、`generateProfileVC` 双键别名、`isSelf` 多 controller、
+  `updateDidAvatar` 改 `upsertCredential` 原位替换。SwiftDidTests 25/25、目标 102/102 通过。
+- **SwiftDid P1 批（2025-08-22）**：8 个写 API 吞错补 `os.Logger` 日志；`buildGenerateVcParams`
+  校验失败改抛错（不再 `[:]` 空参调桥）；删 `SwiftDidError.notInitialized`/`didNotFound` 死代码 case；
+  `DidJson` 日期函数改 `Date.ISO8601FormatStyle`（Sendable、免分配，删 ISO8601DateFormatter 扩展）。
+  SwiftDidTests 25/25、目标 102/102 通过。
 - **Sendable 批（2025-08-22）**：三、Sendable 审计全部落地——6 个 Error 枚举补 `Sendable`；
   `BridgeDidResolver` 改 `@MainActor` 去掉 `@unchecked`；GRDB×3 / NoRedirectDelegate / TinkVaultCipher
   （actor 限定） / SsrfGuard.enabled（DEBUG 一次性）补「为什么安全」注释。7 模块 293 测试通过。

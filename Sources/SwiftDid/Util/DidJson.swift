@@ -75,38 +75,26 @@ enum DidJson {
 
     /// ISO-8601 时间戳（对齐 Kotlin `Instant.now().toString()`；固定毫秒精度，JS/后端可解析）。
     static func nowISO() -> String {
-        ISO8601DateFormatter.nowString()
+        self.nowString(from: Date())
     }
 
     /// 当前时间 + 偏移（VC expirationDate 用，对齐 Kotlin `Instant.now().plusMillis(...)`）。
     static func nowISO(offsetMillis: Int64) -> String {
-        let date = Date(timeIntervalSinceNow: TimeInterval(offsetMillis) / 1000.0)
-        return ISO8601DateFormatter.nowString(from: date)
+        self.nowString(from: Date(timeIntervalSinceNow: TimeInterval(offsetMillis) / 1000.0))
     }
 
-    /// 解析 ISO-8601（含不定长小数位，如 `...0.12Z` / `...0.100Z`；**同时兼容无小数位**——
-    /// ISO8601DateFormatter 开 `.withFractionalSeconds` 后只认带小数位的输入）。
+    /// 解析 ISO-8601（含不定长小数位，如 `...0.12Z` / `...0.100Z`；**同时兼容无小数位**）。
     /// 返回 nil 表示解析失败——调用方按「无法比较」处理（不得做字符串比较，见 Did-Swift 01 §6）。
+    /// `Date.ISO8601FormatStyle`：Sendable、免每次新建格式化器（见 review 性能专项 A-3）。
     static func parseISO8601(_ string: String) -> Date? {
-        // ISO8601DateFormatter 非 Sendable：每次新建，避免静态可变全局（Swift 6 严格并发）
-        let fractional = ISO8601DateFormatter()
-        fractional.timeZone = TimeZone(identifier: "UTC")
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) {
+        if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(string) {
             return date
         }
-        let plain = ISO8601DateFormatter()
-        plain.timeZone = TimeZone(identifier: "UTC")
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: string)
+        return try? Date.ISO8601FormatStyle(includingFractionalSeconds: false).parse(string)
     }
-}
 
-extension ISO8601DateFormatter {
-    static func nowString(from date: Date = Date()) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+    /// 固定毫秒精度格式化（`2025-01-01T00:00:00.123Z`；ISO8601FormatStyle 默认 UTC 输出 `Z`）。
+    private static func nowString(from date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
     }
 }
