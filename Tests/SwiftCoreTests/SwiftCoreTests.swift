@@ -70,6 +70,25 @@ final class SwiftCoreTests: XCTestCase {
         XCTAssertFalse(sub.isRootHD, "parentId 非空 → 非根")
     }
 
+    func testIsHDRootIgnoresPath() {
+        // 中间件过滤谓词：isHD && parentId == nil（不查 path）——与 isRootHD 区分
+        let root = WalletAccount(address: "0xr", chain: .eth, isHD: true, parentId: nil, path: Path.root(chainType: .eth))
+        XCTAssertTrue(root.isHDRoot)
+        XCTAssertTrue(root.isRootHD)
+
+        // path 非根但 parentId == nil → 过滤谓词仍视为根（不查 path）
+        let nonRootPath = WalletAccount(address: "0xr2", chain: .eth, isHD: true, parentId: nil, path: Path(chain: 1, index: 5))
+        XCTAssertTrue(nonRootPath.isHDRoot)
+        XCTAssertFalse(nonRootPath.isRootHD, "isRootHD 额外要求 path 为根")
+
+        let child = WalletAccount(address: "0xc", chain: .eth, isHD: true, parentId: "root", path: Path.root(chainType: .eth))
+        XCTAssertFalse(child.isHDRoot)
+        XCTAssertFalse(child.isRootHD)
+
+        let traditional = WalletAccount(address: "0xt", chain: .eth, isHD: false, parentId: nil)
+        XCTAssertFalse(traditional.isHDRoot)
+    }
+
     // MARK: Hex
 
     func testHexEncodeRoundTrip() {
@@ -92,5 +111,72 @@ final class SwiftCoreTests: XCTestCase {
 
     func testHexDecodeAcceptsMixedCase() {
         XCTAssertEqual(Hex.decode("DeAdBeEf"), [0xDE, 0xAD, 0xBE, 0xEF])
+    }
+
+    // MARK: Json
+
+    func testJsonOptStringCoercion() {
+        let dict: [String: Any] = ["s": "str", "b": true, "n": 42, "d": 1.5, "nil": NSNull()]
+        XCTAssertEqual(Json.optString(dict, "s"), "str")
+        XCTAssertEqual(Json.optString(dict, "b"), "true")
+        XCTAssertEqual(Json.optString(dict, "n"), "42")
+        XCTAssertEqual(Json.optString(dict, "d"), "1.5")
+        XCTAssertEqual(Json.optString(dict, "missing"), "")
+        XCTAssertEqual(Json.optString(dict, "missing", default: "def"), "def")
+        XCTAssertEqual(Json.optString(dict, "nil"), "", "NSNull → 默认值")
+    }
+
+    func testJsonReadValuePathTraversal() {
+        let root: [String: Any] = [
+            "credentialSubject": ["tokenId": "7", "active": true],
+            "issuanceDate": "2025-01-01",
+            "empty": NSNull()
+        ]
+        XCTAssertEqual(Json.readValue(root, "credentialSubject.tokenId") as? String, "7")
+        XCTAssertEqual(Json.readValue(root, "$.credentialSubject.tokenId") as? String, "7", "$. 前缀剥离")
+        XCTAssertNil(Json.readValue(root, "credentialSubject.missing"))
+        XCTAssertNil(Json.readValue(root, "missing.path"))
+        XCTAssertNil(Json.readValue(root, "empty"), "NSNull → nil")
+    }
+
+    func testJsonReadStringAndLongCoercion() {
+        let root: [String: Any] = [
+            "name": "avatar",
+            "count": 5,
+            "countStr": "5",
+            "flag": true
+        ]
+        XCTAssertEqual(Json.readString(root, "name"), "avatar")
+        XCTAssertEqual(Json.readString(root, "flag"), "true")
+        XCTAssertEqual(Json.readString(root, "count"), "5")
+        XCTAssertEqual(Json.readLong(root, "count"), 5)
+        XCTAssertEqual(Json.readLong(root, "countStr"), 5)
+        XCTAssertNil(Json.readLong(root, "name"))
+    }
+
+    func testJsonReadStringAndLongDefaultValue() {
+        let root: [String: Any] = ["name": "avatar", "chainId": 7]
+        XCTAssertEqual(Json.readString(root, "missing", default: ""), "", "缺失 → 默认值")
+        XCTAssertEqual(Json.readString(root, "name", default: ""), "avatar", "命中 → 原值")
+        XCTAssertEqual(Json.readLong(root, "missing", default: 0), 0)
+        XCTAssertEqual(Json.readLong(root, "chainId", default: 0), 7)
+        XCTAssertNil(Json.readString(root, "missing"), "无 default 重载仍返回 nil")
+    }
+
+    // MARK: isBlank / nilIfBlank
+
+    func testIsBlank() {
+        XCTAssertTrue(isBlank(nil))
+        XCTAssertTrue(isBlank(""))
+        XCTAssertTrue(isBlank("  \n\t"))
+        XCTAssertFalse(isBlank("a"))
+        XCTAssertTrue("  ".isBlank)
+        XCTAssertFalse("a".isBlank)
+    }
+
+    func testNilIfBlank() {
+        XCTAssertNil("".nilIfBlank)
+        XCTAssertNil("   ".nilIfBlank)
+        XCTAssertEqual("abc".nilIfBlank, "abc")
     }
 }

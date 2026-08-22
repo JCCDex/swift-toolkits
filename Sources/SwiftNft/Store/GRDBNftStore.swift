@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import SwiftCore
 
 // MARK: - GRDB 记录适配（表结构对齐 Kotlin NftEntities.kt）
 

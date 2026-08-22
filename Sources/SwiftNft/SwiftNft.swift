@@ -98,10 +98,11 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     public func resolveSwtcAvatar(vc: String) async -> Nft? {
-        let tokenId = self.readString(vc, "credentialSubject.tokenId") ?? ""
-        let nftIssuer = self.readString(vc, "credentialSubject.nftIssuer") ?? ""
-        let tokenName = self.readString(vc, "credentialSubject.tokenName") ?? ""
-        let issuance = self.readString(vc, "issuanceDate") ?? ""
+        guard let root = self.parseVc(vc) else { return nil }
+        let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
+        let nftIssuer = Json.readString(root, "credentialSubject.nftIssuer", default: "")
+        let tokenName = Json.readString(root, "credentialSubject.tokenName", default: "")
+        let issuance = Json.readString(root, "issuanceDate", default: "")
         guard !tokenId.isEmpty, !nftIssuer.isEmpty else { return nil }
 
         do {
@@ -143,10 +144,11 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     public func resolveEthrAvatar(vc: String) async -> Nft? {
-        let tokenId = self.readString(vc, "credentialSubject.tokenId") ?? ""
-        let contract = self.readString(vc, "credentialSubject.contractAddress") ?? ""
-        let chainId = self.readLong(vc, "credentialSubject.chainId") ?? 0
-        let issuance = self.readString(vc, "issuanceDate") ?? ""
+        guard let root = self.parseVc(vc) else { return nil }
+        let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
+        let contract = Json.readString(root, "credentialSubject.contractAddress", default: "")
+        let chainId = Json.readLong(root, "credentialSubject.chainId", default: 0)
+        let issuance = Json.readString(root, "issuanceDate", default: "")
         guard !tokenId.isEmpty, !contract.isEmpty else { return nil }
 
         do {
@@ -230,8 +232,9 @@ public final class SwiftNft: DidNftResolution, Sendable {
     }
 
     public func ensureSwtcCredentialMetadata(_ vc: String) async {
-        let tokenId = self.readString(vc, "credentialSubject.tokenId") ?? ""
-        let nftIssuer = self.readString(vc, "credentialSubject.nftIssuer") ?? ""
+        guard let root = self.parseVc(vc) else { return }
+        let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
+        let nftIssuer = Json.readString(root, "credentialSubject.nftIssuer", default: "")
         guard !tokenId.isEmpty, !nftIssuer.isEmpty else { return }
         _ = await self.resolveAndCacheSwtcNftMeta(nftIssuer: nftIssuer, tokenId: tokenId)
     }
@@ -445,46 +448,13 @@ public final class SwiftNft: DidNftResolution, Sendable {
         ].joined(separator: "|")
     }
 
-    // MARK: - 内部：VC JSONPath 读取（对齐 Kotlin parseString）
+    // MARK: - 内部：VC JSON 解析（调用点先 parse 一次，再用 `SwiftCore.Json` 取路径，
 
-    private func readString(_ vc: String, _ path: String) -> String? {
-        guard let value = readValue(vc, path) else { return nil }
-        if let string = value as? String {
-            return string
-        }
-        if let bool = value as? Bool {
-            return bool ? "true" : "false"
-        }
-        if let number = value as? NSNumber {
-            return number.stringValue
-        }
-        return nil
-    }
+    // 见跨模块重复 2.1 / 性能专项 D-3——避免逐字段重复解析）
 
-    private func readLong(_ vc: String, _ path: String) -> Int64? {
-        guard let value = readValue(vc, path) else { return nil }
-        if let number = value as? NSNumber {
-            return number.int64Value
-        }
-        if let string = value as? String {
-            return Int64(string)
-        }
-        return nil
-    }
-
-    private func readValue(_ vc: String, _ path: String) -> Any? {
-        guard let data = vc.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        else { return nil }
-        var current: Any = root
-        for part in path.split(separator: ".") {
-            guard let dict = current as? [String: Any], let value = dict[String(part)] else { return nil }
-            current = value
-        }
-        if current is NSNull {
-            return nil
-        }
-        return current
+    private func parseVc(_ vc: String) -> [String: Any]? {
+        guard let data = vc.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private func sanitizeUri(_ uri: String?) -> String {

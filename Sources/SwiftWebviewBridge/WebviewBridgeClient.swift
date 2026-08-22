@@ -58,10 +58,10 @@ public final class WebviewBridgeClient: NSObject {
         runtime?.loadBlank()
 
         if self.messageHandler != nil, let runtime {
-            runtime.userContentController.removeScriptMessageHandler(forName: "onPromiseResult")
-            runtime.userContentController.removeScriptMessageHandler(forName: "onBridgeReady")
+            runtime.userContentController.removeScriptMessageHandler(forName: BridgeHandlerName.promiseResult.rawValue)
+            runtime.userContentController.removeScriptMessageHandler(forName: BridgeHandlerName.bridgeReady.rawValue)
             if self.config.allowsConsoleForwarding {
-                runtime.userContentController.removeScriptMessageHandler(forName: "onConsole")
+                runtime.userContentController.removeScriptMessageHandler(forName: BridgeHandlerName.console.rawValue)
             }
         }
         self.messageHandler = nil
@@ -226,8 +226,8 @@ public final class WebviewBridgeClient: NSObject {
         self.messageHandler = handler
 
         let controller = configuration.userContentController
-        controller.add(handler, name: "onPromiseResult")
-        controller.add(handler, name: "onBridgeReady")
+        controller.add(handler, name: BridgeHandlerName.promiseResult.rawValue)
+        controller.add(handler, name: BridgeHandlerName.bridgeReady.rawValue)
         controller.addUserScript(
             WKUserScript(
                 source: BridgeScripts.adapter(interfaceName: self.config.jsInterfaceName),
@@ -236,7 +236,7 @@ public final class WebviewBridgeClient: NSObject {
             )
         )
         if self.config.allowsConsoleForwarding {
-            controller.add(handler, name: "onConsole")
+            controller.add(handler, name: BridgeHandlerName.console.rawValue)
             controller.addUserScript(
                 WKUserScript(
                     source: BridgeScripts.consoleForwarding,

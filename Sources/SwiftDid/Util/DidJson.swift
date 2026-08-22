@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// org.json 风格 JSON 辅助（Swift 侧 [String: Any] / [Any] 容器）。
 enum DidJson {
@@ -21,19 +22,10 @@ enum DidJson {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    /// 对齐 org.json `JSONObject.optString(key, default)`：缺失/非标量 → 默认值。
+    /// 对齐 org.json `JSONObject.optString(key, default)`：缺失/非标量 → 默认值
+    /// （实现归口 `SwiftCore.Json.optString`，见跨模块重复 2.1）。
     static func optString(_ dict: [String: Any], _ key: String, default defaultValue: String = "") -> String {
-        guard let value = dict[key] else { return defaultValue }
-        if let string = value as? String {
-            return string
-        }
-        if let bool = value as? Bool {
-            return bool ? "true" : "false"
-        }
-        if let number = value as? NSNumber {
-            return number.stringValue
-        }
-        return defaultValue
+        Json.optString(dict, key, default: defaultValue)
     }
 
     static func optDict(_ dict: [String: Any], _ key: String) -> [String: Any]? {
@@ -42,10 +34,6 @@ enum DidJson {
 
     static func optArray(_ dict: [String: Any], _ key: String) -> [Any]? {
         dict[key] as? [Any]
-    }
-
-    static func isBlank(_ string: String) -> Bool {
-        string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 缺失文档哨兵：`"{}"`（旧 IPFS tombstone）、`"null"`（JS null 序列化）、空串（trimmed）都判缺失

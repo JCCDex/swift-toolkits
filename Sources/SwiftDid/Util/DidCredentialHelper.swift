@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import SwiftNft
 
 /// VC id 生成 / subject 构建 / 校验（对齐 Kotlin `DidCredentialHelper`，commit f77b59f）。
@@ -55,11 +56,11 @@ enum DidCredentialHelper {
         try require(!data.status.isEmpty, "status is required")
         try require(data.chainId > 0, "chainId must be positive")
         if self.isEthrOwnerDid(data.ownerDid) {
-            try require(!self.isBlank(data.contractAddress), "contractAddress is required for EVM owner DID")
+            try require(!isBlank(data.contractAddress), "contractAddress is required for EVM owner DID")
         }
         if self.isSwtcOwnerDid(data.ownerDid) {
-            try require(!self.isBlank(data.nftIssuer), "nftIssuer is required for SWTC owner DID")
-            try require(!self.isBlank(data.tokenName), "tokenName is required for SWTC owner DID")
+            try require(!isBlank(data.nftIssuer), "nftIssuer is required for SWTC owner DID")
+            try require(!isBlank(data.tokenName), "tokenName is required for SWTC owner DID")
         }
         if data.type == .others {
             try require(data.usageRights?.isEmpty == false, "usageRights is required for OTHERS authorization")
@@ -193,10 +194,5 @@ enum DidCredentialHelper {
             "territories": restrictions.territories,
             "platforms": restrictions.platforms
         ]
-    }
-
-    private static func isBlank(_ value: String?) -> Bool {
-        guard let value else { return true }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

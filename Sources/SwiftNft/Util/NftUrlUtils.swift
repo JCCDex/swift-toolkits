@@ -143,7 +143,7 @@ func extractMetadataImageUrl(
 ) -> String? {
     let payload = (dict["data"] as? [String: Any]) ?? dict
     for key in ["image", "image_url", "imageUrl"] {
-        let value = optString(payload, key)
+        let value = Json.optString(payload, key)
         if !value.isEmpty, let normalized = normalizeRemoteAssetUrl(value, baseUrl: metadataUri, gateway: gateway) {
             return normalized
         }
@@ -162,25 +162,9 @@ public func extractMetadataFields(
     else { return .empty }
     let payload = (root["data"] as? [String: Any]) ?? root
     let image = extractMetadataImageUrl(dict: root, metadataUri: metadataUri, gateway: gateway)
-    let name = optString(payload, "name").nilIfBlank
-    let description = optString(payload, "description").nilIfBlank
+    let name = Json.optString(payload, "name").nilIfBlank
+    let description = Json.optString(payload, "description").nilIfBlank
     return NftMetadataFields(image: image, name: name, description: description)
-}
-
-/// 对齐 org.json `JSONObject.optString`：缺失返回 ""，数字/布尔按需转换。
-func optString(_ dict: [String: Any], _ key: String) -> String {
-    if let value = dict[key] {
-        if let string = value as? String {
-            return string
-        }
-        if let bool = value as? Bool {
-            return bool ? "true" : "false"
-        }
-        if let number = value as? NSNumber {
-            return number.stringValue
-        }
-    }
-    return ""
 }
 
 // MARK: - SWTC 元数据 URI（erc_info TokenInfos 解析）
@@ -197,9 +181,9 @@ func parseSwtcMetadataUri(_ tokenInfosPayload: String?, gateway: String = IpfsRe
         guard let item = element as? [String: Any],
               let tokenInfo = item["TokenInfo"] as? [String: Any]
         else { continue }
-        let infoType = decodeHexToUtf8(optString(tokenInfo, "InfoType"))
+        let infoType = decodeHexToUtf8(Json.optString(tokenInfo, "InfoType"))
         guard infoType == "tokenUri" else { continue }
-        let infoData = decodeHexToUtf8(optString(tokenInfo, "InfoData"))
+        let infoData = decodeHexToUtf8(Json.optString(tokenInfo, "InfoData"))
         if let normalized = normalizeRemoteAssetUrl(infoData, baseUrl: nil, gateway: gateway) {
             return normalized
         }
@@ -228,16 +212,4 @@ extension StringProtocol {
     func removingPrefix(_ prefix: String) -> String {
         hasPrefix(prefix) ? String(dropFirst(prefix.count)) : String(self)
     }
-}
-
-extension String {
-    var nilIfBlank: String? {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
-    }
-}
-
-/// 空白判定（对齐 Kotlin `isNullOrBlank`）。
-func isBlank(_ value: String?) -> Bool {
-    guard let value else { return true }
-    return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }

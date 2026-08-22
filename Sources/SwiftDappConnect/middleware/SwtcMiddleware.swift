@@ -37,7 +37,7 @@ public final class SwtcMiddleware: SwtcMiddlewareProtocol {
 
         let accounts = await accountProvider.accounts.firstValue() ?? []
         return accounts
-            .filter { $0.chain.bip44Code == ChainType.swtc.bip44Code && !($0.isHD && $0.parentId == nil) }
+            .filter { $0.chain.bip44Code == ChainType.swtc.bip44Code && !$0.isHDRoot }
             .map(\.address)
     }
 

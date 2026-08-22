@@ -146,8 +146,8 @@ public final class SwiftDid: DidSDK {
     public func generateDid(_ did: String) async -> Did? {
         guard let entity = try? await core.getDidDocument(did),
               let root = DidJson.parseObject(entity.doc) else { return nil }
-        let created = self.readString(root, "created") ?? ""
-        let updated = self.readString(root, "updated") ?? ""
+        let created = Json.readString(root, "created", default: "")
+        let updated = Json.readString(root, "updated", default: "")
         let verificationMethods = self.readJsonArray(root, "verificationMethod").compactMap { element -> VerificationMethod? in
             guard let item = element as? [String: Any] else { return nil }
             return VerificationMethod(
@@ -612,43 +612,6 @@ public final class SwiftDid: DidSDK {
         await self.nft?.ensureSwtcCredentialMetadata(vc)
     }
 
-    // MARK: - 内部：文档解析（均以已 parse 的 [String: Any] 为入参，避免重复 JSON 解析，见 review 优化 #9）
-
-    private func readString(_ root: [String: Any], _ path: String) -> String? {
-        guard let value = self.readValue(root, path) else { return nil }
-        if let string = value as? String {
-            return string
-        }
-        if let bool = value as? Bool {
-            return bool ? "true" : "false"
-        }
-        if let number = value as? NSNumber {
-            return number.stringValue
-        }
-        return nil
-    }
-
-    private func readLong(_ root: [String: Any], _ path: String) -> Int64? {
-        guard let value = self.readValue(root, path) else { return nil }
-        if let number = value as? NSNumber {
-            return number.int64Value
-        }
-        if let string = value as? String {
-            return Int64(string)
-        }
-        return nil
-    }
-
-    private func readValue(_ root: [String: Any], _ path: String) -> Any? {
-        let cleaned = path.replacingOccurrences(of: "$.", with: "")
-        var current: Any = root
-        for part in cleaned.split(separator: ".") {
-            guard let dict = current as? [String: Any], let value = dict[String(part)] else { return nil }
-            current = value
-        }
-        return current is NSNull ? nil : current
-    }
-
     private func readJsonArray(_ root: [String: Any], _ key: String) -> [Any] {
         if let array = DidJson.optArray(root, key) {
             return array
@@ -669,13 +632,13 @@ public final class SwiftDid: DidSDK {
     }
 
     private func isSwtcAvatarVc(_ root: [String: Any]) -> Bool {
-        switch self.readString(root, "credentialSubject.standard")?.lowercased() {
+        switch Json.readString(root, "credentialSubject.standard")?.lowercased() {
         case "jingtumnft": return true
         case "erc-721": return false
         default: break
         }
-        let nftIssuer = self.readString(root, "credentialSubject.nftIssuer") ?? ""
-        let contractAddress = self.readString(root, "credentialSubject.contractAddress") ?? ""
+        let nftIssuer = Json.readString(root, "credentialSubject.nftIssuer", default: "")
+        let contractAddress = Json.readString(root, "credentialSubject.contractAddress", default: "")
         return !nftIssuer.isEmpty && contractAddress.isEmpty
     }
 
@@ -688,19 +651,19 @@ public final class SwiftDid: DidSDK {
     }
 
     private func buildSwtcNft(_ root: [String: Any]) -> Nft? {
-        let tokenId = self.readString(root, "credentialSubject.tokenId") ?? ""
-        let nftIssuer = self.readString(root, "credentialSubject.nftIssuer") ?? ""
-        let tokenName = self.readString(root, "credentialSubject.tokenName") ?? ""
-        let issuance = self.readString(root, "issuanceDate") ?? ""
+        let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
+        let nftIssuer = Json.readString(root, "credentialSubject.nftIssuer", default: "")
+        let tokenName = Json.readString(root, "credentialSubject.tokenName", default: "")
+        let issuance = Json.readString(root, "issuanceDate", default: "")
         return Nft(contract: nftIssuer, tokenId: tokenId, name: tokenName, uri: "",
                    issuanceDate: issuance, image: nil, hasLocal: false, chainId: nil)
     }
 
     private func buildEthrNft(_ root: [String: Any]) -> Nft? {
-        let tokenId = self.readString(root, "credentialSubject.tokenId") ?? ""
-        let contract = self.readString(root, "credentialSubject.contractAddress") ?? ""
-        let chainId = self.readLong(root, "credentialSubject.chainId") ?? 0
-        let issuance = self.readString(root, "issuanceDate") ?? ""
+        let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
+        let contract = Json.readString(root, "credentialSubject.contractAddress", default: "")
+        let chainId = Json.readLong(root, "credentialSubject.chainId", default: 0)
+        let issuance = Json.readString(root, "issuanceDate", default: "")
         return Nft(contract: contract, tokenId: tokenId, name: "", uri: "",
                    issuanceDate: issuance, image: nil, hasLocal: false, chainId: chainId)
     }
@@ -853,11 +816,5 @@ public final class SwiftDid: DidSDK {
             comps.year ?? 0, comps.month ?? 0, comps.day ?? 0,
             comps.hour ?? 0, comps.minute ?? 0, comps.second ?? 0
         )
-    }
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }
 }

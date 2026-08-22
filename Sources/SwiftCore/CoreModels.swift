@@ -139,4 +139,11 @@ public struct WalletAccount: Sendable, Identifiable, Equatable {
     public var isRootHD: Bool {
         self.isHD && self.path?.isRoot == true && self.parentId == nil
     }
+
+    /// 中间件过滤用「HD 根」判定（`isHD && parentId == nil`，**不查 path**）——
+    /// 与 `isRootHD`（额外要求 path 为根）区分，勿混用。
+    /// 归口 EthMiddleware / SwtcMiddleware 三处重复的内联谓词（见 review 跨模块重复 2.2）。
+    public var isHDRoot: Bool {
+        self.isHD && self.parentId == nil
+    }
 }

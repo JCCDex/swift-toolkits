@@ -54,9 +54,8 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         }
 
         let accounts = await accountProvider.accounts.firstValue() ?? []
-        // 过滤当前链账户，排除 HD 根（谓词 isHD && parentId == nil，不检查 path）。
         return accounts
-            .filter { $0.chain == self.currentChain && !($0.isHD && $0.parentId == nil) }
+            .filter { $0.chain == self.currentChain && !$0.isHDRoot }
             .map(\.address)
     }
 
@@ -245,7 +244,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
     public func getAccountsForChain(_ chain: ChainType) async -> [WalletAccount] {
         let accounts = await accountProvider.accounts.firstValue() ?? []
-        return accounts.filter { $0.chain == chain && !($0.isHD && $0.parentId == nil) }
+        return accounts.filter { $0.chain == chain && !$0.isHDRoot }
     }
 
     // MARK: - 内部

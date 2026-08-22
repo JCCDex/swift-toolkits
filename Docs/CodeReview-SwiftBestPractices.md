@@ -349,7 +349,7 @@ if !expirationDate.isEmpty,
 
 1. **`eth_call` 无记忆化**：`EthTokenUriResolver.resolveEthrTokenUri`（`EthTokenUriResolver.swift:33-37`）每次发 `fetchRpc`，`SwiftNft.resolveEthrAvatar` 缺 tokenUri 时重复调用（`SwiftNft.swift:154-156,170-172`）→ 按 `(chainId, contract, tokenId)` 加小 LRU + in-flight 去重（复用 `NftMetadataImageCache` 模式）。
 2. **双 IPFS 归一化**：`EthTokenUriResolver.normalizeTokenMetadataUri` 用默认网关（`EthTokenUriResolver.swift:99-102`），门面再按配置网关归一一次（`SwiftNft.swift:498-501`）→ 给前者加 `gateway` 参数，单次归一。
-3. **VC 逐字段重复 JSON 解析**：`SwiftNft.readString` 每个字段重新 `JSONSerialization`（`SwiftNft.swift:100-104` 调 4 次、`:146-149` 调 3 次）→ 先 parse 一次成 `[String: Any]` 再读字段（SwiftDid 已有同款优化模式）。
+3. ✅ **已实现**：VC 逐字段重复 JSON 解析——`SwiftNft` 三处调用点（`resolveSwtcAvatar`/`resolveEthrAvatar`/`ensureSwtcCredentialMetadata`）改为 `parseVc` 解析一次 + `Json.readString(root, ..., default:)` 取字段（原每字段重新 `JSONSerialization`，`SwiftNft.swift:100-104` 调 4 次、`:146-149` 调 3 次）。
 4. **`getaddrinfo` 阻塞系统调用在协作线程池**（`SsrfGuard.swift:38-58`）且每次 fetch 双次 SSRF 检查（`NftHttpClient.swift:69,79` + 门面 `SwiftNft.swift:193,226,300,394`）→ 并发增长时移出线程池；检查收敛为单点。
 5. **默认 client 持有两个 `URLSession` 实例**（`NftHttpClient.swift:47-56`：no-redirect + RPC 各一）→ 跨门面/实例复用 session（配置可共享）。
 6. ✅ **已实现**：`loadProviderJs` 每次调用重读 bundle 资源 + 全文件 `replacingOccurrences`
@@ -409,6 +409,15 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **去重批 3（2025-08-22）**：删除 SwiftDid / SwiftNft 门面的私有 `readString`/`readLong`/`readValue`
+  助手，调用点直接用 `SwiftCore.Json`（SwiftNft 三处改为 `parseVc` 解析一次 + `Json.*(default:)`，
+  顺带消除逐字段重复解析，性能 D-3 落地）；`Json` 增加 `readString`/`readLong` 的 `default:` 重载
+  （清理 12 处 `?? ""` / `?? 0`，+1 个单元测试）。
+- **去重批 2（2025-08-22）**：2.1 剩余项——SwiftCore 新增 `Json`（optString/readValue/readString/
+  readLong）与 `String.isBlank`/`nilIfBlank`/`isBlank(_:)`；`DidJson.optString` 委托、
+  `NftUrlUtils.optString`/`isBlank`/`nilIfBlank` 与 SwiftDid 私有扩展删除、两门面 read 助手改委托
+  （5 个新单元测试）；2.2 新增项——`WalletAccount.isHDRoot` 归口中间件 HD 根过滤谓词 ×3、
+  `BridgeHandlerName` 枚举归口桥通道名 ×9（1 个新单元测试）。全量 331 测试通过。
 - **性能/去重批（2025-08-22）**：SwiftCore 新增 `Hex`（encode/decode 查找表，4 个单元测试）与
   `AsyncSequence.firstValue()`；替换 4 处 hex 编码 + 2 处 hex 解码调用点；ChecksumUtils 改 UTF-8
   字节迭代（消除 O(n²) 索引）；Keccak absorb 改 lane 读入（KAT 10/10）；`randomData` →
@@ -466,11 +475,11 @@ if !expirationDate.isEmpty,
 |---|---|---|
 | ✅ **hex 编码 `String(format: "%02x")` 逐字节** | `Keccak256.swift:74`、`WebAppInterface.swift:65`、`EthTokenUriResolver.swift:63` + `ChecksumUtils.swift:23-30`（手写 nibble，第 4 种） | 已收敛到 SwiftCore `Hex.encode`（查找表版）+ 4 个单元测试 |
 | ✅ **hex → bytes 解码** | `NftUrlUtils.decodeHexToUtf8`（`NftUrlUtils.swift:210-227`）、`EthTokenUriResolver` 内联循环（`:83-92`） | 已收敛到 SwiftCore `Hex.decode`，两处共用 |
-| **`optString` JSON 标量取值** | `DidJson.swift:25`、`NftUrlUtils.swift:170`（同签名、不同默认值语义） | 合一（统一 `default:` 参数） |
-| **`isBlank` 空白判断** | `DidJson.swift:47`（死代码）、`DidCredentialHelper.swift:193`、`NftUrlUtils.swift:248` | 合一，删死代码 |
-| **`nilIfBlank`** | `NftUrlUtils.swift:241-245`（public String 扩展）、`SwiftDid.swift:862-866`（private String 扩展） | 合一（放 SwiftCore String 扩展） |
+| ✅ **`optString` JSON 标量取值** | `DidJson.swift:25`、`NftUrlUtils.swift:170`（同签名、不同默认值语义） | 已收敛到 SwiftCore `Json.optString`（`DidJson.optString` 委托 + 删 `NftUrlUtils.optString`，5 个调用点替换） |
+| ✅ **`isBlank` 空白判断** | `DidJson.swift:47`（死代码）、`DidCredentialHelper.swift:193`、`NftUrlUtils.swift:248` | 已收敛到 SwiftCore `isBlank(_:)` + `String.isBlank`（删死代码与两份私有实现） |
+| ✅ **`nilIfBlank`** | `NftUrlUtils.swift:241-245`（String 扩展）、`SwiftDid.swift:862-866`（private String 扩展） | 已收敛到 SwiftCore `String.nilIfBlank`（删两份本地扩展） |
 | ✅ **`firstValue()` AsyncStream 取首元素** | `SwiftDappConnect/AsyncSequence+First.swift:6`、`SwiftNft/SwiftNft.swift:508` | 已收敛到 SwiftCore `AsyncSequence.firstValue()`（删 DappConnect 重复文件 + SwiftNft 私有实现） |
-| **嵌套 JSON 路径读取 `readString`/`readValue`** | `SwiftNft/SwiftNft.swift:450,475`、`SwiftDid/SwiftDid.swift:612,637`（逐字同款 `$.` 剥离 + 点分路径遍历） | 合一 |
+| ✅ **嵌套 JSON 路径读取 `readString`/`readValue`** | `SwiftNft/SwiftNft.swift:450,475`、`SwiftDid/SwiftDid.swift:612,637`（逐字同款 `$.` 剥离 + 点分路径遍历） | 已收敛到 SwiftCore `Json.readValue/readString/readLong`；两门面私有助手均已删除（SwiftNft 调用点 parse 一次 + `Json.*(default:)`） |
 | ✅ **O(n²) String `index(_:offsetBy:)` 随机访问** | `ChecksumUtils.swift:25`、`NftUrlUtils.swift:220-224`（`decodeHexToUtf8`）、`EthTokenUriResolver.swift:128-134`（subscript 扩展） | ChecksumUtils 已改 UTF-8 字节；后两处随 `Hex.decode` 移除内联循环（subscript 扩展保留待清） |
 | ✅ **`jsQuote` JS 字符串转义** | `DAppConnectSdk.swift:169-176`、`WebAppInterface.swift:191-198`（逐字相同） | 已提为 `DAppConnectSdk.jsQuote`（internal），WebAppInterface 复用 |
 | **地址相等语义（4 种实现）** | `VaultRepository.normalizedAddress`（lowercased）、GRDB `LOWER(address)`、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize`（小写+去默认端口） | 收敛为「存储层统一小写 + 比较层规范化后相等」（详见「四、架构层观察 #2」） |
@@ -483,9 +492,12 @@ if !expirationDate.isEmpty,
 | ✅ **credentials 读取别名逻辑** | `DidDocumentEditor.credentials(from:)`（`DidDocumentEditor.swift:44-47`，注释自认镜像）vs `DidCredentialHelper.readCredentials`（`DidCredentialHelper.swift:128-131`）——同款 `credentials`/`credential` 双键回退 | 已抽 `DidCredentialHelper.credentials(in:)`，`readCredentials` 与 editor 共用 |
 | ✅ **凭据查找** | `SwiftDid.findCredentialById`（`SwiftDid.swift:660-668`）vs `DidCredentialHelper.findCredentialIndex`（`DidCredentialHelper.swift:133-138`，`DidDocumentEditor.swift:70` 已在用） | 门面已复用 `findCredentialIndex` + `DidJson.stringify` |
 | ✅ **AAD 前缀拼接 ×3** | `VaultRepository.addressAAD`/`mnemonicAAD`/`secretAAD`（`VaultRepository.swift:410-420`，三份 `"前缀:lowercased(address)"`） | 已收成 `aad(prefix:address:)` |
-| **`optString` 双实现（跨文件）** | 见 2.1 —— SwiftDid 与 SwiftNft 各一份 | 同 2.1 |
+| ✅ **`optString` 双实现（跨文件）** | 见 2.1 —— SwiftDid 与 SwiftNft 各一份 | 已随 2.1 收敛到 SwiftCore `Json.optString` |
+| ✅ **HD 根过滤谓词 ×3** | `EthMiddleware.swift:59,248`、`SwtcMiddleware.swift:40`（同款 `!($0.isHD && $0.parentId == nil)` 内联谓词，不查 path） | 已提为 `WalletAccount.isHDRoot`（SwiftCore，与 `isRootHD` 区分注释） |
+| ✅ **桥消息通道名 ×9** | `BridgeMessageHandler.swift:20,27,29`（switch）、`WebviewBridgeClient.swift:61-64,229-230,239`（add/remove）——`"onPromiseResult"` 等字面量 | 已提为 `BridgeHandlerName` 枚举（rawValue 统一；JS 适配脚本内字符串仍为字面量） |
 
-> 注：2.2 中的前 3 项集中在 SwiftDid 内部，是「门面 + 工具分层」未彻底时的典型残留；`DidDocumentEditor` 已抽纯函数（做得对），但调用侧仍各自内联了同款变换。
+> 注：2.2 各项均为「门面 + 工具分层」未彻底时的典型残留；`DidDocumentEditor`/`DidCredentialHelper`
+> 已抽纯函数（做得对），本轮把调用侧各自内联的同款变换与字面量一并收敛。
 
 ## 三、Sendable / 并发审计（跨模块汇总）
 
