@@ -144,6 +144,31 @@ final class PromiseGatewayTests: XCTestCase {
         }
     }
 
+    func test_waitForReady_cancelledFromBackgroundThread_resumesExactlyOnce() async {
+        // P0-2 回归：从后台线程取消 —— onCancel 在取消线程同步执行。
+        // 修复前 box.cancel() 直接在该线程改写 box 与 gateway.readyListeners，
+        // 与主线程的 setup/就绪监听/超时任务并发 → double-resume 崩溃 + 字典数据竞争。
+        let gateway = PromiseGateway()
+        let task = Task { try await gateway.waitForReady(timeoutMs: 60000) }
+
+        await Task.yield()
+        let canceller = Task.detached { task.cancel() }
+        await canceller.value
+
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+            // 符合预期：恰好一次 resume（未 double-resume 崩溃）
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        // 取消后就绪监听已被 remover 清理：再触发就绪不崩溃、不残留
+        gateway.onBridgeReady()
+        XCTAssertTrue(gateway.isReady)
+    }
+
     // MARK: - 结果解析
 
     func test_parseResult_returnsStringResult() throws {

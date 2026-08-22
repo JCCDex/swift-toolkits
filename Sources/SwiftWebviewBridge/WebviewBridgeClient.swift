@@ -88,7 +88,7 @@ public final class WebviewBridgeClient: NSObject {
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                box.continuation = continuation
+                box.install(continuation)
 
                 self.gateway.register(id: id, timeoutMs: timeoutMs) { result in
                     box.resume(with: result)
@@ -123,12 +123,14 @@ public final class WebviewBridgeClient: NSObject {
                 }
             }
         } onCancel: {
-            // 调用方取消：续体立即恢复（CancellationError），pending 移除投递到主线程。
-            // box 已置 nil，即使 JS 迟到响应也只会走到 finish(id) 的 no-op 分支。
+            // 调用方取消：续体恢复与 pending 移除统一投递到主线程。
+            // P0-2：onCancel 在「取消线程」同步执行，直接 resume 会与主线程的 JS 结果路径
+            // （gateway.finish → onResult → box.resume）并发读写 box → double-resume 崩溃。
+            // 跳主线程后 box 只在主线程被访问（ContinuationBox 另有锁作纵深防御）。
             Task { @MainActor [weak self] in
                 self?.gateway.remove(id: id)
+                box.resume(throwing: CancellationError())
             }
-            box.resume(throwing: CancellationError())
         }
     }
 

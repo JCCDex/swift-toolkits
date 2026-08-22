@@ -83,7 +83,12 @@ final class PromiseGateway {
                 }
             }
         } onCancel: {
-            box.cancel()
+            // P0-2：onCancel 在「取消线程」同步执行；box.cancel() 会经 remover 改写
+            // gateway.readyListeners 并恢复续体——必须跳主线程，与就绪监听/超时任务
+            // 串行，避免字典数据竞争与 double-resume（ReadyWaitBox 仅在 @MainActor 访问）。
+            Task { @MainActor [weak box] in
+                box?.cancel()
+            }
         }
     }
 
