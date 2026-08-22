@@ -343,8 +343,14 @@ enum Hex {
 
 ## 打包/工程问题
 
-- **8 条构建告警**：各模块 `Sources/<Module>/README.md` 未在 `Package.swift` 声明为资源或 exclude（SwiftPM 告警 "found 1 file(s) which are unhandled"）→ 移到 `Docs/` 或加 `exclude: ["README.md"]`；`Sources/SwiftVault/proto/private_key_vault.proto` 建议显式声明资源。
-- `Sources/` 下存在 `.DS_Store` 文件（应 .gitignore / 删除）。
+> ✅ **已修复（2025-08-22）**：7 个含 README 的 target（SwiftCore / SwiftVault / SwiftWebviewBridge /
+> SwiftDappConnect / SwiftNft / SwiftDid / SwiftAccount）在 `Package.swift` 加
+> `exclude: ["README.md"]`，SwiftPM "found 1 file(s) which are unhandled" 告警归零（构建实测
+> 0 warning / 0 error）；`Sources/` 下磁盘上的 `.DS_Store` 已删除（本就已被 .gitignore 忽略）。
+> `Sources/SwiftVault/proto/private_key_vault.proto` 经核实由 SwiftProtobufPlugin 消费，不产生告警，无需改动。
+
+- **7 条构建告警**：各模块 `Sources/<Module>/README.md` 未在 `Package.swift` 声明为资源或 exclude（SwiftPM 告警 "found 1 file(s) which are unhandled"）→ 已加 `exclude: ["README.md"]`（不移文件，保持模块内 README 约定与代码注释中的路径引用有效）。
+- `Sources/` 下存在 `.DS_Store` 文件（应 .gitignore / 删除）→ `.gitignore` 已有条目（未跟踪）；磁盘文件已清理。
 
 ---
 
@@ -374,6 +380,8 @@ enum Hex {
 
 ## 修复记录
 
+- **打包/工程（2025-08-22）**：`Package.swift` 为 7 个含 README 的 target 加 `exclude: ["README.md"]`，
+  SwiftPM unhandled 告警归零（构建实测 0 warning / 0 error）；`Sources/` 磁盘 `.DS_Store` 已清理。
 - **P0-3（2025-08-22）**：`PromiseGateway.clearAll()` 恢复 pending 调用者——先取走全部 pending、
   清空表，再逐个取消超时任务并以 `.webViewUnavailable` 回调（destroy 中途的 `callJsMethod`
   不再永久悬挂）。新增 2 个回归测试（网关层 `test_clearAll_resumesPendingCallbacksWithError`、

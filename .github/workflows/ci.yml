@@ -9,9 +9,9 @@ jobs:
   ios-simulator-tests:
     name: iOS ${{ matrix.ios }} simulator tests
     runs-on: ${{ matrix.runner }}
-    # 纯文档（docs:）与示例（demo:）提交跳过单元测试；
+    # 纯文档（docs:）/示例（demo:）/杂项（chore:）提交跳过单元测试；
     # pull_request 事件无 head_commit，表达式取空字符串，测试照常执行。
-    if: ${{ !startsWith(github.event.head_commit.message, 'docs:') && !startsWith(github.event.head_commit.message, 'demo:') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'docs:') && !startsWith(github.event.head_commit.message, 'demo:') && !startsWith(github.event.head_commit.message, 'chore:') }}
     strategy:
       fail-fast: false
       matrix:

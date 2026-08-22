@@ -21,7 +21,8 @@ if hasVendoredTink {
 var targets: [Target] = [
     .target(
         name: "SwiftCore", // 共享模型（ChainType / Path / WalletAccount），对应 Kotlin :core
-        path: "Sources/SwiftCore"
+        path: "Sources/SwiftCore",
+        exclude: ["README.md"] // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
     ),
     .testTarget(
         name: "SwiftCoreTests",
@@ -32,6 +33,7 @@ var targets: [Target] = [
         name: "SwiftVault",
         dependencies: swiftVaultDependencies,
         path: "Sources/SwiftVault",
+        exclude: ["README.md"], // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
         resources: [
             .copy("swift-protobuf-config.json")
         ],
@@ -47,6 +49,7 @@ var targets: [Target] = [
     .target(
         name: "SwiftWebviewBridge",
         path: "Sources/SwiftWebviewBridge",
+        exclude: ["README.md"], // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
         resources: [
             .copy("Resources/bridge")
         ]
@@ -62,6 +65,7 @@ var targets: [Target] = [
             .target(name: "SwiftCore") // ChainType / Path / WalletAccount（原在 model/Models.swift，已迁 SwiftCore）
         ],
         path: "Sources/SwiftDappConnect",
+        exclude: ["README.md"], // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
         resources: [
             // 注意：不能 .copy("Resources")（会在 bundle 内生成 Resources/ 包装层，
             // 本工具链 codesign 报 "bundle format unrecognized"）；直接复制文件到 bundle 根。
@@ -96,7 +100,8 @@ var targets: [Target] = [
             // Room → GRDB（四表：nft_meta / swtc_nfts / evm_nft_items / evm_nft_collections，见 Nft-Swift 02 §5）。
             .product(name: "GRDB", package: "GRDB.swift")
         ],
-        path: "Sources/SwiftNft"
+        path: "Sources/SwiftNft",
+        exclude: ["README.md"] // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
     ),
     .testTarget(
         name: "SwiftNftTests",
@@ -119,7 +124,8 @@ var targets: [Target] = [
             .target(name: "SwiftNft"), // 阶段二：DTO 与 DidNftResolution 协议缝归 SwiftNft（见 Nft-Swift 02 §2）
             .product(name: "GRDB", package: "GRDB.swift") // 对应 Kotlin Room（did_documents / did_pending）
         ],
-        path: "Sources/SwiftDid"
+        path: "Sources/SwiftDid",
+        exclude: ["README.md"] // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
     ),
     .testTarget(
         name: "SwiftDidTests",
@@ -142,7 +148,8 @@ var targets: [Target] = [
             .target(name: "SwiftWallet"), // 地址派生（对应 Kotlin :wallet 的 WalletSdk）
             .product(name: "GRDB", package: "GRDB.swift") // 对应 Kotlin Room（accounts / current_account）
         ],
-        path: "Sources/SwiftAccount"
+        path: "Sources/SwiftAccount",
+        exclude: ["README.md"] // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
     ),
     .testTarget(
         name: "SwiftAccountTests",
