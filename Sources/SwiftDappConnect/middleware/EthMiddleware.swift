@@ -156,7 +156,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         // gas / gasLimit
         if tx["gas"] == nil, tx["gasLimit"] == nil {
             do {
-                let estimate = try await nodeProvider.estimateGas(txParams: tx, chain: chainType)
+                let estimate = try await nodeProvider.estimateGas(txParams: JsonObjectParams(tx), chain: chainType)
                 tx["gas"] = estimate
                 tx["gasLimit"] = estimate
             } catch {

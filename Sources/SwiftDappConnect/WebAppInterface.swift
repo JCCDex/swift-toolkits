@@ -596,7 +596,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         do {
             let chainIdHex = "0x" + (Int64(ethMiddleware.getChainId().replacingOccurrences(of: "0x", with: ""), radix: 16)
                 .map { String($0, radix: 16) } ?? "1")
-            let result = try await nftProvider.getEvmNfts(address: address, chainIdHex: chainIdHex, whiteList: whiteList)
+            let result = try await nftProvider.getEvmNfts(address: address, chainIdHex: chainIdHex, whiteList: JsonArrayParams(whiteList))
             return self.success(nonce, .object(self.ethNftJson(result, defaultChainIdHex: chainIdHex)))
         } catch {
             return self.failure(nonce, error)

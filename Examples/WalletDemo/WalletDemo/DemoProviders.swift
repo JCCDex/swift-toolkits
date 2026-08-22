@@ -148,7 +148,7 @@ final class DemoNodeProvider: NodeProvider {
         "0x1"
     }
 
-    func estimateGas(txParams _: [String: Any], chain _: ChainType) async throws -> String {
+    func estimateGas(txParams _: JsonObjectParams, chain _: ChainType) async throws -> String {
         "0x5208"
     }
 
