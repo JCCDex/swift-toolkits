@@ -163,7 +163,7 @@ if !expirationDate.isEmpty,
 | 7 | **`load*` 前缀误用**：`loadInitJs`/`loadAddressJs`/`loadUpdateChainIdJs`/`loadEip6963IconOverrideJs` 实际是生成 JS 字符串（只有 `loadProviderJs` 真读资源）；且 `WebAppInterface` 三个同名实例方法是 `DAppConnectSdk` 静态方法的透传，双入口 | `DAppConnectSdk.swift:80-132`、`WebAppInterface.swift:49-61` |
 | 8 | **`route()` 约 120 行**：分发 + 参数提取 + 错误策略混在一个 switch；且 `handleEthSignTypedData` 收整个 request、其余 handler 收提取后的参数，风格不一 | `WebAppInterface.swift:202-323` |
 | 9 | **每条消息在主线程 JSON 解析**（含大 NFT/DID payload） | `WebAppInterface.swift:105-109` |
-| 10 | **`getChainId()` 与 `getCurrentChainIdHex()` 逐字节相同**，删一个 | `EthMiddleware.swift:63-66` vs `241-244` |
+| 10 | **`getChainId()` 与 `getCurrentChainIdHex()` 逐字节相同**，删一个 | `EthMiddleware.swift:63-66` vs `241-244` | ✅ 已删 `getCurrentChainIdHex()`（与 `getChainId()` 逐字节相同），无调用点残留 |
 | 11 | `CachingSecretProvider`：`clearCache()` 后 in-flight 完成仍会回填缓存（锁屏后明文最多再服务 20s）；in-flight task 取消时未真正取消委托任务 | `CachingSecretProvider.swift:87-89,43-47` |
 | 12 | `isSafeUrl` 正则弱：拒绝单标签 host（localhost）、接受非法端口、拒绝 IPv6、端口区间未锚定 → 改用 `URLComponents` 结构化校验 | `DAppConnectSdk.swift:137-140` |
 | 13 | `failure(_:_:)` 对非 `DAppConnectError` 直接透传 `localizedDescription` 给页面（可能泄漏内部路径）；缺参错误用 -1 而非 EIP-1193 的 -32602 | `WebAppInterface.swift:615-624` |

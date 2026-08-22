@@ -237,11 +237,6 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         self.onAccountSwitched?(targetAccount.address)
     }
 
-    public func getCurrentChainIdHex() -> String {
-        let chainId = self.currentChain.evmChainId ?? 1
-        return "0x" + String(chainId, radix: 16)
-    }
-
     public func getAccountsForChain(_ chain: ChainType) async -> [WalletAccount] {
         let accounts = await accountProvider.accounts.firstValue() ?? []
         return accounts.filter { $0.chain == chain && !$0.isHDRoot }
