@@ -24,7 +24,8 @@ extension EvmNftCollectionEntity: FetchableRecord, TableRecord {
 /// GRDB 实现（对应 Kotlin Room `NftRoomDatabase` + `NftDao` + `NftStore`）。
 ///
 /// - 四表 + 索引对齐 Kotlin；观察流用 ValueObservation → AsyncStream（写后自动重放）；
-/// - 查询 LOWER() 归一化 address/contract（对齐 Kotlin DAO SQL）；
+/// - 地址/合约写入归一为小写、查询不再 `LOWER()`（v2/v3 起，对齐 Kotlin DAO `COLLATE NOCASE`
+///   语义，且让列索引生效，见 review 存储/索引项 C-1）；
 /// - **upsert 用 `ON CONFLICT DO UPDATE`（不用 `INSERT OR REPLACE`）**：REPLACE 删旧插新会让
 ///   `nft_meta` 自增 id 变化（Kotlin 为此手动 `copy(id=existing.id)`），且有行替换副作用（见 Nft-Swift 02 §5）。
 /// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
@@ -123,6 +124,12 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         migrator.registerMigration("v2") { db in
             try db.execute(sql: "UPDATE swtc_nfts SET ownerAddress = LOWER(ownerAddress), issuer = LOWER(issuer)")
             try db.create(index: "idx_swtc_nfts_issuer", on: "swtc_nfts", columns: ["issuer"])
+        }
+        // v3（review C-1）：EVM 两表旧行统一小写（新写入在 upsertEvmNftItems/insertCollections 已归一），
+        // 查询去掉 LOWER() 使 ownerAddress/contractAddress 索引生效。
+        migrator.registerMigration("v3") { db in
+            try db.execute(sql: "UPDATE evm_nft_items SET ownerAddress = LOWER(ownerAddress), contractAddress = LOWER(contractAddress)")
+            try db.execute(sql: "UPDATE evm_nft_collections SET ownerAddress = LOWER(ownerAddress), contractAddress = LOWER(contractAddress)")
         }
         try migrator.migrate(database)
     }
@@ -266,7 +273,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                 db,
                 sql: """
                 SELECT * FROM evm_nft_items
-                WHERE chainId = ? AND LOWER(ownerAddress) = ? AND LOWER(contractAddress) = ?
+                WHERE chainId = ? AND ownerAddress = ? AND contractAddress = ?
                 ORDER BY ownerTimestamp DESC
                 """,
                 arguments: [chainId, ownerAddress.lowercased(), contractAddress.lowercased()]
@@ -279,7 +286,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         let observation = ValueObservation.tracking { db in
             try EvmNftItemEntity.fetchAll(
                 db,
-                sql: "SELECT * FROM evm_nft_items WHERE chainId = ? AND LOWER(ownerAddress) = ? ORDER BY ownerTimestamp DESC",
+                sql: "SELECT * FROM evm_nft_items WHERE chainId = ? AND ownerAddress = ? ORDER BY ownerTimestamp DESC",
                 arguments: [chainId, ownerAddress.lowercased()]
             )
         }
@@ -314,7 +321,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         try await self.database.read { db in
             try EvmNftItemEntity.fetchOne(
                 db,
-                sql: "SELECT * FROM evm_nft_items WHERE chainId = ? AND LOWER(contractAddress) = ? AND tokenId = ? LIMIT 1",
+                sql: "SELECT * FROM evm_nft_items WHERE chainId = ? AND contractAddress = ? AND tokenId = ? LIMIT 1",
                 arguments: [chainId, contractAddress.lowercased(), tokenId]
             )
         }
@@ -326,7 +333,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                 db,
                 sql: """
                 SELECT * FROM evm_nft_items
-                WHERE chainId = ? AND LOWER(ownerAddress) = ? AND LOWER(contractAddress) = ? AND tokenId = ? LIMIT 1
+                WHERE chainId = ? AND ownerAddress = ? AND contractAddress = ? AND tokenId = ? LIMIT 1
                 """,
                 arguments: [chainId, ownerAddress.lowercased(), contractAddress.lowercased(), tokenId]
             )
@@ -336,7 +343,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
     public func deleteEvmNftItemsByCollection(chainId: String, ownerAddress: String, contractAddress: String) async throws {
         try await self.database.write { db in
             try db.execute(
-                sql: "DELETE FROM evm_nft_items WHERE chainId = ? AND LOWER(ownerAddress) = ? AND LOWER(contractAddress) = ?",
+                sql: "DELETE FROM evm_nft_items WHERE chainId = ? AND ownerAddress = ? AND contractAddress = ?",
                 arguments: [chainId, ownerAddress.lowercased(), contractAddress.lowercased()]
             )
         }
@@ -381,7 +388,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         let observation = ValueObservation.tracking { db in
             try EvmNftCollectionEntity.fetchAll(
                 db,
-                sql: "SELECT * FROM evm_nft_collections WHERE chainId = ? AND LOWER(ownerAddress) = ? ORDER BY ts DESC",
+                sql: "SELECT * FROM evm_nft_collections WHERE chainId = ? AND ownerAddress = ? ORDER BY ts DESC",
                 arguments: [chainId, ownerAddress.lowercased()]
             )
         }
@@ -391,7 +398,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
     public func deleteByChainAndOwner(chainId: String, ownerAddress: String) async throws {
         try await self.database.write { db in
             try db.execute(
-                sql: "DELETE FROM evm_nft_collections WHERE chainId = ? AND LOWER(ownerAddress) = ?",
+                sql: "DELETE FROM evm_nft_collections WHERE chainId = ? AND ownerAddress = ?",
                 arguments: [chainId, ownerAddress.lowercased()]
             )
         }
@@ -400,7 +407,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
     public func updateTokenCount(chainId: String, ownerAddress: String, contractAddress: String, tokenCount: Int) async throws {
         try await self.database.write { db in
             try db.execute(
-                sql: "UPDATE evm_nft_collections SET tokenCount = ? WHERE chainId = ? AND LOWER(ownerAddress) = ? AND LOWER(contractAddress) = ?",
+                sql: "UPDATE evm_nft_collections SET tokenCount = ? WHERE chainId = ? AND ownerAddress = ? AND contractAddress = ?",
                 arguments: [tokenCount, chainId, ownerAddress.lowercased(), contractAddress.lowercased()]
             )
         }

@@ -344,12 +344,16 @@ if !expirationDate.isEmpty,
 
 ### C. 存储 / GRDB
 
-1. **`LOWER()` 使列索引失效（全表扫描）**：`LOWER(address)`（`GRDBAccountStore.swift:151,194,204,214,225,264` 配 `idx_accounts_address`）、`LOWER(ownerAddress)`/`LOWER(issuer)`（`GRDBNftStore` swtc 表）、EVM 表查询中的 `LOWER()`（`GRDBNftStore.swift:250,263,298…`）→ 写入时归一化小写 + 查询去 `LOWER()`，或建表达式索引；EVM 表写入已小写（`GRDBNftStore.swift:285-286`），swtc 表写入未小写（`:176`，不一致）。
-2. **`SELECT *` 拖回多 MB `fullContent`**（`GRDBNftStore.swift:122-127` 等头像查询）→ 投影所需列（contract/tokenId/name/image/tokenUri/updatedAt）。
-3. **N+1：`deleteSwtcNftsByOwner`**（`GRDBNftStore.swift:213-218`）逐行查 `nft_meta` → 每 owner 一次批量查询 + 内存字典。
-4. **缺索引**：`swtc_nfts.issuer`（`GRDBNftStore.swift:185-193` 按 issuer 查无索引）；`did_documents(updatedAt)` / `did_pending(updatedAt)`（`GRDBDidStore.swift:45-49` 全表扫描排序、`:119-126` TTL 删除无索引）→ v1 迁移补。
-5. **ValueObservation 每次写都重发射**（无 `distinctUntilChanged`，`GRDBNftStore.swift:392-406`）+ `AsyncStream` 默认无界缓冲 → `.removeDuplicates()` + 明确 bufferingPolicy。
-6. **Vault 全量 load/save 往返**：`importPrivateKey` = 2 load + 1 save；`importMnemonic`/`importSecret` = 4 load + 2 save（`VaultRepository.swift:114-168`）；`importHdWallet` 对 N 子账户累计 O(N) 次全量重写 → 按 `importPrivateKeys`（`:170-189`）批量范式改造。
+1. ✅ **已实现**：`LOWER()` 使列索引失效（全表扫描）——Account 表（`GRDBAccountStore` 6 处
+   `LOWER(address)`）与 SwiftNft EVM 两表（`evm_nft_items`/`evm_nft_collections` 的
+   `LOWER(ownerAddress)`/`LOWER(contractAddress)`）已全量收敛：v2/v3 迁移旧行统一小写 +
+   写入归一（`AccountRecord`/upsert/insert 用 `normalizedAddress`/`lowercased()`）+ 查询去
+   `LOWER()`，列索引生效（swtc 表已随 P1#4 完成）。
+2. ✅ **已实现**：`SELECT *` 拖回多 MB `fullContent`（`GRDBNftStore.swift:122-127` 等头像查询）→ 投影所需列（contract/tokenId/name/image/tokenUri/updatedAt）。
+3. ✅ **已实现**：N+1：`deleteSwtcNftsByOwner`（`GRDBNftStore.swift:213-218`）逐行查 `nft_meta` → 每 owner 一次批量查询 + 内存字典。
+4. ✅ **已实现**：缺索引——`swtc_nfts.issuer`（v2）、`did_documents(updatedAt)` / `did_pending(updatedAt)`（SwiftDid v2）已补；Account/EVM 表列索引随 C-1 去 `LOWER()` 后生效。
+5. ✅ **已实现**：ValueObservation 每次写都重发射（无 `distinctUntilChanged`，`GRDBNftStore.swift:392-406`）+ `AsyncStream` 默认无界缓冲 → 手动值去重（等价 `.removeDuplicates()`）+ `.bufferingNewest(1)`。
+6. ✅ **已实现**：Vault 全量 load/save 往返——`importPrivateKey` = 2 load + 1 save → 1 load + 1 save；`importMnemonic`/`importSecret` = 4 load + 2 save → 1 load + 1 save（单次 load 判重 + 追加 + 单次 save，对齐 `importPrivateKeys` 批量范式）。
 7. `observeCurrentAccount` 每 tick 2 查询（`GRDBAccountStore.swift:54-57`）——单读事务一致快照，非 N+1，可接受（记录在案）。
 
 ### D. 网络

@@ -112,11 +112,8 @@ public actor VaultRepository {
     }
 
     public func importPrivateKey(address: String, privateKey: Data) throws {
-        guard try !self.addressInKeys(address) else {
-            return
-        }
-
         var store = try loadStore()
+        guard !self.containsAddress(address, in: store.keys) else { return }
         try store.keys.append(
             VaultEncryptedRecord(
                 address: address,
@@ -133,13 +130,20 @@ public actor VaultRepository {
         pathPrefix: String = "m/44'/60'/0'/0/0",
         language: String = "english"
     ) throws {
-        try self.importPrivateKey(address: address, privateKey: privateKey)
-
-        guard try !self.addressInMnemonics(address) else {
+        // 单次 load + save（原 importPrivateKey 两次 load/save + 本方法两次 load/save，见 review C-6）
+        var store = try loadStore()
+        if !self.containsAddress(address, in: store.keys) {
+            try store.keys.append(
+                VaultEncryptedRecord(
+                    address: address,
+                    payload: self.cipher.encrypt(privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address))
+                )
+            )
+        }
+        guard !self.containsAddress(address, in: store.mnemonics) else {
+            try self.saveStore(store) // key 可能刚追加，仍需落盘
             return
         }
-
-        var store = try loadStore()
         try store.mnemonics.append(
             VaultMnemonicRecord(
                 address: address,
@@ -152,13 +156,20 @@ public actor VaultRepository {
     }
 
     public func importSecret(address: String, privateKey: Data, secret: Data) throws {
-        try self.importPrivateKey(address: address, privateKey: privateKey)
-
-        guard try !self.addressInSecrets(address) else {
+        // 单次 load + save（原 importPrivateKey 两次 load/save + 本方法两次 load/save，见 review C-6）
+        var store = try loadStore()
+        if !self.containsAddress(address, in: store.keys) {
+            try store.keys.append(
+                VaultEncryptedRecord(
+                    address: address,
+                    payload: self.cipher.encrypt(privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address))
+                )
+            )
+        }
+        guard !self.containsAddress(address, in: store.secrets) else {
+            try self.saveStore(store) // key 可能刚追加，仍需落盘
             return
         }
-
-        var store = try loadStore()
         try store.secrets.append(
             VaultEncryptedRecord(
                 address: address,

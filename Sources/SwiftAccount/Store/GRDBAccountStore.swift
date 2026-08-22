@@ -6,7 +6,8 @@ import SwiftCore
 /// - `accounts` 表：`id` 文本主键 / `address` / `chain`（Int64 = BIP44 code）/ `name` / `isHD` /
 ///   `parentId` / `pathAccount?` / `pathChange?` / `pathIndex?` / `publicKey`；
 /// - `current_account` 表：固定 `id = 1` 单行 + `accountId`（NOT NULL，删除 current 时删行、不置空）；
-/// - 查询按 `LOWER(address)` 归一化（对齐 Kotlin DAO `COLLATE NOCASE`）；
+/// - 地址写入归一为小写、查询不再 `LOWER()`（v2 起；对齐 Kotlin DAO `COLLATE NOCASE` 语义，
+///   且让 `idx_accounts_address` 生效，见 review 存储/索引项 C-1）；
 /// - `addAccount`/`addAccounts` 普通 INSERT（冲突抛错，对齐 Kotlin `@Insert` ABORT）；
 ///   `current_account` 用 `ON CONFLICT(id) DO UPDATE`（固定单行）。
 /// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
@@ -39,6 +40,11 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
             }
             try db.create(index: "idx_accounts_address", on: "accounts", columns: ["address"])
             try db.create(index: "idx_accounts_parent", on: "accounts", columns: ["parentId"])
+        }
+        // v2（review C-1）：旧行地址统一小写（新写入在 AccountRecord 归一），
+        // 查询去掉 LOWER() 使 idx_accounts_address 生效。
+        migrator.registerMigration("v2") { db in
+            try db.execute(sql: "UPDATE accounts SET address = LOWER(address)")
         }
         try migrator.migrate(database)
     }
@@ -149,8 +155,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
     public func updateAccountNameByAddress(address: String, name: String) async throws {
         try await self.database.write { db in
             try db.execute(
-                sql: "UPDATE accounts SET name = ? WHERE LOWER(address) = LOWER(?)",
-                arguments: [name, address]
+                sql: "UPDATE accounts SET name = ? WHERE address = ?",
+                arguments: [name, address.normalizedAddress]
             )
         }
     }
@@ -192,8 +198,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         try await self.database.read { db in
             try AccountRecord.fetchOne(
                 db,
-                sql: "SELECT * FROM accounts WHERE LOWER(address) = LOWER(?) AND chain = ?",
-                arguments: [address, chain.bip44Code]
+                sql: "SELECT * FROM accounts WHERE address = ? AND chain = ?",
+                arguments: [address.normalizedAddress, chain.bip44Code]
             )?.account
         }
     }
@@ -202,8 +208,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         try await self.database.read { db in
             try AccountRecord.fetchOne(
                 db,
-                sql: "SELECT * FROM accounts WHERE LOWER(address) = LOWER(?)",
-                arguments: [address]
+                sql: "SELECT * FROM accounts WHERE address = ?",
+                arguments: [address.normalizedAddress]
             )?.account
         }
     }
@@ -212,8 +218,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         try await self.database.read { db in
             try AccountRecord.fetchOne(
                 db,
-                sql: "SELECT * FROM accounts WHERE LOWER(address) = LOWER(?) AND isHD = 1 AND parentId IS NULL",
-                arguments: [address]
+                sql: "SELECT * FROM accounts WHERE address = ? AND isHD = 1 AND parentId IS NULL",
+                arguments: [address.normalizedAddress]
             )?.account
         }
     }
@@ -223,8 +229,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
             // 对齐 Kotlin getNonRootAccount：HD 子账户（isHD=1 && parentId 非空）或传统账户（isHD=0）
             try AccountRecord.fetchOne(
                 db,
-                sql: "SELECT * FROM accounts WHERE LOWER(address) = LOWER(?) AND chain = ? AND ((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)",
-                arguments: [address, chain.bip44Code]
+                sql: "SELECT * FROM accounts WHERE address = ? AND chain = ? AND ((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)",
+                arguments: [address.normalizedAddress, chain.bip44Code]
             )?.account
         }
     }
@@ -262,8 +268,8 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         try await self.database.read { db in
             try Int.fetchOne(
                 db,
-                sql: "SELECT COUNT(*) FROM accounts WHERE LOWER(address) = LOWER(?)",
-                arguments: [address]
+                sql: "SELECT COUNT(*) FROM accounts WHERE address = ?",
+                arguments: [address.normalizedAddress]
             ) ?? 0
         }
     }
@@ -352,7 +358,7 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
 
     init(account: WalletAccount) {
         self.id = account.id
-        self.address = account.address
+        self.address = account.address.normalizedAddress // 写入归一（v2 起；查询不再 LOWER()，见 review C-1）
         self.chain = account.chain.bip44Code
         self.name = account.name
         self.isHD = account.isHD
