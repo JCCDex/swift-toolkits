@@ -102,12 +102,45 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     ) {
         _ = userContentController
 
-        // best-effort 解析：先取 nonce/id，保证后续失败路径也能带 nonce 回传。
-        let obj: [String: Any]? = if let json = message.body as? String {
-            try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-        } else {
-            nil
+        // 先提取值类型（WKScriptMessage/WKSecurityOrigin 非 Sendable，不能跨线程捕获）：
+        let bodyText = message.body as? String
+        let isMainFrame = message.frameInfo.isMainFrame
+        let scheme = message.frameInfo.securityOrigin.protocol
+        let host = message.frameInfo.securityOrigin.host
+        let port = message.frameInfo.securityOrigin.port
+
+        // JSON 解析移出主线程（大 NFT/DID payload 的 JSONSerialization 会卡 UI，见 review E-1）：
+        // 主线程 Task 等待 detached 解析结果，再继续授权/路由（self 为 @MainActor）。
+        Task { @MainActor [weak self] in
+            let parsed = await Task.detached(priority: .userInitiated) { () -> ParsedMessage in
+                let obj: [String: Any]? = if let bodyText {
+                    try? JSONSerialization.jsonObject(with: Data(bodyText.utf8)) as? [String: Any]
+                } else {
+                    nil
+                }
+                return ParsedMessage(obj: obj)
+            }.value
+            self?.handleMessage(
+                obj: parsed.obj,
+                isMainFrame: isMainFrame,
+                scheme: scheme,
+                host: host,
+                port: port
+            )
         }
+    }
+
+    /// 消息处理（主线程）：nonce 提取 → origin 授权 → 路由 → 回传。
+    /// 与 `userContentController(_:didReceive:)` 分离：JSON 解析已在 detached 任务完成
+    /// （见 review E-1）。
+    private func handleMessage(
+        obj: [String: Any]?,
+        isMainFrame: Bool,
+        scheme: String,
+        host: String,
+        port: Int
+    ) {
+        // best-effort：先取 nonce/id，保证后续失败路径也能带 nonce 回传。
         let nonce = (obj?["nonce"] as? String) ?? (obj?["id"] as? String) ?? ""
 
         // 安全边界（H1）：origin 一律按消息来源实时推导，绝不使用宿主设置的全局状态
@@ -119,15 +152,15 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         // - 主 frame origin 取自 `frameInfo.securityOrigin`（系统按当前文档推导）。
         guard
             let origin = Self.authorizedOrigin(
-                isMainFrame: message.frameInfo.isMainFrame,
-                scheme: message.frameInfo.securityOrigin.protocol,
-                host: message.frameInfo.securityOrigin.host,
-                port: message.frameInfo.securityOrigin.port
+                isMainFrame: isMainFrame,
+                scheme: scheme,
+                host: host,
+                port: port
             )
         else {
             // 仅当消息来自主 frame 且 origin 不合法（about:blank / file:// 等）时
             // 按既有契约回错误；子 frame 消息在上面的授权判定已被拒绝，不回传。
-            if message.frameInfo.isMainFrame {
+            if isMainFrame {
                 self.deliver(NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Unsafe or missing origin"))
             }
             return
@@ -665,4 +698,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         }
         return ["address": result.address, "total": result.total, "nfts": groups]
     }
+}
+
+/// detached 任务解析结果包装：`[String: Any]` 非 Sendable，无法直接跨 actor；
+/// JSONSerialization 产出不可变 NSDictionary/NSArray（只读），跨线程传递安全
+/// （见 review E-1：解析移出主线程）。
+private struct ParsedMessage: @unchecked Sendable {
+    let obj: [String: Any]?
 }

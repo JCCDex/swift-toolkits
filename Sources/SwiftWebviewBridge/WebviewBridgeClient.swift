@@ -171,7 +171,7 @@ public final class WebviewBridgeClient: NSObject {
         guard let data = raw.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else {
             throw WebviewBridgeError.malformedJSON(raw)
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return try Self.sharedJSONDecoder.decode(T.self, from: data)
     }
 
     /// Encodable 参数 + Decodable 结果的组合重载。
@@ -261,6 +261,9 @@ public final class WebviewBridgeClient: NSObject {
 
     // MARK: - JSON / JS 字面量工具
 
+    /// 复用 JSONDecoder（线程安全；每调用新建有分配开销，见 review E-2）。
+    private static let sharedJSONDecoder = JSONDecoder()
+
     /// Encodable -> JSON 字典。非对象顶层（数组/标量）抛 `.invalidParams`，
     /// 与 Kotlin 只接受 JSONObject 参数的契约保持一致，避免静默变成 nil。
     private static func jsonDictionary(_ params: some Encodable) throws -> [String: Any] {
@@ -303,7 +306,11 @@ extension WebviewBridgeClient: BridgeMessageHandlerDelegate {
         // 对应 Kotlin 中默认关闭的 onConsoleMessage。
         // 仅在 allowsConsoleForwarding = true 时启用，可用于调试 JS 执行。
         guard self.config.allowsConsoleForwarding else { return }
-        NSLog("[%@] [%@] %@", self.config.consoleTag, level, message)
+        #if DEBUG
+            // NSLog 走主线程系统日志；每条 console 消息都打会拖慢 JS 执行（见 review E-3），
+            // DEBUG 之外直接跳过。
+            NSLog("[%@] [%@] %@", self.config.consoleTag, level, message)
+        #endif
     }
 }
 

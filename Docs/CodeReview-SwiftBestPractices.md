@@ -375,9 +375,16 @@ if !expirationDate.isEmpty,
 
 ### E. 主线程 / 每调用开销
 
-1. **DAppConnect 每条消息主线程 `JSONSerialization`**（`WebAppInterface.swift:105-109`，含大 NFT/DID payload）→ `Task.detached` 或仅对大数据异步化。
-2. **PromiseGateway 每调用 3 个 Task + UUID + box + checked continuation**（`PromiseGateway.swift:41-45`、`WebviewBridgeClient.swift:86-132`）；`parseResult` 对非字符串结果先解析再反序列化（双程，`PromiseGateway.swift:152-155`）；`JSONDecoder` 每调用新建（`WebviewBridgeClient.swift:172`）→ 合并为单个可追踪 Task（同时修复 1.3 悬挂）、复用 `JSONDecoder`。
-3. **每条 console 消息主线程 `NSLog`**（`WebviewBridgeClient.swift:304`）→ DEBUG 开关。
+1. ✅ **已实现**：DAppConnect 每条消息主线程 `JSONSerialization`（`WebAppInterface.swift:105-109`，
+   含大 NFT/DID payload）——解析移到 `Task.detached`（先提取值类型：body 文本 /
+   `frameInfo` 的 isMainFrame/scheme/host/port，非 Sendable 对象不跨线程），解析完成后回
+   主线程 `handleMessage` 继续授权/路由（origin 推导与回传逻辑不变）。
+2. ✅ **已实现**：`JSONDecoder` 每调用新建（`WebviewBridgeClient.swift:172`）→ 类级
+   `static let sharedJSONDecoder` 复用（线程安全）；`PromiseGateway` 的 Task/box 结构
+   已在 P0-2/P0-3 修复中收敛（ContinuationBox + 主线程串行），`parseResult` 非字符串
+   result 的二次序列化属语义必需（提取 result 子值），保持。
+3. ✅ **已实现**：每条 console 消息主线程 `NSLog`（`WebviewBridgeClient.swift:304`）→
+   包 `#if DEBUG`（release 零日志开销；`allowsConsoleForwarding` 开关仍在）。
 4. `NftMetadataImageCache`（LRU 256 上限 + per-key in-flight 去重）**设计正确，保持**；仅 `removeAll()` 后回填竞态需 generation counter（正确性 P1，非性能）。
 
 ### F. 待量化（收益需 Instruments 确认）
