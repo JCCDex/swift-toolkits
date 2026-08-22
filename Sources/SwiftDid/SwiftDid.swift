@@ -86,7 +86,7 @@ public final class SwiftDid: DidSDK {
         case .swtc:
             return "did:swtc:\(wallet.address)"
         default:
-            let checksum = (try? ChecksumUtils.toChecksumAddress(wallet.address)) ?? wallet.address
+            let checksum = ChecksumUtils.toChecksumAddress(wallet.address, or: wallet.address)
             return "did:ethr:\(checksum)"
         }
     }
@@ -677,7 +677,7 @@ public final class SwiftDid: DidSDK {
                 tokenName: asset.tokenName, chainId: nil, isSwtc: true, ownerDid: ownerDid
             )
         }
-        let checksumContract = asset.contract.flatMap { try? ChecksumUtils.toChecksumAddress($0) } ?? ""
+        let checksumContract = ChecksumUtils.toChecksumAddress(asset.contract, or: "")
         return DidAvatarCredential(
             credentialId: credentialId, image: asset.image, name: asset.name,
             contract: checksumContract, tokenId: asset.tokenId, issuer: checksumContract,

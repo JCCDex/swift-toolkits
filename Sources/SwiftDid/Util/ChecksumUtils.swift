@@ -36,6 +36,17 @@ public enum ChecksumUtils {
         return String(decoding: out, as: UTF8.self)
     }
 
+    /// 出错（长度/字符非法）时返回传入的默认值（替代 `try? ... ?? fallback` 组合）。
+    public static func toChecksumAddress(_ rawAddress: String, or fallback: String) -> String {
+        (try? self.toChecksumAddress(rawAddress)) ?? fallback
+    }
+
+    /// 可选地址版本：nil 直接返回默认值（替代 `map { toChecksumAddress($0, or: "") } ?? ""` 的双重默认）。
+    public static func toChecksumAddress(_ rawAddress: String?, or fallback: String) -> String {
+        guard let rawAddress else { return fallback }
+        return (try? self.toChecksumAddress(rawAddress)) ?? fallback
+    }
+
     public enum ChecksumError: Error, Equatable {
         case invalidLength(Int)
         case invalidCharacters

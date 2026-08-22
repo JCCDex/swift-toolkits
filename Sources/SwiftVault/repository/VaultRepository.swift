@@ -422,11 +422,7 @@ public actor VaultRepository {
 
     /// 按记录类型区分的 AAD 前缀（三类记录共用一个构造，见跨模块重复 2.2）。
     private func aad(prefix: String, address: String) -> Data {
-        Data("\(prefix):\(self.normalizedAddress(address))".utf8)
-    }
-
-    private func normalizedAddress(_ address: String) -> String {
-        address.lowercased()
+        Data("\(prefix):\(address.normalizedAddress)".utf8)
     }
 
     /// 密码学随机数（KDF salt 等必须用 CSPRNG；批量生成而非逐字节 `UInt8.random`）。

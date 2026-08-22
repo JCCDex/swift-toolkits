@@ -409,6 +409,11 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **地址/checksum 批（2025-08-22）**：SwiftCore 新增 `String.addressEquals`/`normalizedAddress`，
+  SwiftVault 补 SwiftCore 依赖，`VaultRepository`/`VaultModels.matches`/`EthMiddleware` ×3 统一到
+  共享实现（架构观察 #2 比较层收敛，存储层 GRDB `LOWER()` 留待 C-1）；
+  `ChecksumUtils.toChecksumAddress(_:or:)` 默认值版本落地（含 `String?` 重载，nil 直接走默认值，
+  消除 `map + ?? ""` 双重默认），5 个 `try?` 调用点清理（+3 个单元测试）。
 - **去重批 3（2025-08-22）**：删除 SwiftDid / SwiftNft 门面的私有 `readString`/`readLong`/`readValue`
   助手，调用点直接用 `SwiftCore.Json`（SwiftNft 三处改为 `parseVc` 解析一次 + `Json.*(default:)`，
   顺带消除逐字段重复解析，性能 D-3 落地）；`Json` 增加 `readString`/`readLong` 的 `default:` 重载
@@ -482,7 +487,7 @@ if !expirationDate.isEmpty,
 | ✅ **嵌套 JSON 路径读取 `readString`/`readValue`** | `SwiftNft/SwiftNft.swift:450,475`、`SwiftDid/SwiftDid.swift:612,637`（逐字同款 `$.` 剥离 + 点分路径遍历） | 已收敛到 SwiftCore `Json.readValue/readString/readLong`；两门面私有助手均已删除（SwiftNft 调用点 parse 一次 + `Json.*(default:)`） |
 | ✅ **O(n²) String `index(_:offsetBy:)` 随机访问** | `ChecksumUtils.swift:25`、`NftUrlUtils.swift:220-224`（`decodeHexToUtf8`）、`EthTokenUriResolver.swift:128-134`（subscript 扩展） | ChecksumUtils 已改 UTF-8 字节；后两处随 `Hex.decode` 移除内联循环（subscript 扩展保留待清） |
 | ✅ **`jsQuote` JS 字符串转义** | `DAppConnectSdk.swift:169-176`、`WebAppInterface.swift:191-198`（逐字相同） | 已提为 `DAppConnectSdk.jsQuote`（internal），WebAppInterface 复用 |
-| **地址相等语义（4 种实现）** | `VaultRepository.normalizedAddress`（lowercased）、GRDB `LOWER(address)`、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize`（小写+去默认端口） | 收敛为「存储层统一小写 + 比较层规范化后相等」（详见「四、架构层观察 #2」） |
+| ✅ **地址相等语义（比较层已收敛）** | 原 4 种实现：`VaultRepository.normalizedAddress`、GRDB `LOWER(address)`、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize` | 比较层已统一到 SwiftCore `String.addressEquals`/`normalizedAddress`（Vault + DappConnect）；GRDB `LOWER()` 属存储层（见 C-1）；`WebOrigin.normalize` 为 URL origin 语义、独立保留（见「四、架构层观察 #2」） |
 
 ### 2.2 模块内跨文件重复（同模块不同文件，单文件审查易漏）
 
@@ -518,7 +523,12 @@ if !expirationDate.isEmpty,
 ## 四、架构层观察
 
 1. **错误吞掉是全库系统性模式**，非单点：SwiftDid 写 API→`Bool`、SwiftNft `fetchMetadataFields`→`.empty`、SwiftWallet `buildSwtcNftTransfer`→`[:]`、SwiftAccount `persistVault`→`try?`（✅ 已修复，见 P0-5）、Vault 导入重复→静默 continue。建议定一条统一策略（公开 API 一律 `throws` 或带 `Result`，内部再决定是否降级），否则错误可观测性会持续恶化。
-2. **地址规范化策略不统一**：`VaultRepository.normalizedAddress`（`lowercased()`）、GRDB `LOWER(address)`（函数使索引失效）、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize`（小写+去默认端口）——同一「地址相等」语义有 4 种实现，EIP-55 checksum 大小写规则要求混合大小写地址需区分校验，建议收敛为「存储层统一小写 + 比较层 `caseInsensitiveCompare` 或规范化后比较」。
+2. ✅ **地址规范化策略（已收敛比较层）**：`VaultRepository.normalizedAddress`（`lowercased()`）、
+   `EthMiddleware` 三处 `caseInsensitiveCompare`、`VaultModels.AddressableRecord.matches` 已统一到
+   SwiftCore `String.addressEquals` / `normalizedAddress`（SwiftVault 补 SwiftCore 依赖）。
+   **剩余**：GRDB `LOWER(address)`（SQL 侧，与「存储层统一小写 + 索引」同属存储/索引项 C-1，
+   待 GRDB 表达式索引一并处理）；`WebOrigin.normalize` 是 URL origin 归一（scheme/host/端口），
+   与链上地址语义无关，本就该独立保留。
 3. **桥抽象半途而废**：`EngineBridge`（`@MainActor` 协议）被 SwiftWallet/SwiftDid/WebviewBridge 三方共享，但 `SwiftDid.start()` 只对具体类型 `WebviewBridgeEngine` 调 `start()`（`SwiftDid.swift:66-68`），协议没有 `start` 需求——要么协议补 `start`，要么移除对具体类型的依赖。
 4. **模块名=类名冲突**：`SwiftNft` 模块名与门面类 `SwiftNft.SwiftNft` 同名（`SwiftDid.swift:12-13` 注释已自认）——`import SwiftNft` 后类型位置会解析到类，`SwiftNft.Nft` 限定拼写不可用。属命名债务，建议门面类改名（如 `NftClient`）。
 

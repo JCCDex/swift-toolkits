@@ -47,4 +47,29 @@ final class ChecksumUtilsTests: XCTestCase {
         // 全数字地址：无字母可校验，原样返回
         XCTAssertEqual(self.checksum("0x0000000000000000000000000000000000000000"), "0x0000000000000000000000000000000000000000")
     }
+
+    // MARK: - 默认值版本（toChecksumAddress(_:or:)）
+
+    func testFallbackReturnsDefaultOnInvalidInput() {
+        XCTAssertEqual(ChecksumUtils.toChecksumAddress("0x1234", or: "0xfallback"), "0xfallback", "非法长度 → 默认值")
+        XCTAssertEqual(ChecksumUtils.toChecksumAddress("", or: "0xfallback"), "0xfallback")
+        XCTAssertEqual(ChecksumUtils.toChecksumAddress("0xzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", or: "0xfallback"), "0xfallback")
+    }
+
+    func testFallbackReturnsChecksumOnValidInput() {
+        XCTAssertEqual(
+            ChecksumUtils.toChecksumAddress("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", or: "0xfallback"),
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        )
+    }
+
+    func testFallbackOptionalInput() {
+        // nil 直接返回默认值（替代 map + ?? 双重默认）
+        XCTAssertEqual(ChecksumUtils.toChecksumAddress(nil as String?, or: "0xfallback"), "0xfallback")
+        XCTAssertEqual(ChecksumUtils.toChecksumAddress("0x1234", or: "0xfallback"), "0xfallback")
+        XCTAssertEqual(
+            ChecksumUtils.toChecksumAddress("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", or: "0xfallback"),
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        )
+    }
 }

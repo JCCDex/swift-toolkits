@@ -31,7 +31,7 @@ var targets: [Target] = [
     ),
     .target(
         name: "SwiftVault",
-        dependencies: swiftVaultDependencies,
+        dependencies: swiftVaultDependencies + [.target(name: "SwiftCore")], // SwiftCore：String.addressEquals 等公共字符串工具
         path: "Sources/SwiftVault",
         exclude: ["README.md"], // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
         resources: [

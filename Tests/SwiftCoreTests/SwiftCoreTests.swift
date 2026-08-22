@@ -179,4 +179,15 @@ final class SwiftCoreTests: XCTestCase {
         XCTAssertNil("   ".nilIfBlank)
         XCTAssertEqual("abc".nilIfBlank, "abc")
     }
+
+    // MARK: 地址比较
+
+    func testAddressEqualsAndNormalized() {
+        // EIP-55 混合大小写地址按小写化比较
+        let mixed = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        XCTAssertTrue(mixed.addressEquals("0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"))
+        XCTAssertTrue("0xABC".addressEquals("0xabc"))
+        XCTAssertFalse("0xabc".addressEquals("0xabcd"))
+        XCTAssertEqual(mixed.normalizedAddress, "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed")
+    }
 }

@@ -27,7 +27,7 @@ enum DidCredentialHelper {
             let tokenNameClean = (data.tokenName ?? "").replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
             return "\(data.ownerDid)#nft-\(tokenNameClean)-\(data.nftIssuer ?? "")-\(data.tokenId)-\(data.granteeDid)"
         }
-        let checksumContract = (try? ChecksumUtils.toChecksumAddress(data.contractAddress ?? "")) ?? ""
+        let checksumContract = ChecksumUtils.toChecksumAddress(data.contractAddress ?? "", or: "")
         return "\(data.ownerDid)#nft-\(checksumContract)-\(data.tokenId)-\(data.granteeDid)"
     }
 
@@ -37,7 +37,7 @@ enum DidCredentialHelper {
             let tokenNameClean = (asset.tokenName ?? "").replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
             return "\(ownerDid)#nft-\(tokenNameClean)-\(asset.issuer ?? "")-\(asset.tokenId)-\(grantee)"
         }
-        let checksumContract = asset.contract.flatMap { try? ChecksumUtils.toChecksumAddress($0) } ?? ""
+        let checksumContract = ChecksumUtils.toChecksumAddress(asset.contract, or: "")
         return "\(ownerDid)#nft-\(checksumContract)-\(asset.tokenId)-\(grantee)"
     }
 
@@ -87,7 +87,7 @@ enum DidCredentialHelper {
             subject["nftIssuer"] = data.nftIssuer ?? ""
             subject["tokenName"] = data.tokenName ?? ""
         } else {
-            subject["contractAddress"] = (try? ChecksumUtils.toChecksumAddress(data.contractAddress ?? "")) ?? ""
+            subject["contractAddress"] = ChecksumUtils.toChecksumAddress(data.contractAddress ?? "", or: "")
         }
         if data.type == .others {
             subject["usageRights"] = self.usageRightsToJson(data.usageRights ?? [])

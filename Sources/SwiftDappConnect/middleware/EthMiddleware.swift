@@ -110,7 +110,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
         let accounts = await accountProvider.accounts.firstValue() ?? []
         guard let walletAccount = accounts.first(where: {
-            $0.address.caseInsensitiveCompare(from) == .orderedSame
+            $0.address.addressEquals(from)
         }) else {
             throw DAppConnectError.internalError("Account not found in wallet: \(from)")
         }
@@ -230,7 +230,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
         let currentAccount = await accountProvider.currentAccount.firstValue() ?? nil
         let sameAddressAccount = currentAccount.flatMap { current in
-            targetAccounts.first { $0.address.caseInsensitiveCompare(current.address) == .orderedSame }
+            targetAccounts.first { $0.address.addressEquals(current.address) }
         }
         let targetAccount = sameAddressAccount ?? firstAccount
         await self.accountProvider.setCurrentAccount(accountId: targetAccount.id)
@@ -252,7 +252,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
     private func validateEvmAddress(_ address: String) async throws -> WalletAccount {
         let accounts = await accountProvider.accounts.firstValue() ?? []
         guard let account = accounts.first(where: {
-            $0.address.caseInsensitiveCompare(address) == .orderedSame
+            $0.address.addressEquals(address)
         }) else {
             throw DAppConnectError.internalError("Address not found in wallet: \(address)")
         }

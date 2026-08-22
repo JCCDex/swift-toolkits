@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 public struct PasswordKDFParameters: Sendable, Codable, Equatable {
     public var iterations: Int
@@ -88,7 +89,7 @@ protocol AddressableRecord {
 
 extension AddressableRecord {
     func matches(address: String) -> Bool {
-        self.address.caseInsensitiveCompare(address) == .orderedSame
+        self.address.addressEquals(address)
     }
 }
 
