@@ -323,7 +323,12 @@ if !expirationDate.isEmpty,
    `Hex.decode` 移除；`EthTokenUriResolver.swift:128-134` 的 String subscript 扩展保留（仅内部
    使用、调用点均有界长 guard，可后续清理）。
 
-3. **`ISO8601DateFormatter` 每次新建**（`DidJson.swift:102-124`、`SwiftDid.formatUtc`）——创建开销大；`Date.ISO8601FormatStyle` 为 Sendable、零分配，可替代（iOS 15 起可用）。
+3. ✅ **已实现**：`ISO8601DateFormatter` 每次新建（`DidJson.swift:102-124`、`SwiftDid.formatUtc`）——
+   已改 `Date.ISO8601FormatStyle`（Sendable、零分配，iOS 15 起可用）；日期处理全量归口
+   `SwiftCore/Date.swift`（`Date.nowISO`/`parseISO8601`/`nowMillis`/`formatUtc`），
+   `DidJson`/`SwiftDid.formatUtc`/`DidCoreService.nowMillis` 及各模块内联
+   `Date().timeIntervalSince1970 * 1000`（SwiftNft ×3、SwiftDappConnect ×1）统一收敛
+   （见修复记录「日期批」）。
 
 4. **已核实「非热点」，无需优化**（避免过度工程）：`Path.derivationPath` 插值（每次导入/派生仅 1 次，非循环内）；`boolFromRaw`（trim+lowercase，每 RPC 一次）；`ChainType.fromBip44Code` 线性扫描（N=7，static dict 仅在枚举膨胀时值得）。
 
@@ -411,6 +416,14 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **日期批（2025-08-22）**：日期/时间戳处理全量归口 `SwiftCore/Date.swift`——新增
+  `Date.nowMillis()`（epoch 毫秒）与 `Date.formatUtc(_:)`（Asia/Shanghai 展示格式，
+  值类型 Calendar 免 DateFormatter 分配）；替换 `DidCoreService.nowMillis`、
+  `SwiftDid.formatUtc`（删两处模块内实现）、SwiftNft 3 处内联
+  `Int64(Date().timeIntervalSince1970 * 1000)`（GRDBNftStore/SwiftNft/NftModels ×2）、
+  SwiftDappConnect `CachingSecretProvider.nowMs`；测试 `SwiftDid.formatUtc` → `Date.formatUtc`。
+  性能专项 3（ISO8601DateFormatter 每次新建）✅。`NftModels`/`CachingSecretProvider` 补
+  `import SwiftCore`。
 - **DidJson 并入 SwiftCore 并按职责拆分（2025-08-22）**：`SwiftDid/Util/DidJson.swift` 并入
   `SwiftCore` 后按用户要求拆分，DID 文档字段读取（`readProfileField` ×2 / `extractUpdated`）
   单独成 `SwiftDid/Util/DidJson.swift`（模块内 `internal`）——`Json.swift` 保留通用 JSON

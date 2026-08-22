@@ -63,7 +63,7 @@ final class DidCoreService {
             }
 
             guard let localDoc else {
-                try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Self.nowMillis()))
+                try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Date.nowMillis()))
                 return .document(chainDoc)
             }
 
@@ -88,7 +88,7 @@ final class DidCoreService {
             let localUpdated = DidJson.extractUpdated(localDoc.doc).flatMap { Date.parseISO8601($0) }
             let chainUpdated = DidJson.extractUpdated(chainDoc).flatMap { Date.parseISO8601($0) }
             if let chainUpdated, localUpdated.map({ chainUpdated > $0 }) ?? true {
-                try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Self.nowMillis()))
+                try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Date.nowMillis()))
                 return .document(chainDoc)
             }
             return .document(localDoc.doc)
@@ -119,7 +119,7 @@ final class DidCoreService {
 
     func deleteDidDocument(_ did: String, deletedDoc: String?) async throws {
         if let doc = deletedDoc, let updated = DidJson.extractUpdated(doc) {
-            try await self.store.savePending(DidPending(kind: Self.pendingDelete, did: did, value: updated, updatedAt: Self.nowMillis()))
+            try await self.store.savePending(DidPending(kind: Self.pendingDelete, did: did, value: updated, updatedAt: Date.nowMillis()))
         }
         try await self.store.delete(did)
     }
@@ -137,7 +137,7 @@ final class DidCoreService {
     }
 
     func saveDidDocument(_ did: String, doc: String) async throws {
-        try await self.store.save(DidEntity(did: did, doc: doc, updatedAt: Self.nowMillis()))
+        try await self.store.save(DidEntity(did: did, doc: doc, updatedAt: Date.nowMillis()))
     }
 
     private func saveDocumentWithPending(_ did: String, _ doc: String, kind: String) async throws {
@@ -149,15 +149,11 @@ final class DidCoreService {
         default:
             nil
         }
-        try await self.store.savePending(DidPending(kind: kind, did: did, value: value, updatedAt: Self.nowMillis()))
-        try await self.store.save(DidEntity(did: did, doc: doc, updatedAt: Self.nowMillis()))
+        try await self.store.savePending(DidPending(kind: kind, did: did, value: value, updatedAt: Date.nowMillis()))
+        try await self.store.save(DidEntity(did: did, doc: doc, updatedAt: Date.nowMillis()))
     }
 
     func deleteExpiredPending(now: Int64, ttlMillis: Int64) async throws {
         try await self.store.deleteExpiredPending(now: now, ttlMillis: ttlMillis)
-    }
-
-    static func nowMillis() -> Int64 {
-        Int64(Date().timeIntervalSince1970 * 1000)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 // MARK: - 展示/解析 DTO（镜像 Kotlin :nft model/NftModels.kt，commit f77b59f）
 
@@ -200,7 +201,7 @@ public struct SwtcNftEntity: Codable, Sendable, Equatable {
         block: Int64,
         inservice: Int,
         ledgerIndex: String? = nil,
-        lastUpdateTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+        lastUpdateTime: Int64 = Date.nowMillis()
     ) {
         self.ownerAddress = ownerAddress
         self.tokenId = tokenId
@@ -253,7 +254,7 @@ public struct EvmNftItemEntity: Codable, Sendable, Equatable {
         tokenProtocol: Int? = nil,
         title: String? = nil,
         description: String? = nil,
-        updatedAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+        updatedAt: Int64 = Date.nowMillis()
     ) {
         self.chainId = chainId
         self.ownerAddress = ownerAddress

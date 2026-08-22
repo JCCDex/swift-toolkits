@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// 包装 `SecretProvider`，按 `origin|address` 缓存私钥/秘钥：
 /// - 批次内复用：最后一次操作结束后 5s 内不再委托（不重复弹密码）
@@ -123,6 +124,6 @@ public actor CachingSecretProvider: SecretProvider {
     }
 
     private func nowMs() -> UInt64 {
-        UInt64(Date().timeIntervalSince1970 * 1000)
+        UInt64(Date.nowMillis())
     }
 }

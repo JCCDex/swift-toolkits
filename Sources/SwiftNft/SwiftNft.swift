@@ -222,7 +222,7 @@ public final class NftClient: DidNftResolution, Sendable {
         // 3) upsert（ON CONFLICT DO UPDATE 保留自增 id，对齐 Kotlin copy(id) 语义）→ 读回返回。
         let entity = NftMeta(contract: contract, tokenId: tokenId, name: nameValue,
                              image: imageValue, tokenUri: tokenUri, fullContent: body,
-                             updatedAt: Int64(Date().timeIntervalSince1970 * 1000))
+                             updatedAt: Date.nowMillis())
         do {
             try await self.store.upsertNftMeta(entity)
             return try await self.store.nftMeta(contract: contract, tokenId: tokenId)

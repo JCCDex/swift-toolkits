@@ -251,7 +251,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                                 entity.name?.nilIfBlank ?? existing?.name,
                                 entity.image?.nilIfBlank ?? existing?.image,
                                 entity.metadataUri, existing?.fullContent,
-                                Int64(Date().timeIntervalSince1970 * 1000)]
+                                Date.nowMillis()]
                 )
             }
             try db.execute(sql: "DELETE FROM swtc_nfts WHERE ownerAddress = ?", arguments: [owner])

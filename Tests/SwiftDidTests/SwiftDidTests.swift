@@ -48,18 +48,18 @@ final class SwiftDidTests: XCTestCase {
 
     func testFormatUtcConvertsToShanghai() {
         // 无小数位输入（ISO8601DateFormatter 双形态解析路径）
-        XCTAssertEqual(SwiftDid.formatUtc("2025-01-01T00:00:00Z"), "2025-01-01 08:00:00")
-        XCTAssertEqual(SwiftDid.formatUtc("2025-01-01T16:30:00Z"), "2025-01-02 00:30:00", "跨日边界")
+        XCTAssertEqual(Date.formatUtc("2025-01-01T00:00:00Z"), "2025-01-01 08:00:00")
+        XCTAssertEqual(Date.formatUtc("2025-01-01T16:30:00Z"), "2025-01-02 00:30:00", "跨日边界")
     }
 
     func testFormatUtcHandlesFractionalSeconds() {
-        XCTAssertEqual(SwiftDid.formatUtc("2025-01-01T00:00:00.5Z"), "2025-01-01 08:00:00", "小数秒不进位到展示层")
-        XCTAssertEqual(SwiftDid.formatUtc("2025-01-01T08:00:00.123Z"), "2025-01-01 16:00:00")
+        XCTAssertEqual(Date.formatUtc("2025-01-01T00:00:00.5Z"), "2025-01-01 08:00:00", "小数秒不进位到展示层")
+        XCTAssertEqual(Date.formatUtc("2025-01-01T08:00:00.123Z"), "2025-01-01 16:00:00")
     }
 
     func testFormatUtcBlankOrInvalidReturnsAsIs() {
-        XCTAssertEqual(SwiftDid.formatUtc(""), "")
-        XCTAssertEqual(SwiftDid.formatUtc("not-a-date"), "not-a-date")
+        XCTAssertEqual(Date.formatUtc(""), "")
+        XCTAssertEqual(Date.formatUtc("not-a-date"), "not-a-date")
     }
 
     func testFormatAddress() {

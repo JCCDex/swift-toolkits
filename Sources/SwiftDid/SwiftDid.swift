@@ -85,7 +85,7 @@ public final class SwiftDid: DidSDK {
         try self.bridge.start()
         // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）
         Task {
-            try? await self.core.deleteExpiredPending(now: DidCoreService.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)
+            try? await self.core.deleteExpiredPending(now: Date.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)
         }
         self.started = true
     }
@@ -178,7 +178,7 @@ public final class SwiftDid: DidSDK {
                     .contains { $0.caseInsensitiveCompare(did) == .orderedSame }
             )
         }
-        return Did(id: did, created: Self.formatUtc(created), updated: Self.formatUtc(updated), verificationMethods: verificationMethods)
+        return Did(id: did, created: Date.formatUtc(created), updated: Date.formatUtc(updated), verificationMethods: verificationMethods)
     }
 
     public func generateProfileVC(_ did: String) async -> ProfileVC? {
@@ -831,21 +831,5 @@ public final class SwiftDid: DidSDK {
             json["credentials"] = [Any]()
         }
         return Json.stringify(json)
-    }
-
-    // MARK: - 内部小工具
-
-    static func formatUtc(_ utc: String) -> String {
-        guard !utc.isEmpty else { return "" }
-        guard let date = Date.parseISO8601(utc) else { return utc }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
-        let comps = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        // 值类型 Calendar 免 DateFormatter 每次分配 + 无 Sendable/locale 隐患（见 review 优化 #11）。
-        return String(
-            format: "%04d-%02d-%02d %02d:%02d:%02d",
-            comps.year ?? 0, comps.month ?? 0, comps.day ?? 0,
-            comps.hour ?? 0, comps.minute ?? 0, comps.second ?? 0
-        )
     }
 }
