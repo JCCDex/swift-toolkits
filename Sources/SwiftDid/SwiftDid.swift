@@ -62,9 +62,10 @@ public final class SwiftDid: DidSDK {
 
     public func start() throws {
         guard !self.started else { return }
-        if let engine = bridge as? WebviewBridgeEngine {
-            try engine.start() // 网关保持 did-bridge.js 硬编码（见 Did-Swift 03 §3），无需注入
-        }
+        // 协议统一启动（与 SwiftWallet.start 一致）：宿主注入的自定义 EngineBridge 同样
+        // 必须被 start——旧实现对具体类型 WebviewBridgeEngine 特判，自定义桥会被静默跳过
+        // （见 review 四、架构层观察 #3）。默认桥网关保持 did-bridge.js 硬编码（见 Did-Swift 03 §3）。
+        try self.bridge.start()
         // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）
         Task {
             try? await self.core.deleteExpiredPending(now: DidCoreService.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)

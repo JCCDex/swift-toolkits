@@ -262,6 +262,18 @@ final class SwiftDidTests: XCTestCase {
         let saved = try? await store.get("did:swtc:eee")
         XCTAssertEqual(saved?.doc, doc)
     }
+
+    // MARK: - 生命周期
+
+    func testStartInvokesBridgeStartExactlyOnce() throws {
+        // 四、架构观察 #3 回归：start 不得对具体类型 WebviewBridgeEngine 特判——
+        // 注入的自定义 EngineBridge 也必须被启动；SwiftDid 自身幂等。
+        XCTAssertEqual(self.bridge.startCount, 0)
+        try self.did.start()
+        XCTAssertEqual(self.bridge.startCount, 1, "自定义 EngineBridge 也必须被 start（不再特判具体类型）")
+        try self.did.start()
+        XCTAssertEqual(self.bridge.startCount, 1, "SwiftDid.start 幂等：不重复启动桥")
+    }
 }
 
 // MARK: - Fakes
@@ -271,12 +283,16 @@ final class SwiftDidTests: XCTestCase {
 final class FakeDidBridge: EngineBridge {
     private var handlers: [String: ([String: Any]?) throws -> String] = [:]
     private(set) var calls: [(method: String, params: [String: Any]?)] = []
+    /// start() 调用次数（P0/四#3 回归：任何 EngineBridge 都必须被 SwiftDid.start 启动）。
+    private(set) var startCount = 0
 
     func stub(_ method: String, _ handler: @escaping ([String: Any]?) throws -> String) {
         self.handlers[method] = handler
     }
 
-    func start() throws {}
+    func start() throws {
+        self.startCount += 1
+    }
 
     func call(method: String, params: [String: Any]?) async throws -> String {
         self.calls.append((method, params))

@@ -409,6 +409,9 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **架构批（2025-08-22）**：四 #3——`SwiftDid.start()` 移除对 `WebviewBridgeEngine` 具体类型的
+  特判，改为协议统一 `try self.bridge.start()`（与 SwiftWallet 一致；自定义 EngineBridge 不再
+  被静默跳过），新增回归测试 `testStartInvokesBridgeStartExactlyOnce`。
 - **命名批（2025-08-22）**：`SwiftNft` 门面类更名为 `NftClient`，消除「模块名=类名」对
   `SwiftNft.Nft` 等限定引用的遮蔽（架构观察 #4；测试 3 处 + 演示 1 处实例化同步更新，
   `SwiftDid.swift:9-13` 规避注释删除）。⚠️ SwiftDid 同名隐患未触发、未改（见四 #4 说明）。
@@ -532,7 +535,11 @@ if !expirationDate.isEmpty,
    **剩余**：GRDB `LOWER(address)`（SQL 侧，与「存储层统一小写 + 索引」同属存储/索引项 C-1，
    待 GRDB 表达式索引一并处理）；`WebOrigin.normalize` 是 URL origin 归一（scheme/host/端口），
    与链上地址语义无关，本就该独立保留。
-3. **桥抽象半途而废**：`EngineBridge`（`@MainActor` 协议）被 SwiftWallet/SwiftDid/WebviewBridge 三方共享，但 `SwiftDid.start()` 只对具体类型 `WebviewBridgeEngine` 调 `start()`（`SwiftDid.swift:66-68`），协议没有 `start` 需求——要么协议补 `start`，要么移除对具体类型的依赖。
+3. ✅ **桥抽象半途而废（已修复）**：`EngineBridge` 协议**已声明 `start() throws`**（`WebviewBridgeEngine.swift:10`），
+   但 `SwiftDid.start()` 旧实现只对具体类型 `WebviewBridgeEngine` 调 `start()`（`SwiftDid.swift:65-67`）——
+   宿主注入的自定义 `EngineBridge` 会被**静默跳过**、永不启动（而 `destroy()` 走协议无条件调用，不对称）。
+   已改为 `try self.bridge.start()` 协议统一启动（与 `SwiftWallet.start()` 同款），删除具体类型特判，
+   新增回归测试 `testStartInvokesBridgeStartExactlyOnce`（自定义桥必须被启动 + SwiftDid 幂等）。
 4. ✅ **模块名=类名冲突（已修复）**：`SwiftNft` 门面类更名为 `NftClient`——实测「模块与类同名时
    `ModA.Other` 限定引用失败（'Other' is not a member type of class）」，类会遮蔽模块名；
    改名后 `SwiftNft.Nft` 限定拼写恢复可用，`SwiftDid.swift:9-13` 的规避注释已删除。
