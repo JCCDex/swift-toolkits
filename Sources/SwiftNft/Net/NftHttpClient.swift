@@ -93,8 +93,8 @@ public struct URLSessionNftHttpClient: NftHttpClient {
     /// 流式读取 + 硬上限：超过 maxBodyBytes 即中止（for-await 提前退出会取消底层 task），
     /// 避免 data(for:) 先全量缓冲进内存、再检查 size 的「下载期内存不受限」问题。
     ///
-    /// GET 禁重定向仅对默认 client 生效（NoRedirectDelegate）；注入的自定义 session 无法在
-    /// 库内强制（无 request 级开关，delegate 随 session 固定）——调用方必须用
+    /// GET 禁重定向仅对默认 client 生效（RedirectPolicyDelegate 按方法区分）；注入的自定义
+    /// session 无法在库内强制（无 request 级开关，delegate 随 session 固定）——调用方必须用
     /// `URLSessionConfiguration.httpShouldFollowRedirects = false` 的配置构建注入 session
     /// （见 review P1#2：重定向是 SSRF 绕过路径）。
     private func fetchData(_ request: URLRequest, session: URLSession) async throws -> Data? {

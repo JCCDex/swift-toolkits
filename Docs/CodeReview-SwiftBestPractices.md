@@ -152,33 +152,33 @@ if !expirationDate.isEmpty,
 
 ### SwiftDappConnect
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | **SWTC 流程污染共享 ETH 链状态**：`handleSwtcRequestAccounts` 里 `ethMiddleware.setCurrentChain(.swtc)`，之后所有 ETH DApp 拿到 `eth_chainId = 0x1`，且 `eth_sendTransaction` 无显式 chainId 时直接报 "Chain swtc does not have an EVM chainId" | `WebAppInterface.swift:329-331`（配合 `EthMiddleware.swift:127-130,175-177`） |
-| 2 | **`eth_accounts` 与 `eth_requestAccounts` 混同**：都走 `requestAccounts` 弹授权框；EIP-1193 规定 `eth_accounts` 静默返回已授权账户，DApp 加载时探测会误弹窗 | `WebAppInterface.swift:233-234` |
-| 3 | **gas 估算失败静默回落 21000**：`estimateGas` 抛错（revert/余额不足/节点错误）时直接签 0x5208，合约调用会被签出并广播，白白烧 gas | `EthMiddleware.swift:158-166` |
-| 4 | **`sendTransactionWithPassword` 丢弃密码**：参数 `password _: String` 被忽略，直接走可能命中 5s/20s 缓存的 `CachingSecretProvider`，API 承诺的认证强度与实现不符 | `SwtcMiddleware.swift:88-90` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | **SWTC 流程污染共享 ETH 链状态**：`handleSwtcRequestAccounts` 里 `ethMiddleware.setCurrentChain(.swtc)`，之后所有 ETH DApp 拿到 `eth_chainId = 0x1`，且 `eth_sendTransaction` 无显式 chainId 时直接报 "Chain swtc does not have an EVM chainId" | `WebAppInterface.swift:329-331`（配合 `EthMiddleware.swift:127-130,175-177`） | 未做（待办） |
+| 2 | **`eth_accounts` 与 `eth_requestAccounts` 混同**：都走 `requestAccounts` 弹授权框；EIP-1193 规定 `eth_accounts` 静默返回已授权账户，DApp 加载时探测会误弹窗 | `WebAppInterface.swift:233-234` | 未做（待办） |
+| 3 | **gas 估算失败静默回落 21000**：`estimateGas` 抛错（revert/余额不足/节点错误）时直接签 0x5208，合约调用会被签出并广播，白白烧 gas | `EthMiddleware.swift:158-166` | 未做（待办） |
+| 4 | **`sendTransactionWithPassword` 丢弃密码**：参数 `password _: String` 被忽略，直接走可能命中 5s/20s 缓存的 `CachingSecretProvider`，API 承诺的认证强度与实现不符 | `SwtcMiddleware.swift:88-90` | 未做（待办） |
 | 5 | **整条 RPC 管线绑死 MainActor**：`WebAppInterface`/`EthMiddleware`/`SwtcMiddleware`/`NodeProvider`/`NftProvider`/`WalletSigning` 全部 `@MainActor`，RPC 网络 I/O、签名、DID/IPFS 加密都在主线程，节点慢即卡 UI（`Interfaces.swift:20` 注释自认是「标 @MainActor 以通过 Swift 6 严格并发」） | 多个文件 | ✅ `NodeProvider`/`NftProvider` 协议已去 `@MainActor`（网络 I/O 移到协作线程池；MainActor 中间件 await 时不阻塞主线程）——非 Sendable 参数（`[String: Any]`/`[Any]?`）经 `JsonObjectParams`/`JsonArrayParams`（@unchecked Sendable 包装）跨隔离传递；`estimateGas`/`getEvmNfts` 签名同步，测试 Fake/demo 实现更新。中间件/签名/DID 桥保持 @MainActor（WKWebView 必须主线程，宿主接线面） |
-| 6 | **`DAppConnectError` 非 `Sendable`** 却跨 actor 边界（`CachingSecretProvider` actor 内 `Task<String?, Error>`） | `model/Models.swift:16` |
-| 7 | **`load*` 前缀误用**：`loadInitJs`/`loadAddressJs`/`loadUpdateChainIdJs`/`loadEip6963IconOverrideJs` 实际是生成 JS 字符串（只有 `loadProviderJs` 真读资源）；且 `WebAppInterface` 三个同名实例方法是 `DAppConnectSdk` 静态方法的透传，双入口 | `DAppConnectSdk.swift:80-132`、`WebAppInterface.swift:49-61` |
-| 8 | **`route()` 约 120 行**：分发 + 参数提取 + 错误策略混在一个 switch；且 `handleEthSignTypedData` 收整个 request、其余 handler 收提取后的参数，风格不一 | `WebAppInterface.swift:202-323` |
+| 6 | **`DAppConnectError` 非 `Sendable`** 却跨 actor 边界（`CachingSecretProvider` actor 内 `Task<String?, Error>`） | `model/Models.swift:16` | ✅ 已补 `Sendable`（随 Sendable 批） |
+| 7 | **`load*` 前缀误用**：`loadInitJs`/`loadAddressJs`/`loadUpdateChainIdJs`/`loadEip6963IconOverrideJs` 实际是生成 JS 字符串（只有 `loadProviderJs` 真读资源）；且 `WebAppInterface` 三个同名实例方法是 `DAppConnectSdk` 静态方法的透传，双入口 | `DAppConnectSdk.swift:80-132`、`WebAppInterface.swift:49-61` | 未做（待办） |
+| 8 | **`route()` 约 120 行**：分发 + 参数提取 + 错误策略混在一个 switch；且 `handleEthSignTypedData` 收整个 request、其余 handler 收提取后的参数，风格不一 | `WebAppInterface.swift:202-323` | 未做（用户评估后回滚：原实现参数提取在 handler 内一次完成，route 分发行更短，改动反而啰嗦） |
 | 9 | **每条消息在主线程 JSON 解析**（含大 NFT/DID payload） | `WebAppInterface.swift:105-109` | ✅ 已随 E-1 修复：消息 JSON 解析移入 `Task.detached`（先提取值类型，`ParsedMessage` 包装不可变结果），主线程只做授权/路由/回传 |
 | 10 | **`getChainId()` 与 `getCurrentChainIdHex()` 逐字节相同**，删一个 | `EthMiddleware.swift:63-66` vs `241-244` | ✅ 已删 `getCurrentChainIdHex()`（与 `getChainId()` 逐字节相同），无调用点残留 |
-| 11 | `CachingSecretProvider`：`clearCache()` 后 in-flight 完成仍会回填缓存（锁屏后明文最多再服务 20s）；in-flight task 取消时未真正取消委托任务 | `CachingSecretProvider.swift:87-89,43-47` |
-| 12 | `isSafeUrl` 正则弱：拒绝单标签 host（localhost）、接受非法端口、拒绝 IPv6、端口区间未锚定 → 改用 `URLComponents` 结构化校验 | `DAppConnectSdk.swift:137-140` |
-| 13 | `failure(_:_:)` 对非 `DAppConnectError` 直接透传 `localizedDescription` 给页面（可能泄漏内部路径）；缺参错误用 -1 而非 EIP-1193 的 -32602 | `WebAppInterface.swift:615-624` |
-| 14 | 死代码：`ChainConfigProvider` 定义但从未使用；`WebAppInterface.chainProvider` 只写不读；`DAppConnectError.missingParameters` 从未抛 | `Interfaces.swift:42-44`、`WebAppInterface.swift:18,79-84` |
+| 11 | `CachingSecretProvider`：`clearCache()` 后 in-flight 完成仍会回填缓存（锁屏后明文最多再服务 20s）；in-flight task 取消时未真正取消委托任务 | `CachingSecretProvider.swift:87-89,43-47` | 未做（待办） |
+| 12 | `isSafeUrl` 正则弱：拒绝单标签 host（localhost）、接受非法端口、拒绝 IPv6、端口区间未锚定 → 改用 `URLComponents` 结构化校验 | `DAppConnectSdk.swift:137-140` | 未做（待办） |
+| 13 | `failure(_:_:)` 对非 `DAppConnectError` 直接透传 `localizedDescription` 给页面（可能泄漏内部路径）；缺参错误用 -1 而非 EIP-1193 的 -32602 | `WebAppInterface.swift:615-624` | 未做（待办） |
+| 14 | 死代码：`ChainConfigProvider` 定义但从未使用；`WebAppInterface.chainProvider` 只写不读；`DAppConnectError.missingParameters` 从未抛 | `Interfaces.swift:42-44`、`WebAppInterface.swift:18,79-84` | 未做（待办） |
 
 ### SwiftVault
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | `changePassword` 重建 `newStore` 时**丢弃 biometric**（旧 store 的 biometric 未迁移） | `VaultRepository.swift:274-287` |
-| 2 | **KDF 三重复制**：`verifyPassword`/`unlock`/`ensureUnlocked` 各自写一遍「derive + 常量时间比对」，派生的 key 被丢弃后 `unlock` 再派生一次 → 提取一个私有 `deriveAndVerifyKey` 助手 | `VaultRepository.swift:71-111,393-404` |
-| 3 | 同步 Argon2（64–256 MiB 内存）在 actor 上执行，且 README 写的是 `try await`；应挪到后台或提供 async 变体 | `Argon2idVaultKeyDeriver.swift` |
-| 4 | 导入路径 2–4 次全量 store load/save 往返（`importMnemonic`/`importSecret` 内部先调 `importPrivateKey` 再自己 load+append+save） | `VaultRepository.swift:128-168` |
-| 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` |
-| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | `changePassword` 重建 `newStore` 时**丢弃 biometric**（旧 store 的 biometric 未迁移） | `VaultRepository.swift:274-287` | 未做（待办） |
+| 2 | **KDF 三重复制**：`verifyPassword`/`unlock`/`ensureUnlocked` 各自写一遍「derive + 常量时间比对」，派生的 key 被丢弃后 `unlock` 再派生一次 → 提取一个私有 `deriveAndVerifyKey` 助手 | `VaultRepository.swift:71-111,393-404` | ✅ 已随性能专项 B-3 收敛为私有 `deriveAndVerifyKey`（单点实现） |
+| 3 | 同步 Argon2（64–256 MiB 内存）在 actor 上执行，且 README 写的是 `try await`；应挪到后台或提供 async 变体 | `Argon2idVaultKeyDeriver.swift` | 未做（待办） |
+| 4 | 导入路径 2–4 次全量 store load/save 往返（`importMnemonic`/`importSecret` 内部先调 `importPrivateKey` 再自己 load+append+save） | `VaultRepository.swift:128-168` | ✅ 已随存储专项 C-6 改单次 load + save（1 load + 1 save，对齐 `importPrivateKeys` 批量范式） |
+| 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` | 未做（待办） |
+| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` | 未做（待办；Data COW 陷阱见补充细节） |
 
 > ⚠️ **更正（第二轮 pro 复核）**：第一轮曾把 `try store.keys.append(...)`（`:119,142,161,181,291,301,313`）判为「冗余 try」——**该结论错误**。`Array.append` 本身不抛错，但这些 `try` 覆盖的是**实参里的抛错调用**（`self.cipher.encrypt(...)`、`self.requireSessionKey()`、`keyDeriver.deriveKey(...)`），`VaultCipher.encrypt`/`VaultKeyDeriver.deriveKey` 均为 `throws`（`VaultCipher.swift:4-5`、`VaultKeyDeriver.swift:4`），故 `try` 是必要的。整库干净重编译**零告警**印证了这一点。
 
@@ -196,29 +196,29 @@ if !expirationDate.isEmpty,
 
 ### SwiftAccount
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | `importSubAccount` 以 `Keypair(privateKey: "", ...)` 走 `importSingleAccount` → `persistVault` 会 `importPrivateKey(address, Data())` 加密**空私钥**（当前仅因 `VaultRepository.importPrivateKey` 判重短路才没出事）→ 加 `persistKey: Bool` 参数 | `AccountManager.swift:144-164,289` |
-| 2 | **`removeAccount` 同名陷阱**：`SwiftAccount.removeAccount(accountId:)` 是裸 store 删除（不验密、不清理 vault），`AccountManager.removeAccount(accountId:password:)` 才是编排删除——同名异构行为，走门面会静默遗留 vault 密钥 | `SwiftAccount.swift:67-69` vs `AccountManager.swift:232-250` |
-| 3 | `removeAccount` 双重 Argon2：先 `verifyPassword` 再 `removeAddress` → `ensureUnlocked` → `unlock` 再派生一次 | `AccountManager.swift:237,246` |
-| 4 | `SwiftAccount` 是 `AccountStore` 的 ~26 个方法纯透传（零逻辑），会随协议漂移 → 直接暴露 `store` 或让门面 conform `AccountStore` | `SwiftAccount.swift:29-131` |
-| 5 | `deriveSubAccount` 连续两次相同 `findById`（第一次 guard 是死代码） | `AccountManager.swift:177-182` |
-| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` |
-| 7 | 无 `(address, chain)` 唯一索引：预检 + 插入非原子，并发导入同地址会重复入库 | `GRDBAccountStore.swift:23-34` |
-| 8 | 观察流出错时静默 `finish()`，消费方无法感知流死亡 | `GRDBAccountStore.swift:283-284` |
-| 9 | UPDATE 方法不检查影响行数（更新不存在的 id 静默成功，Kotlin Room `@Update` 有行数返回） | `GRDBAccountStore.swift:142-173` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | `importSubAccount` 以 `Keypair(privateKey: "", ...)` 走 `importSingleAccount` → `persistVault` 会 `importPrivateKey(address, Data())` 加密**空私钥**（当前仅因 `VaultRepository.importPrivateKey` 判重短路才没出事）→ 加 `persistKey: Bool` 参数 | `AccountManager.swift:144-164,289` | 未做（待办） |
+| 2 | **`removeAccount` 同名陷阱**：`SwiftAccount.removeAccount(accountId:)` 是裸 store 删除（不验密、不清理 vault），`AccountManager.removeAccount(accountId:password:)` 才是编排删除——同名异构行为，走门面会静默遗留 vault 密钥 | `SwiftAccount.swift:67-69` vs `AccountManager.swift:232-250` | 未做（待办） |
+| 3 | `removeAccount` 双重 Argon2：先 `verifyPassword` 再 `removeAddress` → `ensureUnlocked` → `unlock` 再派生一次 | `AccountManager.swift:237,246` | ✅ 已随性能专项 B-3 改 `unlock` + `removeAddressUnlocked`（单次派生） |
+| 4 | `SwiftAccount` 是 `AccountStore` 的 ~26 个方法纯透传（零逻辑），会随协议漂移 → 直接暴露 `store` 或让门面 conform `AccountStore` | `SwiftAccount.swift:29-131` | 未做（待办） |
+| 5 | `deriveSubAccount` 连续两次相同 `findById`（第一次 guard 是死代码） | `AccountManager.swift:177-182` | 未做（待办） |
+| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` | 未做（待办） |
+| 7 | 无 `(address, chain)` 唯一索引：预检 + 插入非原子，并发导入同地址会重复入库 | `GRDBAccountStore.swift:23-34` | 未做（待办） |
+| 8 | 观察流出错时静默 `finish()`，消费方无法感知流死亡 | `GRDBAccountStore.swift:283-284` | 未做（待办） |
+| 9 | UPDATE 方法不检查影响行数（更新不存在的 id 静默成功，Kotlin Room `@Update` 有行数返回） | `GRDBAccountStore.swift:142-173` | 未做（待办） |
 
 ### SwiftNft
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
 | 1 | **SSRF 守卫不覆盖返回给宿主的 URL**：恶意元数据 `image: "http://192.168.1.1/..."` 会被模块原样交给宿主加载器，宿主若不复检即被 SSRF | `SwiftNft.swift:358-408` | ✅ `resolveRemoteImageUrl` 非 `data:` 返回全部过 `SsrfGuard.check`（`isReturnable`） |
-| 2 | 注入自定义 `URLSession` 时 GET 会**静默跟随重定向**（no-redirect 策略只在默认 client 生效） | `NftHttpClient.swift:39-45` | ⚠️ 部分：**无 request 级开关**（`httpShouldFollowRedirects` 是 `URLSessionConfiguration` 属性，review 建议不可行）——默认 client 靠 `NoRedirectDelegate`（已有）；注入 session 无法库内强制，已强化文档指引（配置 `httpShouldFollowRedirects = false`） |
-| 3 | `removeAll()` 后完成的 fetch 会回填缓存（generation counter 修复） | `NftMetadataImageCache.swift:36-49,60-67` | ✅ 已加 `generation` 计数 + 回归测试 |
+| 2 | 注入自定义 `URLSession` 时 GET 会**静默跟随重定向**（no-redirect 策略只在默认 client 生效） | `NftHttpClient.swift:39-45` | ⚠️ 部分：**无 request 级开关**（`httpShouldFollowRedirects` 是 `URLSessionConfiguration` 属性，review 建议不可行）——默认 client 靠 `RedirectPolicyDelegate` 按方法区分（POST/RPC 跟随、GET 拒绝）；注入 session 无法库内强制，已强化文档指引（配置 `httpShouldFollowRedirects = false`） |
+| 3 | `removeAll()` 后完成的 fetch 会回填缓存（generation counter 修复） | `AsyncMemoCache.swift`（原 `NftMetadataImageCache.swift:36-49,60-67`） | ✅ 已加 `generation` 计数 + 回归测试 |
 | 4 | **`LOWER(ownerAddress)` 使 `swtc_nfts.ownerAddress` 索引失效**（全表扫描）+ 大小写混合写入；`issuer` 无索引 | `GRDBNftStore.swift:147-153,176` | ✅ v2 迁移：旧行 LOWER 归一 + `idx_swtc_nfts_issuer`；写入归一（ownerAddress/issuer）、查询去 `LOWER()` |
 | 5 | `deleteSwtcNftsByOwner` 循环内逐条查询 → N+1 | `GRDBNftStore.swift:213-218` | ✅ 元组 `IN (...)` 一次性批量查 `nft_meta` |
 | 6 | `SELECT *` 拉取可数 MB 的 `fullContent` 列 | `GRDBNftStore.swift` | ✅ `getNftMeta`/批量查询投影所需列（fullContent 为 Optional，缺失列解码为 nil） |
-| 7 | `eth_call` 无记忆化：同一 tokenURI 反复 `fetchRpc` | `EthTokenUriResolver.swift` | 未做（独立功能，建议后续加 LRU + in-flight 去重） |
+| 7 | `eth_call` 无记忆化：同一 tokenURI 反复 `fetchRpc` | `EthTokenUriResolver.swift` | ✅ 已随性能专项 D-1 完成：`SwiftCore.AsyncMemoCache` 记忆化（按 `(chainId, contract, tokenId)` 成功才缓存 + in-flight 去重 + LRU 上限）+ 3 个回归测试 |
 | 8 | SSRF 残余缺口：NAT64 `64:ff9b::/96`、Teredo `2001::/32`、`2001:db8::/32` 文档段未拦截；DNS rebinding TOCTOU 已在注释中承认 | `SsrfGuard.swift:132-162` | ✅ 已拦 `64:ff9b::/96`、`2001:db8::/32`、IPv4 `192.88/16`（6to4 relay）；Teredo（压缩形式难判）与 DNS TOCTOU 保留注释说明 |
 | 9 | `String` 用 `index(_:offsetBy:)` 做随机访问下标（`EthTokenUriResolver.swift:128-134`），O(n²) 且 `offsetBy: range.count` 在超界时可能越界 | `EthTokenUriResolver.swift` | ✅ 改 `dropFirst + prefix`（越界安全） |
 
@@ -260,21 +260,21 @@ if !expirationDate.isEmpty,
 
 ### SwiftWallet
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | `buildSwtcNftTransfer` 解析失败返回 `[:]` 吞错：下游 `SwtcMiddleware` 只注入 Sequence 就签名 → 应 throw 带描述的错误 | `SwiftWallet+WalletSigning.swift:42-51` |
-| 2 | `WalletModels.swift:56` `accounts: [SubWallet] = []` 默认值对合成 `Decodable` 无效，JS 缺 `accounts` 键直接 `keyNotFound` → 自定义 `init(from:)` + `decodeIfPresent ?? []` | `WalletModels.swift:56` |
-| 3 | `SwiftWalletError` 缺 `Sendable`；`buildSwtcNftTransfer` 与类内同名方法仅返回类型不同（易混淆） | `SwiftWallet.swift:239` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | `buildSwtcNftTransfer` 解析失败返回 `[:]` 吞错：下游 `SwtcMiddleware` 只注入 Sequence 就签名 → 应 throw 带描述的错误 | `SwiftWallet+WalletSigning.swift:42-51` | 未做（待办） |
+| 2 | `WalletModels.swift:56` `accounts: [SubWallet] = []` 默认值对合成 `Decodable` 无效，JS 缺 `accounts` 键直接 `keyNotFound` → 自定义 `init(from:)` + `decodeIfPresent ?? []` | `WalletModels.swift:56` | 未做（待办） |
+| 3 | `SwiftWalletError` 缺 `Sendable`；`buildSwtcNftTransfer` 与类内同名方法仅返回类型不同（易混淆） | `SwiftWallet.swift:239` | ✅ Sendable 已补（随 Sendable 批）；同名方法混淆未做（待办） |
 
 ### SwiftWebviewBridge（P1 部分）
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | in-flight `evaluateJavaScript` Task 无追踪、不随超时/`destroy()` 取消：JS 卡死则任务强持 client+runtime 直到进程结束 | `WebviewBridgeClient.swift:109-116` |
-| 2 | `resetReady()` 静默丢弃 ready-waiters → 等待方挂到超时 | `PromiseGateway.swift:102-105` |
-| 3 | `UInt64(timeoutMs * 1_000_000)`：负值/NaN/Infinity → 运行时 trap；亚毫秒截断 | `PromiseGateway.swift:42,75` |
-| 4 | `WebviewBridgeConfig.resourceBundle` 死配置（实际只用 `bundle:` 参数） | `WebviewBridgeConfig.swift:13,20` |
-| 5 | `parseResult` 中 `guard object["result"] != nil` 之后的 `guard let result = object["result"]` 是不可达代码（`{result: null}` 产出 NSNull 非 nil） | `PromiseGateway.swift:145-147` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | in-flight `evaluateJavaScript` Task 无追踪、不随超时/`destroy()` 取消：JS 卡死则任务强持 client+runtime 直到进程结束 | `WebviewBridgeClient.swift:109-116` | 未做（待办） |
+| 2 | `resetReady()` 静默丢弃 ready-waiters → 等待方挂到超时 | `PromiseGateway.swift:102-105` | 未做（待办） |
+| 3 | `UInt64(timeoutMs * 1_000_000)`：负值/NaN/Infinity → 运行时 trap；亚毫秒截断 | `PromiseGateway.swift:42,75` | 未做（待办） |
+| 4 | `WebviewBridgeConfig.resourceBundle` 死配置（实际只用 `bundle:` 参数） | `WebviewBridgeConfig.swift:13,20` | 未做（待办） |
+| 5 | `parseResult` 中 `guard object["result"] != nil` 之后的 `guard let result = object["result"]` 是不可达代码（`{result: null}` 产出 NSNull 非 nil） | `PromiseGateway.swift:145-147` | 未做（待办） |
 
 ---
 
@@ -397,7 +397,7 @@ if !expirationDate.isEmpty,
    result 的二次序列化属语义必需（提取 result 子值），保持。
 3. ✅ **已实现**：每条 console 消息主线程 `NSLog`（`WebviewBridgeClient.swift:304`）→
    包 `#if DEBUG`（release 零日志开销；`allowsConsoleForwarding` 开关仍在）。
-4. `NftMetadataImageCache`（LRU 256 上限 + per-key in-flight 去重）**设计正确，保持**；仅 `removeAll()` 后回填竞态需 generation counter（正确性 P1，非性能）。
+4. ✅ `AsyncMemoCache`（原 `NftMetadataImageCache`，LRU 上限 + per-key in-flight 去重）**设计正确，保持**；`removeAll()` 后回填竞态已用 generation counter 修复（正确性 P1#3，已落地）。
 
 ### F. 待量化（收益需 Instruments 确认）
 
@@ -491,7 +491,7 @@ if !expirationDate.isEmpty,
   SSRF 补 NAT64/6to4/文档段（P1#8）；安全下标（P1#9）。补充细节：网关告警死代码修复、
   `fetchMetadataFields` 日志、`buildCredentialAssetKey` 去 `!`、`canonicalizeHttpIpfsUrl` 剥 `..`、
   `SwtcTokenUriResolver.gateway` 改 `let`。P1#2 部分（注入 session 禁重定向无 request 级 API，
-  文档强化）；P1#7（eth_call 记忆化）未做。+3 回归测试，SwiftNftTests 35/35、目标 132/132 通过。
+  文档强化）。+3 回归测试，SwiftNftTests 35/35、目标 132/132 通过。
 - **SwiftDid 补充批（2025-08-22）**：强制解包改 `map ?? true`；GRDB v2 迁移补
   `did_documents(updatedAt)`/`did_pending(updatedAt)` 索引；`loadPending` 协议/实现改 `DidPending?`
   （调用点与测试断言同步）；`Keccak256`/`ChecksumUtils`/`BridgeDidResolver`/`DidCoreService` 收紧
@@ -617,7 +617,7 @@ if !expirationDate.isEmpty,
 | 类型 | 判定 |
 |---|---|
 | `GRDBAccountStore` / `GRDBDidStore` / `GRDBNftStore` | ✅ 合理（GRDB `DatabasePool` 线程安全）——已补「为什么安全」注释 |
-| `NoRedirectDelegate`（`NftHttpClient.swift:113`） | ✅ 无状态——已补注释 |
+| `RedirectPolicyDelegate`（`NftHttpClient.swift:119`，原 `NoRedirectDelegate`） | ✅ 无状态——已补注释 |
 | `BridgeDidResolver`（`DidResolver.swift:11`） | ✅ 已改 `@MainActor`（隐式 Sendable），**去掉 `@unchecked`** |
 | `ContinuationBox` / `ReadyWaitBox`（`ContinuationBox.swift:6,23`） | ✅ 已修复（P0-2：onCancel 跳主线程 + box 加锁） |
 | `TinkVaultCipher`（`TinkVaultCipher.swift:6`） | ✅ 确认安全：仅供 `VaultRepository` actor 使用，`cachedHandle` 无并发访问——已补注释 |
