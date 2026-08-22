@@ -49,6 +49,7 @@ public final class NftClient: DidNftResolution, Sendable {
     public init(config: SwiftNftConfig) {
         // 网关校验：注入的 ipfsGateway 必须 http/https（normalizedGateway 已保证尾部 `/`）。
         // 非法值回退默认网关，而非 precondition crash 宿主（配置错误不应崩 App）。
+        let originalGateway = config.ipfsGateway
         var resolved = config
         let lower = resolved.ipfsGateway.lowercased()
         if !(lower.hasPrefix("http://") || lower.hasPrefix("https://")) {
@@ -59,7 +60,8 @@ public final class NftClient: DidNftResolution, Sendable {
         self.httpClient = resolved.httpClient
         self.ethTokenUriResolver = resolved.ethTokenUriResolver
         self.swtcTokenUriResolver = resolved.swtcTokenUriResolver
-        if self.ipfsGateway != resolved.ipfsGateway {
+        // 与「原始配置」比较（旧实现对已回退的 resolved 再比较恒 false，告警永不触发）
+        if resolved.ipfsGateway != originalGateway {
             self.logger.warning("SwiftNft: ipfsGateway 非法（非 http/https），已回退默认网关")
         }
     }
@@ -231,9 +233,21 @@ public final class NftClient: DidNftResolution, Sendable {
     public func fetchMetadataFields(_ metadataUri: String) async -> NftMetadataFields {
         guard let normalized = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway),
               let url = URL(string: normalized), SsrfGuard.check(url)
-        else { return .empty }
-        guard let body = try? await self.httpClient.fetchText(url) else { return .empty }
-        return extractMetadataFields(body, metadataUri: normalized, gateway: self.ipfsGateway)
+        else {
+            self.logFailure("fetchMetadataFields guard failed", host: self.hostOf(metadataUri))
+            return .empty
+        }
+        do {
+            guard let body = try await self.httpClient.fetchText(url) else {
+                self.logFailure("fetchMetadataFields empty body", host: self.hostOf(metadataUri))
+                return .empty
+            }
+            return extractMetadataFields(body, metadataUri: normalized, gateway: self.ipfsGateway)
+        } catch {
+            // 与 fetchAndCacheNftMeta 一致：传输错误记日志（review SwiftNft 补充细节）
+            self.logFailure("fetchMetadataFields failed", host: self.hostOf(metadataUri), error: error)
+            return .empty
+        }
     }
 
     public func ensureSwtcCredentialMetadata(_ vc: String) async {
@@ -363,6 +377,16 @@ public final class NftClient: DidNftResolution, Sendable {
 
     // MARK: - 内部：图片解析（对齐 Kotlin resolveRemoteImageUrl 四步）
 
+    /// P1#1：返回给宿主的非 `data:` URL 必须过 SSRF 检查——恶意元数据可注入
+    /// `http://192.168.1.1/...`，模块不拦则宿主加载器直接命中内网（宿主侧仍需自行复检）。
+    private func isReturnable(_ url: String) -> Bool {
+        if url.lowercased().hasPrefix("data:") {
+            return true
+        }
+        guard let parsed = URL(string: url) else { return false }
+        return SsrfGuard.check(parsed)
+    }
+
     private func resolveRemoteImageUrl(_ imageUrl: String?, _ metadataUri: String?) async -> String? {
         let normalizedMetadataUri = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)
 
@@ -381,8 +405,8 @@ public final class NftClient: DidNftResolution, Sendable {
                 if isDataImageUrl(resolved) {
                     return resolved
                 }
-            } else {
-                return resolved
+            } else if self.isReturnable(resolved) {
+                return resolved // P1#1：私网/回环等不可返回
             }
         }
         // 3) metadataUri 本身是图片 URL → 直出（data: 同上，仅放行 data:image/*）
@@ -391,7 +415,7 @@ public final class NftClient: DidNftResolution, Sendable {
                 if isDataImageUrl(normalizedMetadataUri) {
                     return normalizedMetadataUri
                 }
-            } else {
+            } else if self.isReturnable(normalizedMetadataUri) {
                 return normalizedMetadataUri
             }
         }
@@ -409,8 +433,8 @@ public final class NftClient: DidNftResolution, Sendable {
             return isDataImageUrl(metadataImage) ? metadataImage : nil
         }
         if let resolved = normalizeRemoteAssetUrl(metadataImage, baseUrl: normalizedMetadataUri, gateway: self.ipfsGateway),
-           isLoadableRemoteAssetUrl(resolved) {
-            return resolved
+           isLoadableRemoteAssetUrl(resolved), self.isReturnable(resolved) {
+            return resolved // P1#1：非 data: 返回必须过 SSRF
         }
         return nil
     }
@@ -432,15 +456,16 @@ public final class NftClient: DidNftResolution, Sendable {
         if let metadataUri, !metadataUri.isEmpty {
             let normalized = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)?
                 .trimmingCharacters(in: .whitespaces)
-            return "metadata:\(normalized?.isEmpty == false ? normalized! : metadataUri)"
+            return "metadata:\(normalized?.nilIfBlank ?? metadataUri)"
         }
         let imageUrl = request.imageUrl?.trimmingCharacters(in: .whitespaces)
         if let imageUrl, !imageUrl.isEmpty {
             let normalized = normalizeRemoteAssetUrl(imageUrl, baseUrl: request.metadataUri, gateway: self.ipfsGateway)?
                 .trimmingCharacters(in: .whitespaces)
-            return "image:\(normalized?.isEmpty == false ? normalized! : imageUrl)"
+            return "image:\(normalized?.nilIfBlank ?? imageUrl)"
         }
-        return "image:\(trimmed)"
+        // 全字段为空 → 恒定键 "image:"（所有空请求共享同一缓存键；review SwiftNft 补充细节）
+        return "image:"
     }
 
     private static func buildCredentialResolutionKey(_ request: CredentialImageRequest, gateway: String) -> String {

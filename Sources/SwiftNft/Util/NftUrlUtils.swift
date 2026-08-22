@@ -112,7 +112,11 @@ func canonicalizeHttpIpfsUrl(_ rawUrl: String, gateway: String = IpfsResolver.de
     guard let range = parsed.path.range(of: marker, options: .caseInsensitive) else { return nil }
     let ipfsPath = String(parsed.path[range.upperBound...]).trimmingPrefix("/")
     guard !ipfsPath.isEmpty else { return nil }
-    return gateway + ipfsPath
+    // 剥掉 `..` 段（review SwiftNft 补充细节：路径穿越味——`/ipfs/../../etc` 拼接进网关
+    // URL 虽仍在可信网关 host，但属 URL 规范化缺陷；IPFS 路径不含 `..`，剥除安全）。
+    let cleaned = ipfsPath.split(separator: "/").filter { $0 != ".." }.joined(separator: "/")
+    guard !cleaned.isEmpty else { return nil }
+    return gateway + cleaned
 }
 
 func resolveRelativeAssetUrl(_ baseUrl: String?, _ rawValue: String) -> String {

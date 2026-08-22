@@ -110,6 +110,25 @@ final class NftMetadataImageCacheTests: XCTestCase {
         XCTAssertEqual(result, "https://example.com/b.png")
     }
 
+    func testRemoveAllDuringFetchDoesNotRepopulate() async {
+        // review P1#3：fetch 在途时 removeAll()（如切账户）→ 旧结果不得回填新缓存
+        let cache = NftMetadataImageCache()
+        let task = Task { () -> String? in
+            await cache.getOrFetch("https://example.com/meta.json") {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 挂起，让 removeAll 先执行
+                return "stale"
+            }
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await cache.removeAll()
+
+        let result = await task.value
+        XCTAssertEqual(result, "stale", "调用方仍拿到在途结果")
+        // 旧结果未被回填 → 再次 fetch 真正执行
+        let second = await cache.getOrFetch("https://example.com/meta.json") { "fresh" }
+        XCTAssertEqual(second, "fresh", "removeAll 后旧结果未回填，重新拉取")
+    }
+
     func testMaxEntriesEvictsLeastRecentlyUsed() async {
         let cache = NftMetadataImageCache(maxEntries: 2)
         _ = await cache.getOrFetch("https://a.com/1") { "1" }

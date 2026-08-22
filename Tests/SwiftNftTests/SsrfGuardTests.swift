@@ -112,6 +112,18 @@ final class SsrfGuardTests: XCTestCase {
         XCTAssertFalse(self.check("http://[ff02::1]/metadata"))
     }
 
+    func testRejectsNAT64AndDocsAnd6to4Relay() {
+        // review P1#8：NAT64 内嵌私网 IPv4 可绕过 → 拦 64:ff9b::/96
+        XCTAssertFalse(self.check("http://[64:ff9b::7f00:1]/metadata"))
+        XCTAssertFalse(self.check("http://[64:ff9b:1::]/metadata"))
+        // 文档段 2001:db8::/32（非路由）
+        XCTAssertFalse(self.check("http://[2001:db8::1]/metadata"))
+        // IPv4 6to4 relay 192.88.99.0/24（已废弃）
+        XCTAssertFalse(self.check("http://192.88.99.1/metadata"))
+        // 对照：2001:4860（Google DNS）等公网 IPv6 不受影响
+        XCTAssertTrue(self.check("http://[2001:4860:4860::8888]/metadata"))
+    }
+
     // MARK: 测试旁路开关（对齐 Kotlin enabled=false）
 
     func testAllowsAllWhenDisabled() {

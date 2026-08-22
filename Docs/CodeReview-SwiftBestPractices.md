@@ -210,28 +210,28 @@ if !expirationDate.isEmpty,
 
 ### SwiftNft
 
-| # | 问题 | 位置 |
-|---|---|---|
-| 1 | **SSRF 守卫不覆盖返回给宿主的 URL**：恶意元数据 `image: "http://192.168.1.1/..."` 会被模块原样交给宿主加载器，宿主若不复检即被 SSRF | `SwiftNft.swift:358-408` |
-| 2 | 注入自定义 `URLSession` 时 GET 会**静默跟随重定向**（no-redirect 策略只在默认 client 生效）→ 每个请求显式 `httpShouldFollowRedirects = false` | `NftHttpClient.swift:39-45` |
-| 3 | `removeAll()` 后完成的 fetch 会回填缓存（generation counter 修复） | `NftMetadataImageCache.swift:36-49,60-67` |
-| 4 | **`LOWER(ownerAddress)` 使 `swtc_nfts.ownerAddress` 索引失效**（全表扫描）+ 大小写混合写入；`issuer` 无索引 | `GRDBNftStore.swift:147-153,176` |
-| 5 | `deleteSwtcNftsByOwner` 循环内逐条查询 → N+1 | `GRDBNftStore.swift:213-218` |
-| 6 | `SELECT *` 拉取可数 MB 的 `fullContent` 列 | `GRDBNftStore.swift` |
-| 7 | `eth_call` 无记忆化：同一 tokenURI 反复 `fetchRpc` | `EthTokenUriResolver.swift` |
-| 8 | SSRF 残余缺口：NAT64 `64:ff9b::/96`、Teredo `2001::/32`、`2001:db8::/32` 文档段未拦截；DNS rebinding TOCTOU 已在注释中承认 | `SsrfGuard.swift:132-162` |
-| 9 | `String` 用 `index(_:offsetBy:)` 做随机访问下标（`EthTokenUriResolver.swift:128-134`），O(n²) 且 `offsetBy: range.count` 在超界时可能越界 | `EthTokenUriResolver.swift` |
+| # | 问题 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | **SSRF 守卫不覆盖返回给宿主的 URL**：恶意元数据 `image: "http://192.168.1.1/..."` 会被模块原样交给宿主加载器，宿主若不复检即被 SSRF | `SwiftNft.swift:358-408` | ✅ `resolveRemoteImageUrl` 非 `data:` 返回全部过 `SsrfGuard.check`（`isReturnable`） |
+| 2 | 注入自定义 `URLSession` 时 GET 会**静默跟随重定向**（no-redirect 策略只在默认 client 生效） | `NftHttpClient.swift:39-45` | ⚠️ 部分：**无 request 级开关**（`httpShouldFollowRedirects` 是 `URLSessionConfiguration` 属性，review 建议不可行）——默认 client 靠 `NoRedirectDelegate`（已有）；注入 session 无法库内强制，已强化文档指引（配置 `httpShouldFollowRedirects = false`） |
+| 3 | `removeAll()` 后完成的 fetch 会回填缓存（generation counter 修复） | `NftMetadataImageCache.swift:36-49,60-67` | ✅ 已加 `generation` 计数 + 回归测试 |
+| 4 | **`LOWER(ownerAddress)` 使 `swtc_nfts.ownerAddress` 索引失效**（全表扫描）+ 大小写混合写入；`issuer` 无索引 | `GRDBNftStore.swift:147-153,176` | ✅ v2 迁移：旧行 LOWER 归一 + `idx_swtc_nfts_issuer`；写入归一（ownerAddress/issuer）、查询去 `LOWER()` |
+| 5 | `deleteSwtcNftsByOwner` 循环内逐条查询 → N+1 | `GRDBNftStore.swift:213-218` | ✅ 元组 `IN (...)` 一次性批量查 `nft_meta` |
+| 6 | `SELECT *` 拉取可数 MB 的 `fullContent` 列 | `GRDBNftStore.swift` | ✅ `getNftMeta`/批量查询投影所需列（fullContent 为 Optional，缺失列解码为 nil） |
+| 7 | `eth_call` 无记忆化：同一 tokenURI 反复 `fetchRpc` | `EthTokenUriResolver.swift` | 未做（独立功能，建议后续加 LRU + in-flight 去重） |
+| 8 | SSRF 残余缺口：NAT64 `64:ff9b::/96`、Teredo `2001::/32`、`2001:db8::/32` 文档段未拦截；DNS rebinding TOCTOU 已在注释中承认 | `SsrfGuard.swift:132-162` | ✅ 已拦 `64:ff9b::/96`、`2001:db8::/32`、IPv4 `192.88/16`（6to4 relay）；Teredo（压缩形式难判）与 DNS TOCTOU 保留注释说明 |
+| 9 | `String` 用 `index(_:offsetBy:)` 做随机访问下标（`EthTokenUriResolver.swift:128-134`），O(n²) 且 `offsetBy: range.count` 在超界时可能越界 | `EthTokenUriResolver.swift` | ✅ 改 `dropFirst + prefix`（越界安全） |
 
-**SwiftNft 补充细节（第二轮审查新增，均验证）：**
+**SwiftNft 补充细节（第二轮审查新增，均验证；✅ = 已修复）：**
 
-- **SSRF 守卫补充缺口**：NAT64 `64:ff9b::/96` 与 IPv4-translated `::ffff:0:0:0/96` 内嵌私网 IPv4 可绕过（如 `64:ff9b::7f00:1` → 127.0.0.1）；`192.88.99.0/24`（6to4 relay）未拦；建议对最后 32 位为点分四段的 IPv6 按 IPv4 分类 + 显式拦 `64:ff9b::/96` | `SsrfGuard.swift:132-162`
-- `canonicalizeHttpIpfsUrl` 路径穿越味：`https://evil.com/ipfs/../../etc/passwd` → `gateway + "../../etc/passwd"`（仍在可信网关 host 上，非 SSRF，但应剥 `../` 段） | `NftUrlUtils.swift:106-115`
+- ✅ **SSRF 守卫补充缺口**：已拦 `64:ff9b::/96`、`2001:db8::/32`、IPv4 `192.88/16`（6to4 relay）+ 回归测试（对照公网 `2001:4860` 不受影响）；IPv4-translated hex 形态与 Teredo 保留待办（压缩形式判定成本高）
+- ✅ `canonicalizeHttpIpfsUrl` 路径穿越：已剥 `..` 段（IPFS 路径不含 `..`，剥除安全）+ 回归测试 | `NftUrlUtils.swift:106-115`
 - `data:image/svg+xml` 放行：注释已警告 SVG 可含脚本——宿主必须用 `UIImage/CGImage` 渲染、禁止 `WKWebView`（建议在 API 文档显式声明） | `NftUrlUtils.swift:37-40`
-- **`SwtcTokenUriResolver.gateway` 是 `public var`**（`Sendable` struct 上可变，但无人写）→ 改 `let`；且其 init 只做尾斜杠归一化、缺 http(s) scheme 校验（与 `SwiftNft.swift:47-51` 不一致） | `SwtcTokenUriResolver.swift:18,30`
-- 死代码：`SwiftNft.swift:53` 的非法网关告警永远不触发（`self.ipfsGateway = resolved.ipfsGateway` 后再比较 `self.ipfsGateway != resolved.ipfsGateway` 恒 false）→ 与原始 `config.ipfsGateway` 比较
-- `fetchMetadataFields` 静默返回 `.empty` 且无日志（与 `fetchAndCacheNftMeta` 的 `logFailure` 不一致）| `SwiftNft.swift:224-230`
-- `resolveEthrAvatar` 无 `chainId` 时 `?? 0` → `"0x0"` 查库 + `getRpcNode(0)`（应视为 unknown 跳过 DB 查询）；VC issuer 大小写未归一化导致 `nft_meta` 精确匹配落空 | `SwiftNft.swift:148,165-169`、`GRDBNftStore.swift:122-127`
-- `buildCredentialAssetKey` 末尾 `return "image:\(trimmed)"` 仅在全部字段为空时可达 → 恒定键 `"image:"`；`:427/433` 的 `normalized!` 安全但应改 `??` | `SwiftNft.swift:412-436`
+- ✅ **`SwtcTokenUriResolver.gateway`** 已改 `let`（init 缺 http(s) scheme 校验的缺口保留：门面 `SwiftNft.init` 已兜底回退，见下条）
+- ✅ 死代码：`SwiftNft.swift` 非法网关告警已改为与原始 `config.ipfsGateway` 比较，回退时正确触发
+- ✅ `fetchMetadataFields` 已补 `logFailure`（guard / 空体 / 传输错误三路）
+- `resolveEthrAvatar` 无 `chainId` 时 `?? 0` → `"0x0"` 查库 + `getRpcNode(0)`（应视为 unknown 跳过 DB 查询）；VC issuer 大小写未归一化导致 `nft_meta` 精确匹配落空 | `SwiftNft.swift:148,165-169`、`GRDBNftStore.swift:122-127`（issuer 写入已随 P1#4 归一，落空风险已消）
+- ✅ `buildCredentialAssetKey`：`normalized!` 改 `nilIfBlank ??`，死尾显式 `"image:"`
 - `ValueObservation` 无 `distinctUntilChanged` 每次写都重发；`AsyncStream` 默认无界缓冲；观察出错静默 `finish()` 无日志 | `GRDBNftStore.swift:392-406`
 - `getaddrinfo`（阻塞系统调用）在协作线程池内同步执行且每次 fetch 检查两次（facade + `ssrfAllowed`）；`NftHttpClient` 默认 client 持有两个 `URLSession` 实例（GET no-redirect + RPC follow-redirect）| `SsrfGuard.swift:38-58`、`NftHttpClient.swift:47-56`
 - 命名：`Url`→`URL`（`normalizeRemoteAssetUrl`/`isLoadableRemoteAssetUrl`/`resolveRemoteImageUrl` 等 10+ 处）、`get*` 前缀（`getNftMeta`/`getSwtcNftByIssuerAndTokenId`）、`observe*` vs `getNftCollectionsFlow` 不一致、`decodeHexToUtf8`/`optString` org.json 风格 | `NftUrlUtils.swift`、`NftStore.swift:14-40`
@@ -409,6 +409,13 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **SwiftNft P1 批（2025-08-22）**：返回宿主 URL 过 SSRF（P1#1）；缓存 `removeAll` 期间回填用
+  generation 计数拦截（P1#3）；swtc_nfts 写入归一 + v2 迁移 `issuer` 索引 + 查询去 LOWER（P1#4）；
+  `deleteSwtcNftsByOwner` 批量查 nft_meta（P1#5）；`getNftMeta`/批量查询投影去 fullContent（P1#6）；
+  SSRF 补 NAT64/6to4/文档段（P1#8）；安全下标（P1#9）。补充细节：网关告警死代码修复、
+  `fetchMetadataFields` 日志、`buildCredentialAssetKey` 去 `!`、`canonicalizeHttpIpfsUrl` 剥 `..`、
+  `SwtcTokenUriResolver.gateway` 改 `let`。P1#2 部分（注入 session 禁重定向无 request 级 API，
+  文档强化）；P1#7（eth_call 记忆化）未做。+3 回归测试，SwiftNftTests 35/35、目标 132/132 通过。
 - **SwiftDid 补充批（2025-08-22）**：强制解包改 `map ?? true`；GRDB v2 迁移补
   `did_documents(updatedAt)`/`did_pending(updatedAt)` 索引；`loadPending` 协议/实现改 `DidPending?`
   （调用点与测试断言同步）；`Keccak256`/`ChecksumUtils`/`BridgeDidResolver`/`DidCoreService` 收紧

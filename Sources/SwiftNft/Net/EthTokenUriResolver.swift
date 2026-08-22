@@ -124,9 +124,8 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
 
 private extension String {
     /// 十六进制子串索引（Swift 移植用，避免逐字符偏移样板）。
+    /// 用 dropFirst/prefix 实现：越界安全（旧 index(offsetBy:) 超界会 trap，见 review P1#9）。
     subscript(range: Range<Int>) -> Substring {
-        let start = index(startIndex, offsetBy: range.lowerBound)
-        let end = index(start, offsetBy: range.count)
-        return self[start ..< end]
+        dropFirst(range.lowerBound).prefix(range.count)
     }
 }

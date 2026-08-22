@@ -30,6 +30,14 @@ final class NftUrlUtilsTests: XCTestCase {
         )
     }
 
+    func testCanonicalizeHttpIpfsStripsDotDotSegments() {
+        // review SwiftNft 补充细节：`/ipfs/../../etc` 剥掉 `..` 段，不拼接进网关 URL
+        XCTAssertEqual(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/QmFoo/a.png"), "\(self.defaultGateway)QmFoo/a.png")
+        XCTAssertEqual(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/../../etc/passwd"), "\(self.defaultGateway)etc/passwd")
+        XCTAssertNil(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/../.."), "剥完为空 → nil")
+        XCTAssertNil(canonicalizeHttpIpfsUrl("https://evil.com/other/../x.png"), "非 /ipfs/ 路径 → nil")
+    }
+
     func testNormalizeRelativePathAgainstMetadataUrl() {
         XCTAssertEqual(
             normalizeRemoteAssetUrl("assets/avatar.png", baseUrl: "https://example.com/meta.json"),

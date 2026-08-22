@@ -116,6 +116,12 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                 t.primaryKey(["chainId", "ownerAddress", "contractAddress"])
             }
         }
+        // v2（review P1#4）：swtc_nfts 旧行统一小写（新写入在 upsertSwtcNfts 归一），
+        // 查询去掉 LOWER() 使 ownerAddress 索引生效；issuer 补索引（getSwtcNftByIssuerAndTokenId 用）。
+        migrator.registerMigration("v2") { db in
+            try db.execute(sql: "UPDATE swtc_nfts SET ownerAddress = LOWER(ownerAddress), issuer = LOWER(issuer)")
+            try db.create(index: "idx_swtc_nfts_issuer", on: "swtc_nfts", columns: ["issuer"])
+        }
         try migrator.migrate(database)
     }
 
@@ -123,7 +129,8 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
 
     public func getNftMeta(contract: String, tokenId: String) async throws -> NftMeta? {
         try await self.database.read { db in
-            try NftMeta.fetchOne(db, sql: "SELECT * FROM nft_meta WHERE contract = ? AND tokenId = ? LIMIT 1",
+            // 头像解析只需 name/image/tokenUri：投影去掉可能达 2 MiB 的 fullContent（review P1#6）
+            try NftMeta.fetchOne(db, sql: "SELECT contract, tokenId, name, image, tokenUri, updatedAt FROM nft_meta WHERE contract = ? AND tokenId = ? LIMIT 1",
                                  arguments: [contract, tokenId])
         }
     }
@@ -150,7 +157,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         let observation = ValueObservation.tracking { db in
             try SwtcNftEntity.fetchAll(
                 db,
-                sql: "SELECT * FROM swtc_nfts WHERE LOWER(ownerAddress) = ? ORDER BY time DESC",
+                sql: "SELECT * FROM swtc_nfts WHERE ownerAddress = ? ORDER BY time DESC",
                 arguments: [ownerAddress.lowercased()]
             )
         }
@@ -175,8 +182,8 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                         block = excluded.block, inservice = excluded.inservice, ledgerIndex = excluded.ledgerIndex,
                         lastUpdateTime = excluded.lastUpdateTime
                     """,
-                    arguments: [entity.ownerAddress, entity.tokenId, entity.fundCode, entity.fundCodeName,
-                                entity.issuer, entity.tokenOwner, entity.tokenSender, entity.flags, entity.tokenInfos,
+                    arguments: [entity.ownerAddress.lowercased(), entity.tokenId, entity.fundCode, entity.fundCodeName,
+                                entity.issuer.lowercased(), entity.tokenOwner, entity.tokenSender, entity.flags, entity.tokenInfos,
                                 entity.metadataUri, entity.image, entity.name, entity.description, entity.time,
                                 entity.hash, entity.block, entity.inservice, entity.ledgerIndex, entity.lastUpdateTime]
                 )
@@ -188,7 +195,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         try await self.database.read { db in
             try SwtcNftEntity.fetchOne(
                 db,
-                sql: "SELECT * FROM swtc_nfts WHERE LOWER(issuer) = ? AND tokenId = ? LIMIT 1",
+                sql: "SELECT * FROM swtc_nfts WHERE issuer = ? AND tokenId = ? LIMIT 1",
                 arguments: [issuer.lowercased(), tokenId]
             )
         }
@@ -198,26 +205,35 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         try await self.database.read { db in
             try SwtcNftEntity.fetchOne(
                 db,
-                sql: "SELECT * FROM swtc_nfts WHERE LOWER(ownerAddress) = ? AND tokenId = ? LIMIT 1",
+                sql: "SELECT * FROM swtc_nfts WHERE ownerAddress = ? AND tokenId = ? LIMIT 1",
                 arguments: [ownerAddress.lowercased(), tokenId]
             )
         }
     }
 
     public func deleteSwtcNftsByOwner(ownerAddress: String) async throws {
+        let owner = ownerAddress.lowercased() // v2 起写入已小写，查询不再 LOWER()
         try await self.database.write { db in
             // preserveSwtcEntityAsMeta：有 metadataUri 的行写进 nft_meta，避免头像元数据随持仓删除丢失。
             let rows = try SwtcNftEntity.fetchAll(
                 db,
-                sql: "SELECT * FROM swtc_nfts WHERE LOWER(ownerAddress) = ?",
-                arguments: [ownerAddress.lowercased()]
+                sql: "SELECT * FROM swtc_nfts WHERE ownerAddress = ?",
+                arguments: [owner]
             )
-            for entity in rows where !isBlank(entity.metadataUri) {
-                let existing = try NftMeta.fetchOne(
+            // P1#5：一次性批量查 nft_meta（原实现逐行查询 = N+1）
+            let toPreserve = rows.filter { !isBlank($0.metadataUri) }
+            var existingByKey: [String: NftMeta] = [:]
+            if !toPreserve.isEmpty {
+                let tuplePlaceholders = Array(repeating: "(?, ?)", count: toPreserve.count).joined(separator: ",")
+                let metas = try NftMeta.fetchAll(
                     db,
-                    sql: "SELECT * FROM nft_meta WHERE contract = ? AND tokenId = ? LIMIT 1",
-                    arguments: [entity.issuer, entity.tokenId]
+                    sql: "SELECT contract, tokenId, image, fullContent FROM nft_meta WHERE (contract, tokenId) IN (\(tuplePlaceholders))",
+                    arguments: StatementArguments(toPreserve.flatMap { [$0.issuer, $0.tokenId] })
                 )
+                existingByKey = Dictionary(uniqueKeysWithValues: metas.map { ("\($0.contract)|\($0.tokenId)", $0) })
+            }
+            for entity in toPreserve {
+                let existing = existingByKey["\(entity.issuer)|\(entity.tokenId)"]
                 if !isBlank(existing?.image) {
                     continue
                 }
@@ -236,8 +252,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
                                 Int64(Date().timeIntervalSince1970 * 1000)]
                 )
             }
-            try db.execute(sql: "DELETE FROM swtc_nfts WHERE LOWER(ownerAddress) = ?",
-                           arguments: [ownerAddress.lowercased()])
+            try db.execute(sql: "DELETE FROM swtc_nfts WHERE ownerAddress = ?", arguments: [owner])
         }
     }
 

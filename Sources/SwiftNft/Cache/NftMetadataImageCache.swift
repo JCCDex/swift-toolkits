@@ -13,6 +13,8 @@ public actor NftMetadataImageCache {
     private var inflight: [String: Task<String?, Never>] = [:]
     private var accessOrder: [String] = [] // 插入序/访问序，配合 maxEntries 做简单 LRU 淘汰
     private let maxEntries: Int
+    /// P1#3：`removeAll()` 递增代号；fetch 完成时若代号已变（期间清过缓存）则不回写。
+    private var generation = 0
 
     public init(maxEntries: Int = 256) {
         self.maxEntries = maxEntries
@@ -33,11 +35,14 @@ public actor NftMetadataImageCache {
             return await task.value
         }
 
+        let generation = self.generation
         let task = Task { await fetch() }
         self.inflight[key] = task
         defer { inflight[key] = nil }
 
         let result = await task.value
+        // P1#3：removeAll()（如切账户）期间完成的旧 fetch 不得回填新缓存
+        guard generation == self.generation else { return result }
         if let result {
             self.resolvedByMetadataUrl[key] = result
             self.accessOrder.append(key)
@@ -58,6 +63,7 @@ public actor NftMetadataImageCache {
     }
 
     public func removeAll() {
+        self.generation += 1
         for task in self.inflight.values {
             task.cancel()
         }

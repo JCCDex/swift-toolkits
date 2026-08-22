@@ -104,6 +104,9 @@ enum SsrfGuard {
         if a == 192, b == 168 {
             return true
         } // 私网 192.168/16
+        if a == 192, b == 88 {
+            return true
+        } // 6to4 relay 192.88.99.0/24（已废弃，见 review P1#8）
         if a == 198, b == 18 || b == 19 {
             return true
         } // 基准测试 198.18.0.0/15
@@ -145,6 +148,13 @@ enum SsrfGuard {
                 return self.isBlockedIPv4(rest)
             }
         }
+        // P1#8 补充（保守前缀段拦截，压缩/非压缩形式均覆盖）：
+        if lower.hasPrefix("64:ff9b:") {
+            return true
+        } // NAT64 64:ff9b::/96（内嵌私网 IPv4 可借此绕过）
+        if lower.hasPrefix("2001:db8:") {
+            return true
+        } // 文档段 2001:db8::/32（非路由）
         // 首个 hextet 判定前缀段
         if let firstHextet = lower.split(separator: ":").first, let value = Int(firstHextet, radix: 16) {
             if value >= 0xFE80, value <= 0xFEBF {

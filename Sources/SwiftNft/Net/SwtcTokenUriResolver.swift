@@ -15,7 +15,9 @@ public protocol ISwtcTokenUriResolver: Sendable {
 ///   `instanceFollowRedirects = true`，RPC 节点可信；SsrfGuard 建连检查与响应体上限由客户端统一）；
 /// - 网关 `gateway` 供 ipfs→网关重写（SWTC 元数据 URI 常为 ipfs://）。
 public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
-    public var gateway: String // ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway
+    /// ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway。
+    /// `let`（原为 `var` 但无人改写，见 review SwiftNft 补充细节）。
+    public let gateway: String
 
     private let getRpcNode: SwtcRpcNodeProvider
     private let httpClient: any NftHttpClient
