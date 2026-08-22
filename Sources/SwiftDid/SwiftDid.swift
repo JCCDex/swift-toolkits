@@ -9,8 +9,7 @@ import SwiftWebviewBridge
 //
 // `Nft` / `NftMetadataFields` / `CredentialImageRequest` / `ResolvedCredentialImage` / `DidAvatarAsset` /
 // `IEthTokenUriResolver` / `NftMeta` / `DidNftResolution` 已迁入 SwiftNft，本模块经 `import SwiftNft`
-// **直接使用非限定名**（`SwiftNft.Nft` 限定拼写不可用——模块名与门面类同名 `SwiftNft.SwiftNft`，
-// 类型位置会解析到类；消费者 `import SwiftNft` 后用 `Nft` 即可，行为与 typealias 等价）。
+// 使用非限定名（门面类已更名 `NftClient`，不再遮蔽模块名，`SwiftNft.Nft` 限定拼写亦可用）。
 
 // MARK: - 宿主注入点（对齐 Kotlin port 层 IDidAvatarResolver / IDidAvatarCredentialSource）
 

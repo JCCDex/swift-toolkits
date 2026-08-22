@@ -409,6 +409,9 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **命名批（2025-08-22）**：`SwiftNft` 门面类更名为 `NftClient`，消除「模块名=类名」对
+  `SwiftNft.Nft` 等限定引用的遮蔽（架构观察 #4；测试 3 处 + 演示 1 处实例化同步更新，
+  `SwiftDid.swift:9-13` 规避注释删除）。⚠️ SwiftDid 同名隐患未触发、未改（见四 #4 说明）。
 - **地址/checksum 批（2025-08-22）**：SwiftCore 新增 `String.addressEquals`/`normalizedAddress`，
   SwiftVault 补 SwiftCore 依赖，`VaultRepository`/`VaultModels.matches`/`EthMiddleware` ×3 统一到
   共享实现（架构观察 #2 比较层收敛，存储层 GRDB `LOWER()` 留待 C-1）；
@@ -530,7 +533,14 @@ if !expirationDate.isEmpty,
    待 GRDB 表达式索引一并处理）；`WebOrigin.normalize` 是 URL origin 归一（scheme/host/端口），
    与链上地址语义无关，本就该独立保留。
 3. **桥抽象半途而废**：`EngineBridge`（`@MainActor` 协议）被 SwiftWallet/SwiftDid/WebviewBridge 三方共享，但 `SwiftDid.start()` 只对具体类型 `WebviewBridgeEngine` 调 `start()`（`SwiftDid.swift:66-68`），协议没有 `start` 需求——要么协议补 `start`，要么移除对具体类型的依赖。
-4. **模块名=类名冲突**：`SwiftNft` 模块名与门面类 `SwiftNft.SwiftNft` 同名（`SwiftDid.swift:12-13` 注释已自认）——`import SwiftNft` 后类型位置会解析到类，`SwiftNft.Nft` 限定拼写不可用。属命名债务，建议门面类改名（如 `NftClient`）。
+4. ✅ **模块名=类名冲突（已修复）**：`SwiftNft` 门面类更名为 `NftClient`——实测「模块与类同名时
+   `ModA.Other` 限定引用失败（'Other' is not a member type of class）」，类会遮蔽模块名；
+   改名后 `SwiftNft.Nft` 限定拼写恢复可用，`SwiftDid.swift:9-13` 的规避注释已删除。
+   ⚠️ **SwiftWallet / SwiftDid 存在同样的潜伏同名**（模块 `SwiftWallet`/`SwiftDid` + 门面类同名），
+   但从未被触发：宿主/演示只用门面类本身（`SwiftWallet()` / `SwiftDid(...)` / 类静态成员
+   `SwiftWallet.shared`），无任何 `SwiftWallet.<其他类型>` / `SwiftDid.<其他类型>` 模块限定引用
+   （遮蔽只在「需要模块限定引用其他类型」时生效）。如需彻底消除，可将门面类更名
+   （SwiftDid 门面为模块主 API，属破坏性变更，建议与命名批一并评估）。
 
 ## 五、第二轮结论
 

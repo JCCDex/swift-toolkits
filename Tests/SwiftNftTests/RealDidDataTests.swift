@@ -19,7 +19,7 @@ final class RealDidDataTests: XCTestCase {
     private var http: FakeNftHttpClient!
     private var swtc: FakeSwtcTokenUriResolver!
     private var resolver: FakeEthTokenUriResolver!
-    private var sdk: SwiftNft!
+    private var sdk: NftClient!
 
     private let gateway = "https://ipfs.jccdex.cn/ipfs/"
 
@@ -39,7 +39,7 @@ final class RealDidDataTests: XCTestCase {
         self.http = FakeNftHttpClient()
         self.swtc = FakeSwtcTokenUriResolver()
         self.resolver = FakeEthTokenUriResolver()
-        self.sdk = SwiftNft(config: SwiftNftConfig(
+        self.sdk = NftClient(config: SwiftNftConfig(
             store: self.store,
             httpClient: self.http,
             ethTokenUriResolver: self.resolver,

@@ -2,10 +2,10 @@ import Foundation
 
 /// 持仓/元数据存储（对齐 Kotlin `NftStore` 方法面）。
 ///
-/// 显式偏离（见 Nft-Swift 02 §5）：解析/编排逻辑（resolveSwtcAvatar 等）归属 SwiftNft 门面，
+/// 显式偏离（见 Nft-Swift 02 §5）：解析/编排逻辑（resolveSwtcAvatar 等）归属 NftClient 门面，
 /// 本协议保持**纯存储、可替换**——宿主自实现存储时无需连带实现解析。
 ///
-/// `Sendable`（Swift 6 严格并发）：`SwiftNft: Sendable` / `SwiftNftConfig: Sendable` 持有
+/// `Sendable`（Swift 6 严格并发）：`NftClient: Sendable` / `SwiftNftConfig: Sendable` 持有
 /// `any NftStore`，协议必须 Sendable（GRDB 实现基于线程安全的 DatabasePool，标 `@unchecked Sendable`）。
 public protocol NftStore: AnyObject, Sendable {
 

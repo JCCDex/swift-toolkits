@@ -12,7 +12,7 @@ final class SwiftNftTests: XCTestCase {
     private var http: FakeNftHttpClient!
     private var swtc: FakeSwtcTokenUriResolver!
     private var resolver: FakeEthTokenUriResolver!
-    private var sdk: SwiftNft!
+    private var sdk: NftClient!
 
     private let gateway = "https://ipfs.jccdex.cn/ipfs/"
 
@@ -23,7 +23,7 @@ final class SwiftNftTests: XCTestCase {
         self.http = FakeNftHttpClient()
         self.swtc = FakeSwtcTokenUriResolver()
         self.resolver = FakeEthTokenUriResolver()
-        self.sdk = SwiftNft(config: SwiftNftConfig(
+        self.sdk = NftClient(config: SwiftNftConfig(
             store: self.store,
             httpClient: self.http,
             ethTokenUriResolver: self.resolver,
@@ -375,7 +375,7 @@ final class SwiftNftTests: XCTestCase {
 
     func testExtractSwtcMetadataUriUsesInjectedGateway() {
         // 网关贯穿：SWTC 元数据 URI 的 ipfs→网关重写必须用注入网关（04 坑 #9⑥）；无尾斜杠也应规范化。
-        let custom = SwiftNft(config: SwiftNftConfig(
+        let custom = NftClient(config: SwiftNftConfig(
             store: self.store,
             ipfsGateway: "https://gateway.example.com/ipfs",
             httpClient: self.http,

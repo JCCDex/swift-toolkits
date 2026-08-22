@@ -26,11 +26,16 @@ public protocol DidNftResolution: AnyObject, Sendable {
     func ensureSwtcCredentialMetadata(_ vc: String) async
 }
 
-// MARK: - SwiftNft 门面（镜像 Kotlin NftSdk 14 方法）
+// MARK: - NftClient 门面（镜像 Kotlin NftSdk 14 方法）
+
+//
+// 类名取 `NftClient` 而非 `SwiftNft`：模块 SwiftNft + 类 SwiftNft 同名会让
+// `SwiftNft.Nft` 这类**模块限定**引用解析到类（实测 `'Nft' is not a member type of class`），
+// 见 review 四、架构层观察 #4；改名后模块名不再被遮蔽。
 
 /// 门面：自由线程（非 @MainActor，对齐 `DidNftResolution` 协议缝）。
 /// 解析/编排逻辑在此（Kotlin 在 NftStore 内实现；Swift 让 NftStore 保持纯存储，见 02 §5）。
-public final class SwiftNft: DidNftResolution, Sendable {
+public final class NftClient: DidNftResolution, Sendable {
     // 配置拆为成员变量（不持有 SwiftNftConfig 单一对象）：
     private let store: any NftStore
     private let ipfsGateway: String // 贯穿所有 ipfs→网关重写（normalizedGateway 已保证尾部 `/`）
