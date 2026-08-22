@@ -164,6 +164,11 @@ final class PromiseGateway {
            let text = String(data: data, encoding: .utf8) {
             return .success(text)
         }
+        // 兜底：NSNumber 用 stringValue（固定格式，与 locale 无关——`String(describing:)` 会随
+        // locale 变小数点/分组，见 review F-3）。
+        if let number = result as? NSNumber {
+            return .success(number.stringValue)
+        }
         return .success(String(describing: result))
     }
 }

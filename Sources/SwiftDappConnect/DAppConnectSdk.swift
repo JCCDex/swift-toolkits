@@ -176,13 +176,14 @@ public enum DAppConnectSdk {
     """
 
     /// JS 字符串字面量转义（WebAppInterface 复用；两处原各有一份私有实现，见跨模块重复 2.1）。
+    /// 用 `JSONEncoder` + `.withoutEscapingSlashes` 单次序列化取代手写 4 次 `replacingOccurrences`
+    /// 全串拷贝（JSON 字符串转义是 JS 字符串字面量转义的超集；不转义 `/` 保留 URL 原文，
+    /// 见 review F-1；`JSONSerialization` 会把 `/` 转成 `\/`，不可用）。
     static func jsQuote(_ s: String) -> String {
-        let escaped = s
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-        return "\"\(escaped)\""
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = try! encoder.encode(s)
+        return String(data: data, encoding: .utf8)!
     }
 }
 

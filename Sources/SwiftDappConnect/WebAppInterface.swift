@@ -657,9 +657,12 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     }
 
     private func swtcNftJson(_ result: SwtcNftResult) -> [String: Any] {
+        // 容量预分配（review F-2：逐条构建不可避免，预分配避免 rehash）
         var nfts: [[String: Any]] = []
+        nfts.reserveCapacity(result.nfts.count)
         for item in result.nfts {
             var dict: [String: Any] = [:]
+            dict.reserveCapacity(5)
             item.image.map { dict["image"] = $0 }
             item.issuer.map { dict["issuer"] = $0 }
             item.fundCodeName.map { dict["fundCodeName"] = $0 }
@@ -671,10 +674,13 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     }
 
     private func ethNftJson(_ result: EvmNftResult, defaultChainIdHex: String) -> [String: Any] {
+        // 容量预分配（review F-2）
         var groups: [[String: Any]] = []
+        groups.reserveCapacity(result.nfts.count)
         for group in result.nfts {
             let firstToken = group.tokens.first
             var tokens: [[String: Any]] = []
+            tokens.reserveCapacity(group.tokens.count)
             for token in group.tokens {
                 var dict: [String: Any] = [
                     "tokenId": token.tokenId,

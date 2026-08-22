@@ -401,9 +401,14 @@ if !expirationDate.isEmpty,
 
 ### F. 待量化（收益需 Instruments 确认）
 
-- 主线程 `deliver` 的 JSON 序列化 + `jsQuote` 双程全串拷贝（`WebAppInterface.swift:182-198`）
-- `swtcNftJson`/`ethNftJson` 逐条 `[String: Any]` 构建（`WebAppInterface.swift:630-671`）
-- `String(describing: result)` 兜底序列化（`PromiseGateway.swift:156`，NSNumber 时与 locale 相关）
+- ✅ **已优化**：主线程 `deliver` 的 `jsQuote` 双程全串拷贝（`WebAppInterface.swift:182-198`）——
+  `DAppConnectSdk.jsQuote` 改 `JSONSerialization` fragmentsAllowed 单次序列化（JSON 字符串转义
+  是 JS 字面量转义的超集，消除 4 次 `replacingOccurrences` 全串拷贝）。
+- ✅ **已优化**：`swtcNftJson`/`ethNftJson` 逐条 `[String: Any]` 构建（`WebAppInterface.swift:630-671`）——
+  响应结构构造不可避免，`reserveCapacity` 预分配避免 rehash。
+- ✅ **已优化**：`String(describing: result)` 兜底序列化（`PromiseGateway.swift:156`）——
+  兜底分支先取 `NSNumber.stringValue`（固定格式，与 locale 无关；`String(describing:)` 会随
+  locale 变小数点/分组，保留为最后手段）。
 
 ---
 
