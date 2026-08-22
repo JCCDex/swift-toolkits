@@ -365,11 +365,23 @@ if !expirationDate.isEmpty,
 
 ### D. 网络
 
-1. **`eth_call` 无记忆化**：`EthTokenUriResolver.resolveEthrTokenUri`（`EthTokenUriResolver.swift:33-37`）每次发 `fetchRpc`，`SwiftNft.resolveEthrAvatar` 缺 tokenUri 时重复调用（`SwiftNft.swift:154-156,170-172`）→ 按 `(chainId, contract, tokenId)` 加小 LRU + in-flight 去重（复用 `NftMetadataImageCache` 模式）。
-2. **双 IPFS 归一化**：`EthTokenUriResolver.normalizeTokenMetadataUri` 用默认网关（`EthTokenUriResolver.swift:99-102`），门面再按配置网关归一一次（`SwiftNft.swift:498-501`）→ 给前者加 `gateway` 参数，单次归一。
+1. ✅ **已实现**：`eth_call` 无记忆化——`EthTokenUriResolver` 复用 `SwiftCore.AsyncMemoCache`
+   （原 `NftMetadataImageCache` 并入 SwiftCore 通用化：按 key 只缓存成功结果 + per-key
+   in-flight 去重 + LRU 上限 + generation 防旧回写；图片缓存与 eth_call 缓存共用同一实现，
+   `TokenUriCache` 重复实现已删）；`resolveEthrAvatar` 缺 tokenUri 的重复调用第二次起
+   本地命中，不再发 `fetchRpc`。+3 回归测试（并发去重 / 失败不缓存 / 注入 gateway）。
+2. ✅ **已实现**：双 IPFS 归一化——`EthTokenUriResolver.normalizeTokenMetadataUri` 加
+   `gateway` 参数（init 注入 `gateway`，内部归一单点化）；门面 `resolveEthrTokenUri`
+   保留按配置 gateway 的兜底归一（resolver 若漏过 ipfs:// 或 http `/ipfs/` 路径强制换
+   配置网关；宿主注入 resolver 时建议 gateway 与 `SwiftNftConfig.ipfsGateway` 一致）。
 3. ✅ **已实现**：VC 逐字段重复 JSON 解析——`SwiftNft` 三处调用点（`resolveSwtcAvatar`/`resolveEthrAvatar`/`ensureSwtcCredentialMetadata`）改为 `parseVc` 解析一次 + `Json.readString(root, ..., default:)` 取字段（原每字段重新 `JSONSerialization`，`SwiftNft.swift:100-104` 调 4 次、`:146-149` 调 3 次）。
-4. **`getaddrinfo` 阻塞系统调用在协作线程池**（`SsrfGuard.swift:38-58`）且每次 fetch 双次 SSRF 检查（`NftHttpClient.swift:69,79` + 门面 `SwiftNft.swift:193,226,300,394`）→ 并发增长时移出线程池；检查收敛为单点。
-5. **默认 client 持有两个 `URLSession` 实例**（`NftHttpClient.swift:47-56`：no-redirect + RPC 各一）→ 跨门面/实例复用 session（配置可共享）。
+4. ✅ **已实现（部分）**：`getaddrinfo` 阻塞系统调用在协作线程池（`SsrfGuard.swift:38-58`）——
+   `fetchRpc` 已移除 SsrfGuard 建连检查（RPC 属宿主注入信任面）；GET 拉取的 SsrfGuard
+   DNS 解析阻塞保留（并发增长时再评估移出线程池）；「facade 缓存门 + client 建连门」
+   双次检查属纵深防御、开销可接受（记录在案）。
+5. ✅ **已实现**：默认 client 持有两个 `URLSession` 实例——已合并为单 session +
+   `RedirectPolicyDelegate` 按请求方法区分策略（POST/RPC 跟随、GET 拒绝），见 SwiftNft
+   补充细节/命名批。
 6. ✅ **已实现**：`loadProviderJs` 每次调用重读 bundle 资源 + 全文件 `replacingOccurrences`
    （`DAppConnectSdk.swift:82-83`）→ 模板改 `static let` 缓存，仅替换 token。
 

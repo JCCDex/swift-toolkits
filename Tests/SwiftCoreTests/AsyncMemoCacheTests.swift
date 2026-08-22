@@ -1,9 +1,9 @@
-@testable import SwiftNft
+import SwiftCore
 import XCTest
 
-final class NftMetadataImageCacheTests: XCTestCase {
+final class AsyncMemoCacheTests: XCTestCase {
     func testSuccessIsMemoized() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let counter = LockedCounter()
 
         let first = await cache.getOrFetch("https://example.com/meta.json") {
@@ -21,7 +21,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testFailureIsNotCachedAndRetried() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let counter = LockedCounter()
 
         let first = await cache.getOrFetch("https://example.com/meta.json") {
@@ -39,7 +39,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testConcurrentSameKeyFetchesOnce() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let counter = LockedCounter()
 
         // 并发 N 个同 key 调用共享同一次 fetch（Swift 对 Kotlin per-key Mutex 的显式偏离，见 02 §7）
@@ -65,7 +65,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testConcurrentFailureSharedSingleFetch() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let counter = LockedCounter()
 
         let results = await withTaskGroup(of: String?.self) { group in
@@ -90,7 +90,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testBlankKeyReturnsNilWithoutFetch() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let counter = LockedCounter()
         let result = await cache.getOrFetch("   ") {
             counter.increment()
@@ -101,7 +101,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testRemoveAllClearsMemoryAndCancelsInflight() async {
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         _ = await cache.getOrFetch("https://example.com/meta.json") { "https://example.com/a.png" }
         await cache.removeAll()
 
@@ -112,7 +112,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
 
     func testRemoveAllDuringFetchDoesNotRepopulate() async {
         // review P1#3：fetch 在途时 removeAll()（如切账户）→ 旧结果不得回填新缓存
-        let cache = NftMetadataImageCache()
+        let cache = AsyncMemoCache()
         let task = Task { () -> String? in
             await cache.getOrFetch("https://example.com/meta.json") {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 挂起，让 removeAll 先执行
@@ -130,7 +130,7 @@ final class NftMetadataImageCacheTests: XCTestCase {
     }
 
     func testMaxEntriesEvictsLeastRecentlyUsed() async {
-        let cache = NftMetadataImageCache(maxEntries: 2)
+        let cache = AsyncMemoCache(maxEntries: 2)
         _ = await cache.getOrFetch("https://a.com/1") { "1" }
         _ = await cache.getOrFetch("https://a.com/2") { "2" }
         _ = await cache.getOrFetch("https://a.com/1") { "1" } // touch 1 → 2 变为最旧

@@ -43,7 +43,7 @@ public final class NftClient: DidNftResolution, Sendable {
     private let ethTokenUriResolver: (any IEthTokenUriResolver)? // EVM tokenURI（模块默认 EthTokenUriResolver）
     private let swtcTokenUriResolver: (any ISwtcTokenUriResolver)? // 宿主注入；nil = SWTC 元数据解析不可用
 
-    private let imageCache = NftMetadataImageCache()
+    private let imageCache = AsyncMemoCache()
     private let logger = Logger(subsystem: "com.jccdex.toolkits.swiftnft", category: "SwiftNft")
 
     public init(config: SwiftNftConfig) {
@@ -499,7 +499,9 @@ public final class NftClient: DidNftResolution, Sendable {
         return trimmed
     }
 
-    /// 惰性解析 EVM tokenURI（本地数据足够时不发起 eth_call）。
+    /// 惰性解析 EVM tokenURI（本地数据足够时不发起 eth_call；结果经 resolver 记忆化缓存）。
+    /// 二次 `normalizeRemoteAssetURL`（D-2）：resolver 已按注入 gateway 归一，这里再按门面配置
+    /// gateway 兜底归一一次（http `/ipfs/` 路径强制换到配置网关；ipfs:// 若 resolver 漏过则补上）。
     private func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String {
         let uri = await self.ethTokenUriResolver?.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
         return self.sanitizeUri(normalizeRemoteAssetURL(uri, baseUrl: nil, gateway: self.ipfsGateway))

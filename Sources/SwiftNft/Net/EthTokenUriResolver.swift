@@ -12,30 +12,43 @@ public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
 /// - `buildTokenUriCallData`：仅拼 selector `0xc87b56dd` + **32 字节 tokenId**（合约地址走 `to`
 ///   字段，不进 calldata）；tokenId 按**十进制**解析转 hex（逐位除法，支持任意长度 uint256）；
 /// - `decodeAbiString`：ABI string 解码（假定 offset=32，取第 2 个 32 字节字为长度，数据从第 128 hex 位起）；
-/// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetURL(raw) ?: raw`（ipfs:// → 默认网关）；
+/// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetURL(raw, gateway:) ?: raw`（ipfs:// → 网关；
+///   `gateway` 由 init 注入、贯穿内部归一——门面不再二次归一，见 review D-2）；
 /// - **RPC URL 由 `init(getRpcNode:)` 注入**（chainId → RPC URL 的函数），本类不内置任何端点——
 ///   端点属宿主配置（对应 Kotlin `AppEndpoints.RPC_*`）；
 /// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、跟随重定向；RPC 节点属宿主注入
-///   信任面，不做 SsrfGuard 建连检查——SsrfGuard/上限由客户端统一（GET 元数据拉取））。
+///   信任面，不做 SsrfGuard 建连检查——SsrfGuard/上限由客户端统一（GET 元数据拉取））；
+/// - **eth_call 结果记忆化**：复用 `AsyncMemoCache`（按 key 缓存成功结果 + per-key
+///   in-flight 去重 + LRU 上限 + generation 防旧回写，见 review D-1）。
 public final class EthTokenUriResolver: IEthTokenUriResolver {
     private let getRpcNode: ChainRpcUrlsProvider
     private let httpClient: any NftHttpClient
+    private let gateway: String // ipfs→网关重写用（init 注入；normalizedGateway 保证尾部 `/`）
+    private let tokenUriCache = AsyncMemoCache(maxEntries: 128)
 
     /// - Parameters:
     ///   - getRpcNode: 根据 chainId 返回该链 RPC URL 的函数（宿主注入；nil = 无节点）。
     ///   - httpClient: 网络客户端（默认 `URLSessionNftHttpClient`；测试可注入 URLProtocol 桩 session）。
+    ///   - gateway: ipfs→网关重写（默认 `IpfsResolver.defaultGateway`；门面按配置注入即单次归一，见 review D-2）。
     public init(
         getRpcNode: @escaping ChainRpcUrlsProvider,
-        httpClient: any NftHttpClient = URLSessionNftHttpClient()
+        httpClient: any NftHttpClient = URLSessionNftHttpClient(),
+        gateway: String = IpfsResolver.defaultGateway
     ) {
         self.getRpcNode = getRpcNode
         self.httpClient = httpClient
+        self.gateway = IpfsResolver.normalizedGateway(gateway)
     }
 
     public func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String? {
         guard let callData = Self.buildTokenUriCallData(tokenId: tokenId) else { return nil }
         guard let rpcUrl = self.getRpcNode(chainId) else { return nil }
-        return await self.fetchTokenUri(rpcUrl: rpcUrl, contract: contract, callData: callData)
+        // D-1：同 (chainId, contract, tokenId) 并发只发一次 eth_call；成功结果缓存（失败不缓存，可重试）。
+        // key 无空白，`AsyncMemoCache` 的 trim 为 no-op。
+        let key = "\(chainId)|\(contract)|\(tokenId)"
+        return await self.tokenUriCache.getOrFetch(key) {
+            await self.fetchTokenUri(rpcUrl: rpcUrl, contract: contract, callData: callData)
+        }
     }
 
     // MARK: - eth_call
@@ -54,7 +67,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let rawResult = json["result"] as? String
         else { return nil }
-        return Self.normalizeTokenMetadataUri(Self.decodeAbiString(rawResult))
+        return Self.normalizeTokenMetadataUri(Self.decodeAbiString(rawResult), gateway: self.gateway)
     }
 
     // MARK: - calldata / 解码（对齐 Kotlin 顶层函数）
@@ -93,10 +106,15 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
         return value?.isEmpty == false ? value : nil
     }
 
-    /// ipfs:// 等 → 默认网关；其余原样（对齐 Kotlin `normalizeRemoteAssetURL(raw) ?: raw`）。
-    static func normalizeTokenMetadataUri(_ rawUri: String?) -> String? {
+    /// ipfs:// 等 → 网关；其余原样（对齐 Kotlin `normalizeRemoteAssetURL(raw) ?: raw`）。
+    /// `gateway` 由调用方注入（默认 `IpfsResolver.defaultGateway`）——门面按配置注入即
+    /// 单次归一，不再二次归一（见 review D-2）。
+    static func normalizeTokenMetadataUri(
+        _ rawUri: String?,
+        gateway: String = IpfsResolver.defaultGateway
+    ) -> String? {
         guard let rawUri, !rawUri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return normalizeRemoteAssetURL(rawUri, baseUrl: nil) ?? rawUri
+        return normalizeRemoteAssetURL(rawUri, baseUrl: nil, gateway: gateway) ?? rawUri
     }
 
     // MARK: - 工具

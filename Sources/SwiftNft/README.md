@@ -59,9 +59,11 @@ Sources/SwiftNft/
 ├── Net/NftHttpClient.swift         // 协议 + URLSession 实现（fetchJson/fetchText 不跟随重定向；fetchRpc POST 跟随重定向）
 ├── Net/SsrfGuard.swift             // SSRF 守卫（DNS 解析 fail-closed；拒回环/私网/链路本地；公网放行）
 ├── Net/SwtcTokenUriResolver.swift  // SWTC erc_info RPC（getRpcNode 单节点注入，节点可信跟随重定向）
-├── Net/EthTokenUriResolver.swift   // EVM tokenURI eth_call 默认实现（RPC URL 由 init 注入，不内置）
-└── Cache/NftMetadataImageCache.swift // 图片解析记忆化缓存（actor；只缓存成功结果；per-key in-flight 去重）
+├── Net/EthTokenUriResolver.swift   // EVM tokenURI eth_call 默认实现（RPC URL 由 init 注入，不内置；
+│                                   //   eth_call 结果经 SwiftCore.AsyncMemoCache 记忆化，见 review D-1）
 ```
+> 图片/eth_call 记忆化缓存归口 `SwiftCore.AsyncMemoCache`（原 NftMetadataImageCache 并入，
+> 见 review D-1；SwiftNft 不再自带 Cache 目录）。
 
 ## 主要 API
 
@@ -78,7 +80,7 @@ Sources/SwiftNft/
 ## Notes
 
 - **EVM tokenURI**：`IEthTokenUriResolver` 是非 throw 注入接口（失败返回 nil）；模块随包提供默认实现 `EthTokenUriResolver`（ERC-721 `tokenURI(uint256)`，selector `0xc87b56dd`，calldata 只拼 32 字节十进制 tokenId、合约地址走 `to` 字段，ABI string 解码假定 offset=32，URI 过 `normalizeRemoteAssetUrl`）——**RPC 端点不内置**，由 `getRpcNode` 闭包按 chainId 提供单个 URL。
-- **缓存语义（成功才缓存）**：`NftMetadataImageCache` 只缓存**成功**结果（HTTP 500 等瞬时失败不缓存、可重试）；并发同 key 只 fetch 一次（per-key Task in-flight 去重）；`nft_meta`/图片缓存无 TTL（对齐 Kotlin）。
+- **缓存语义（成功才缓存）**：`AsyncMemoCache` 只缓存**成功**结果（HTTP 500 等瞬时失败不缓存、可重试）；并发同 key 只 fetch 一次（per-key Task in-flight 去重）；`nft_meta`/图片缓存无 TTL（对齐 Kotlin）。
 - **安全边界**：GET 拉取 URL 过 `SsrfGuard`（http/https + DNS 解析，回环/私网/链路本地/未解析拒绝，公网放行）；元数据拉取不跟随重定向；**RPC 例外：节点属宿主注入信任面、可信，不做 SsrfGuard 建连检查、跟随重定向**（对齐 Kotlin）；`data:` 直出仅限 `data:image/*`（宿主渲染第三方图片用 `UIImage`/`CGImage`，勿用 WKWebView）；日志不落元数据 payload。
 - **注入信任面**：`swtcTokenUriResolver` / `ethTokenUriResolver` / `ipfsGateway` 均属宿主配置（模块**不内置任何节点/端点**）；`SwtcTokenUriResolver` 经 `getRpcNode` 注入节点（自建普通 session，跟随重定向）。
 - **并发**：门面自由线程（非 @MainActor），`NftStore: Sendable`（GRDB DatabasePool 线程安全）。

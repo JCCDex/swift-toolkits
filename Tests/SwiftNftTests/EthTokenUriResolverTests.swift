@@ -134,6 +134,64 @@ final class EthTokenUriResolverTests: XCTestCase {
         XCTAssertNil(EthTokenUriResolver.normalizeTokenMetadataUri("  "))
     }
 
+    // MARK: 记忆化（review D-1：成功缓存 + in-flight 去重 + 失败不缓存）
+
+    func testResolveCachesSuccessAndDedupesInflight() async {
+        let client = CountingFetchRpcClient()
+        let resolver = EthTokenUriResolver(
+            getRpcNode: { _ in "https://rpc.example.com" },
+            httpClient: client,
+            gateway: self.defaultGateway
+        )
+        // 并发 5 次同 key：in-flight 去重 → 只发 1 次 eth_call，全部拿到结果
+        let results = await withTaskGroup(of: String?.self) { group in
+            for _ in 0 ..< 5 {
+                group.addTask {
+                    await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "7", chainId: 1)
+                }
+            }
+            var values: [String?] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
+        }
+        XCTAssertEqual(client.rpcCallCount, 1, "并发同 key 只发一次 eth_call")
+        XCTAssertEqual(results.count, 5)
+        XCTAssertTrue(results.allSatisfy { $0 == "\(self.defaultGateway)bafy123/8.png" }, "全部命中同一成功结果")
+
+        // 第二次调用（缓存命中）不再发 RPC
+        let second = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "7", chainId: 1)
+        XCTAssertEqual(client.rpcCallCount, 1, "缓存命中不再发 eth_call")
+        XCTAssertEqual(second, "\(self.defaultGateway)bafy123/8.png")
+    }
+
+    func testResolveDoesNotCacheFailure() async {
+        let client = FailingFetchRpcClient()
+        let resolver = EthTokenUriResolver(
+            getRpcNode: { _ in "https://rpc.example.com" },
+            httpClient: client,
+            gateway: self.defaultGateway
+        )
+        let first = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "7", chainId: 1)
+        XCTAssertNil(first)
+        let second = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "7", chainId: 1)
+        XCTAssertNil(second)
+        XCTAssertEqual(client.rpcCallCount, 2, "失败不缓存，可重试")
+    }
+
+    func testResolveUsesInjectedGateway() async {
+        let customGateway = "https://custom-gateway.example/ipfs/"
+        let client = CountingFetchRpcClient()
+        let resolver = EthTokenUriResolver(
+            getRpcNode: { _ in "https://rpc.example.com" },
+            httpClient: client,
+            gateway: customGateway
+        )
+        let uri = await resolver.resolveEthrTokenUri(contract: "0xabc", tokenId: "7", chainId: 1)
+        XCTAssertEqual(uri, "\(customGateway)bafy123/8.png", "init 注入 gateway 单次归一（review D-2）")
+    }
+
     // MARK: 工具
 
     /// ABI 编码字符串：offset(0x20，64 hex 位) + length(64 hex) + utf8 数据（32 字节字对齐补零），无 0x 前缀。
@@ -143,5 +201,60 @@ final class EthTokenUriResolverTests: XCTestCase {
         let length = String(format: "%064x", hex.count / 2)
         let padded = hex + String(repeating: "0", count: (64 - hex.count % 64) % 64)
         return offset + length + padded
+    }
+}
+
+/// 桩：记录 eth_call 次数，返回固定 ABI 编码的 `ipfs://bafy123/8.png`。
+/// @unchecked Sendable：测试桩，`rpcCallCount` 用锁保护（并发去重用例下安全计数）。
+private final class CountingFetchRpcClient: NftHttpClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _rpcCallCount = 0
+    var rpcCallCount: Int {
+        self.lock.withLock { self._rpcCallCount }
+    }
+
+    func fetchJson(_: URL) async throws -> Data? {
+        nil
+    }
+
+    func fetchText(_: URL) async throws -> String? {
+        nil
+    }
+
+    func fetchRpc(_: URL, body _: Data) async throws -> Data? {
+        self.lock.withLock { self._rpcCallCount += 1 }
+        let uri = "ipfs://bafy123/8.png"
+        return try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "result": Self.abiEncode(uri), "id": 1])
+    }
+
+    /// ABI 编码（与测试工具同款：offset + length + utf8 数据对齐）。
+    private static func abiEncode(_ value: String) -> String {
+        let hex = value.utf8.map { String(format: "%02x", $0) }.joined()
+        let offset = String(repeating: "0", count: 62) + "20"
+        let length = String(format: "%064x", hex.count / 2)
+        let padded = hex + String(repeating: "0", count: (64 - hex.count % 64) % 64)
+        return "0x" + offset + length + padded
+    }
+}
+
+/// 桩：eth_call 一律失败（nil）。
+private final class FailingFetchRpcClient: NftHttpClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _rpcCallCount = 0
+    var rpcCallCount: Int {
+        self.lock.withLock { self._rpcCallCount }
+    }
+
+    func fetchJson(_: URL) async throws -> Data? {
+        nil
+    }
+
+    func fetchText(_: URL) async throws -> String? {
+        nil
+    }
+
+    func fetchRpc(_: URL, body _: Data) async throws -> Data? {
+        self.lock.withLock { self._rpcCallCount += 1 }
+        return nil
     }
 }
