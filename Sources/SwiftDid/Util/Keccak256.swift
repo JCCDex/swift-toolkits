@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// keccak-256（**0x01 padding，非 SHA3-256 的 0x06**）——EIP-55 checksum 与 VCID 生成需要。
 ///
@@ -40,14 +41,17 @@ public enum Keccak256 {
 
         var state = [UInt64](repeating: 0, count: 25)
 
-        // Absorb
+        // Absorb：按 8 字节 lane 一次读入（每块 17 个 lane 异或进 state[0..<17]；
+        // loadUnaligned 对 Data 无对齐假设，避免逐字节 div/mod + 移位组装）。
         var offset = 0
         while offset < padded.count {
             let end = min(offset + rate, padded.count)
-            var index = 0
-            for byte in padded[offset ..< end] {
-                state[index / 8] ^= UInt64(byte) << (8 * (index % 8))
-                index += 1
+            padded.withUnsafeBytes { raw in
+                var laneIndex = 0
+                for byteOffset in stride(from: offset, to: end, by: 8) {
+                    state[laneIndex] ^= UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: byteOffset, as: UInt64.self))
+                    laneIndex += 1
+                }
             }
             offset = end
             Self.permute(&state)
@@ -71,7 +75,7 @@ public enum Keccak256 {
     }
 
     public static func hex(data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined()
+        Hex.encode([UInt8](data))
     }
 
     private static func permute(_ a: inout [UInt64]) {

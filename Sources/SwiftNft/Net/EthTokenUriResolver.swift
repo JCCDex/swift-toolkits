@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// 根据 chainId 返回该链的 RPC URL（nil = 无可用节点 → 解析返回 nil）。
 /// 对齐 Kotlin `defaultRpcUrlsForChain(chainId)`（app 侧内置）——Swift 由宿主经 init 注入，模块不内置端点。
@@ -60,7 +61,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
     /// `"0xc87b56dd" + tokenId(32B)`；tokenId 十进制字符串 → 任意长度 hex，失败返回 nil。
     static func buildTokenUriCallData(tokenId: String) -> String? {
         guard let bytes = decimalStringToBytes(tokenId), bytes.count <= 32 else { return nil }
-        let hex = bytes.map { String(format: "%02x", $0) }.joined()
+        let hex = Hex.encode(bytes)
         return "0xc87b56dd" + String(repeating: "0", count: 64 - hex.count) + hex
     }
 
@@ -85,15 +86,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
         let dataEnd = 128 + length * 2
 
         let dataHex = String(normalized[128 ..< dataEnd])
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(length)
-        var index = dataHex.startIndex
-        while index < dataHex.endIndex {
-            let next = dataHex.index(index, offsetBy: 2)
-            guard let byte = UInt8(dataHex[index ..< next], radix: 16) else { return nil }
-            bytes.append(byte)
-            index = next
-        }
+        guard let bytes = Hex.decode(dataHex) else { return nil }
         let value = String(bytes: bytes, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return value?.isEmpty == false ? value : nil

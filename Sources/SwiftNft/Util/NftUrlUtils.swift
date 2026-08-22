@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 // MARK: - 资产 URL 规范化（对齐 Kotlin :nft remote/NftRemoteAssetResolver.kt 纯函数，commit f77b59f）
 
@@ -213,16 +214,7 @@ func decodeHexToUtf8(_ hex: String) -> String {
         clean = String(clean.dropFirst(2))
     }
     clean = clean.replacingOccurrences(of: "\\s", with: "", options: .regularExpression)
-    guard !clean.isEmpty, clean.count % 2 == 0 else { return "" }
-    var bytes = [UInt8]()
-    bytes.reserveCapacity(clean.count / 2)
-    var index = clean.startIndex
-    while index < clean.endIndex {
-        let next = clean.index(index, offsetBy: 2)
-        guard let byte = UInt8(clean[index ..< next], radix: 16) else { return "" }
-        bytes.append(byte)
-        index = next
-    }
+    guard let bytes = Hex.decode(clean) else { return "" }
     return String(bytes: bytes, encoding: .utf8) ?? ""
 }
 

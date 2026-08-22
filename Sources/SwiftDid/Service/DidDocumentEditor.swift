@@ -41,9 +41,17 @@ enum DidDocumentEditor {
 
     // MARK: - credentials
 
-    /// 读 credentials（`credentials` / `credential` 双键别名，对齐 `DidCredentialHelper.readCredentials`）。
+    /// 读 credentials（`credentials` / `credential` 双键别名，与 `DidCredentialHelper` 共用同一实现）。
     static func credentials(from json: [String: Any]) -> [Any] {
-        DidJson.optArray(json, "credentials") ?? DidJson.optArray(json, "credential") ?? []
+        DidCredentialHelper.credentials(in: json)
+    }
+
+    /// 若为 IpfsStorage service 则重建并注入 `previousCid`，否则原样返回。
+    /// 门面三处（updateDidNickname / updateDidAvatar / applyPreviousCid）共用同一「类型判断 +
+    /// 重建」变换（见跨模块重复 2.2）。
+    static func serviceWithPreviousCid(did: String, service: [String: Any], previousCid: String?) -> Any {
+        guard DidJson.optString(service, "type") == "IpfsStorage" else { return service }
+        return self.ipfsStorageService(did: did, from: service, previousCid: previousCid)
     }
 
     /// upsert：按 id 替换（case-insensitive），未命中追加。

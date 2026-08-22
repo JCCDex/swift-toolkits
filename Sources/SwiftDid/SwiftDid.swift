@@ -325,7 +325,7 @@ public final class SwiftDid: DidSDK {
                         preferredAvatar: DidJson.readProfileField(json, "preferredAvatar") ?? ""
                     )
                 case "IpfsStorage":
-                    return DidDocumentEditor.ipfsStorageService(did: did, from: service, previousCid: previousCid)
+                    return DidDocumentEditor.serviceWithPreviousCid(did: did, service: service, previousCid: previousCid)
                 default:
                     return service
                 }
@@ -358,7 +358,7 @@ public final class SwiftDid: DidSDK {
                         preferredAvatar: selectedAvatar.credentialId
                     )
                 case "IpfsStorage":
-                    return DidDocumentEditor.ipfsStorageService(did: did, from: service, previousCid: previousCid)
+                    return DidDocumentEditor.serviceWithPreviousCid(did: did, service: service, previousCid: previousCid)
                 default:
                     return service
                 }
@@ -663,13 +663,9 @@ public final class SwiftDid: DidSDK {
     }
 
     private func findCredentialById(_ credentials: [Any], _ id: String) -> String? {
-        for element in credentials {
-            guard let object = element as? [String: Any],
-                  DidJson.optString(object, "id").caseInsensitiveCompare(id) == .orderedSame
-            else { continue }
-            return DidJson.stringify(object)
-        }
-        return nil
+        let index = DidCredentialHelper.findCredentialIndex(credentials, id)
+        guard index >= 0, let object = credentials[index] as? [String: Any] else { return nil }
+        return DidJson.stringify(object)
     }
 
     private func isSwtcAvatarVc(_ root: [String: Any]) -> Bool {
@@ -774,13 +770,9 @@ public final class SwiftDid: DidSDK {
         guard let previousCid = await self.readDidStatCid(did) else { return false }
         guard !previousCid.isEmpty else { return true }
         let services = DidDocumentEditor.services(from: json)
-        var updatedServices: [Any] = []
-        for element in services {
-            if let service = element as? [String: Any], DidJson.optString(service, "type") == "IpfsStorage" {
-                updatedServices.append(DidDocumentEditor.ipfsStorageService(did: did, from: service, previousCid: previousCid))
-            } else {
-                updatedServices.append(element)
-            }
+        let updatedServices: [Any] = services.map { element in
+            guard let service = element as? [String: Any] else { return element }
+            return DidDocumentEditor.serviceWithPreviousCid(did: did, service: service, previousCid: previousCid)
         }
         DidDocumentEditor.setServices(updatedServices, on: &json)
         return true

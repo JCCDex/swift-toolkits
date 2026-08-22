@@ -71,6 +71,18 @@ public enum DAppConnectSdk {
 
     // MARK: - Provider JS
 
+    /// provider 模板（bundle 资源只读一次并缓存——每次导航都调用 loadProviderJs，
+    /// 原实现每次重新读文件 + 全量解码，见性能专项 D-6）。
+    private static let providerTemplate: String? = {
+        guard
+            let url = Bundle.module.url(forResource: "ccdao-eip1193-provider-ios", withExtension: "js"),
+            let text = try? String(contentsOf: url, encoding: .utf8)
+        else {
+            return nil
+        }
+        return text
+    }()
+
     /// 加载 EIP-1193 provider 脚本（iOS 传输变体，实现 window.ethereum / window.ccdao）。
     ///
     /// - Parameter token: `WebAppInterface.responseToken`。注入 provider 闭包作为
@@ -78,14 +90,11 @@ public enum DAppConnectSdk {
     ///   页面 JS 读不到该 token，无法伪造 native 响应或状态推送。token 为空时
     ///   provider 对回传 fail-closed。
     public static func loadProviderJs(token: String) -> String {
-        guard
-            let url = Bundle.module.url(forResource: "ccdao-eip1193-provider-ios", withExtension: "js"),
-            let text = try? String(contentsOf: url, encoding: .utf8)
-        else {
+        guard let template = self.providerTemplate else {
             return ""
         }
         // 把资源里的占位符替换为 token 字面量；未找到占位符时保持 null（fail-closed）。
-        return text.replacingOccurrences(of: "/*__CCDAO_BRIDGE_TOKEN__*/ null", with: self.jsQuote(token))
+        return template.replacingOccurrences(of: "/*__CCDAO_BRIDGE_TOKEN__*/ null", with: self.jsQuote(token))
     }
 
     /// 初始化 JS：经 `_ccdaoNative('init', ...)` 设置 chainId / rpcUrl（带 token 鉴权）。
@@ -166,7 +175,8 @@ public enum DAppConnectSdk {
     })();
     """
 
-    private static func jsQuote(_ s: String) -> String {
+    /// JS 字符串字面量转义（WebAppInterface 复用；两处原各有一份私有实现，见跨模块重复 2.1）。
+    static func jsQuote(_ s: String) -> String {
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

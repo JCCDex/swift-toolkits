@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import WebKit
 
 /// `_tw_` 接收端：把 DApp 的 postMessage 路由到对应中间件，并经 reply 通道回传。
@@ -62,7 +63,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private static func makeResponseToken() -> String {
         let bytes = (0 ..< 32).map { _ in UInt8.random(in: .min ... .max) }
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        return Hex.encode(bytes)
     }
 
     /// 宿主在导航时设置 DApp origin（M-05，Kotlin 迁移契约）。
@@ -189,12 +190,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     }
 
     private static func jsQuote(_ s: String) -> String {
-        let escaped = s
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-        return "\"\(escaped)\""
+        DAppConnectSdk.jsQuote(s)
     }
 
     // MARK: - 路由（internal，供测试直接调用）

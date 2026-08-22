@@ -292,52 +292,81 @@ if !expirationDate.isEmpty,
 
 ## 性能优化专项
 
-### 热路径逐字节 `String(format: "%02x")` hex 编码（4+ 处，建议抽公共工具 + 查找表）
+> 按收益排序；标注了「已实测/静态推断」，避免误导性优化。除注明外均为静态分析结论，
+> 上线前建议用 Instruments 对热点路径复核。
+> **实施状态（2025-08-22）**：✅ = 已落地并测试通过；未标 = 待办。
 
-- `WebAppInterface.makeResponseToken`（`WebAppInterface.swift:63-66`）
-- `Keccak256.hex`（`Keccak256.swift:73-75`，大 data 时开销显著）
-- `EthTokenUriResolver.buildTokenUriCallData`（`EthTokenUriResolver.swift:63`）
-- `ChecksumUtils.toChecksumAddress` 中 `hashHex[index(offsetBy:)]` 是 **O(n²) String 索引** + 每字符 `uppercased()` + 每调用正则校验（`ChecksumUtils.swift:16-26`）
+### A. 字符串 / 编码热路径
 
-```swift
-// 统一工具（一次实现，四处受益）：
-enum Hex {
-    private static let digits = Array("0123456789abcdef".utf8)
-    static func encode(_ bytes: [UInt8]) -> String {
-        var out = [UInt8](); out.reserveCapacity(bytes.count * 2)
-        for b in bytes { out.append(digits[Int(b >> 4)]); out.append(digits[Int(b & 0x0F)]) }
-        return String(decoding: out, as: UTF8.self)
-    }
-}
-```
+1. ✅ **已实现**：逐字节 `String(format: "%02x")` hex 编码（3 处 + 1 处手写 nibble）——
+   `SwiftCore.Hex`（encode/decode 查找表）已落地并替换全部调用点，新增 4 个单元测试：
+   - `WebAppInterface.makeResponseToken`（`WebAppInterface.swift:63-66`）
+   - `Keccak256.hex`（`Keccak256.swift:73-75`，大 data 时开销显著）
+   - `EthTokenUriResolver.buildTokenUriCallData`（`EthTokenUriResolver.swift:63`）
+   - `ChecksumUtils.toChecksumAddress`（`ChecksumUtils.swift:23-30` 手写 nibble，且每字符 `uppercased()` 分配 + 每调用重编译正则 `:16`）
 
-### Keccak 实现
+   ```swift
+   enum Hex {
+       private static let digits = Array("0123456789abcdef".utf8)
+       static func encode(_ bytes: [UInt8]) -> String {
+           var out = [UInt8](); out.reserveCapacity(bytes.count * 2)
+           for b in bytes { out.append(digits[Int(b >> 4)]); out.append(digits[Int(b & 0x0F)]) }
+           return String(decoding: out, as: UTF8.self)
+       }
+   }
+   ```
 
-- `permute` 每次调用重新分配 `c/d/b` 三个 25 元素数组（×24 轮外层调用也复用同一批）；`hash` 的 absorb 逐字节组装 UInt64 lane（`Keccak256.swift:48-51`）→ 按 8 字节一次读入可显著提速。
-- 正确性无问题（0x01 padding、squeeze 逻辑与 KAT 测试一致）。
+2. ✅ **部分已实现**：O(n²) String `index(_:offsetBy:)` 随机访问（3 处）——`ChecksumUtils.swift:25`
+   已改 UTF-8 字节迭代；`NftUrlUtils.swift:220-224` 与 `EthTokenUriResolver` 内联循环已随
+   `Hex.decode` 移除；`EthTokenUriResolver.swift:128-134` 的 String subscript 扩展保留（仅内部
+   使用、调用点均有界长 guard，可后续清理）。
 
-### 重复派生 / 重复 IO
+3. **`ISO8601DateFormatter` 每次新建**（`DidJson.swift:102-124`、`SwiftDid.formatUtc`）——创建开销大；`Date.ISO8601FormatStyle` 为 Sendable、零分配，可替代（iOS 15 起可用）。
 
-- **Argon2 双重派生**：`AccountManager.removeAccount`（verifyPassword + unlock）、`ensureUnlocked` 已解锁分支仍完整重算 KDF——这是安全取舍（每次取密钥重验密码），但同一流程内出现两次完整 KDF 属浪费；至少 `unlock` 内部复用 `verifyPassword` 的派生结果。
-- **Vault 全量 load/save 往返**：`importMnemonic`/`importSecret` 内部「importPrivateKey（load+save）+ 再 load + append + save」= 每次导入 2 轮全量序列化；`importHdWallet` 对 N 个子账户累计 O(N) 次全量重写 → 提供批量事务入口。
+4. **已核实「非热点」，无需优化**（避免过度工程）：`Path.derivationPath` 插值（每次导入/派生仅 1 次，非循环内）；`boolFromRaw`（trim+lowercase，每 RPC 一次）；`ChainType.fromBip44Code` 线性扫描（N=7，static dict 仅在枚举膨胀时值得）。
 
-### GRDB 索引
+### B. 加密 / 哈希
 
-- `LOWER(address)`（AccountStore）与 `LOWER(ownerAddress)`（NftStore）使普通列索引失效，所有地址查询全表扫描 → 建表达式索引 `CREATE INDEX ... ON accounts(LOWER(address))`，或列级 `COLLATE NOCASE` + 规范化写入。
-- NftStore `SELECT *` 拖回多 MB `fullContent`；`deleteSwtcNftsByOwner` N+1。
+1. ✅ **已实现**：Keccak absorb 逐字节组装 UInt64 lane（`Keccak256.swift:47-51`）——改为
+   `withUnsafeBytes` + `loadUnaligned` 按 8 字节 lane 读入（每块 17 次 lane 异或取代 136 次
+   div/mod + 移位），KAT 10/10（含长消息多块向量）验证哈希一致。
+2. **`permute` 每次调用重新分配 `c/d/b` 三个 25 元素数组**（`Keccak256.swift:78-80`，非每轮分配——24 轮复用同一批）；32 字节输入仅 1 次 permute，收益有限，可接受或提升到 `hash()` 复用。
+3. **Argon2 重复派生**：`AccountManager.removeAccount`（`verifyPassword` + `unlock` 两次完整 64 MiB KDF）；`VaultRepository.verifyPassword`/`unlock`/`ensureUnlocked` 三处重复实现且已解锁分支仍重算 → 提取 `deriveAndVerifyKey` 助手，单次派生复用。
+4. ✅ **已实现**：随机数生成——`VaultRepository.randomData` 改 `SecRandomCopyBytes`
+   （密码学安全源 + 批量生成，替代逐字节 `UInt8.random`，`VaultRepository.swift:426-432`）。
 
-### 主线程阻塞
+### C. 存储 / GRDB
 
-- DAppConnect 每条消息在主线程 `JSONSerialization`（`WebAppInterface.swift:105-109`）→ 可 `Task.detached` 或至少对大数据 payload 异步。
-- PromiseGateway 每调用 3 个 Task + UUID + box + checked continuation（`PromiseGateway.swift:41-45`、`WebviewBridgeClient.swift:86-132`）；`parseResult` 对非字符串结果先解析再反序列化（双程）；`JSONDecoder` 每调用新建 → 复用单例。
-- `WebviewBridgeClient.swift:304` 每条 console 消息主线程 `NSLog` → 加 DEBUG 开关。
+1. **`LOWER()` 使列索引失效（全表扫描）**：`LOWER(address)`（`GRDBAccountStore.swift:151,194,204,214,225,264` 配 `idx_accounts_address`）、`LOWER(ownerAddress)`/`LOWER(issuer)`（`GRDBNftStore` swtc 表）、EVM 表查询中的 `LOWER()`（`GRDBNftStore.swift:250,263,298…`）→ 写入时归一化小写 + 查询去 `LOWER()`，或建表达式索引；EVM 表写入已小写（`GRDBNftStore.swift:285-286`），swtc 表写入未小写（`:176`，不一致）。
+2. **`SELECT *` 拖回多 MB `fullContent`**（`GRDBNftStore.swift:122-127` 等头像查询）→ 投影所需列（contract/tokenId/name/image/tokenUri/updatedAt）。
+3. **N+1：`deleteSwtcNftsByOwner`**（`GRDBNftStore.swift:213-218`）逐行查 `nft_meta` → 每 owner 一次批量查询 + 内存字典。
+4. **缺索引**：`swtc_nfts.issuer`（`GRDBNftStore.swift:185-193` 按 issuer 查无索引）；`did_documents(updatedAt)` / `did_pending(updatedAt)`（`GRDBDidStore.swift:45-49` 全表扫描排序、`:119-126` TTL 删除无索引）→ v1 迁移补。
+5. **ValueObservation 每次写都重发射**（无 `distinctUntilChanged`，`GRDBNftStore.swift:392-406`）+ `AsyncStream` 默认无界缓冲 → `.removeDuplicates()` + 明确 bufferingPolicy。
+6. **Vault 全量 load/save 往返**：`importPrivateKey` = 2 load + 1 save；`importMnemonic`/`importSecret` = 4 load + 2 save（`VaultRepository.swift:114-168`）；`importHdWallet` 对 N 子账户累计 O(N) 次全量重写 → 按 `importPrivateKeys`（`:170-189`）批量范式改造。
+7. `observeCurrentAccount` 每 tick 2 查询（`GRDBAccountStore.swift:54-57`）——单读事务一致快照，非 N+1，可接受（记录在案）。
 
-### 其他
+### D. 网络
 
-- `DidJson`/`SwiftDid` 每次 `ISO8601DateFormatter()` 新建（`DidJson.swift:102-124`）→ `Date.ISO8601FormatStyle`（Sendable、零分配）。
-- `ChainType.fromBip44Code` 线性扫描 7 项（可 static dict，但 N=7 收益有限）。
-- `loadProviderJs` 每次调用重读 bundle 资源 + 全文件 `replacingOccurrences` → `static let` 缓存模板（`DAppConnectSdk.swift:82-83`）。
-- `NftMetadataImageCache` 用 generation counter 修 removeAll 后回填竞态。
+1. **`eth_call` 无记忆化**：`EthTokenUriResolver.resolveEthrTokenUri`（`EthTokenUriResolver.swift:33-37`）每次发 `fetchRpc`，`SwiftNft.resolveEthrAvatar` 缺 tokenUri 时重复调用（`SwiftNft.swift:154-156,170-172`）→ 按 `(chainId, contract, tokenId)` 加小 LRU + in-flight 去重（复用 `NftMetadataImageCache` 模式）。
+2. **双 IPFS 归一化**：`EthTokenUriResolver.normalizeTokenMetadataUri` 用默认网关（`EthTokenUriResolver.swift:99-102`），门面再按配置网关归一一次（`SwiftNft.swift:498-501`）→ 给前者加 `gateway` 参数，单次归一。
+3. **VC 逐字段重复 JSON 解析**：`SwiftNft.readString` 每个字段重新 `JSONSerialization`（`SwiftNft.swift:100-104` 调 4 次、`:146-149` 调 3 次）→ 先 parse 一次成 `[String: Any]` 再读字段（SwiftDid 已有同款优化模式）。
+4. **`getaddrinfo` 阻塞系统调用在协作线程池**（`SsrfGuard.swift:38-58`）且每次 fetch 双次 SSRF 检查（`NftHttpClient.swift:69,79` + 门面 `SwiftNft.swift:193,226,300,394`）→ 并发增长时移出线程池；检查收敛为单点。
+5. **默认 client 持有两个 `URLSession` 实例**（`NftHttpClient.swift:47-56`：no-redirect + RPC 各一）→ 跨门面/实例复用 session（配置可共享）。
+6. ✅ **已实现**：`loadProviderJs` 每次调用重读 bundle 资源 + 全文件 `replacingOccurrences`
+   （`DAppConnectSdk.swift:82-83`）→ 模板改 `static let` 缓存，仅替换 token。
+
+### E. 主线程 / 每调用开销
+
+1. **DAppConnect 每条消息主线程 `JSONSerialization`**（`WebAppInterface.swift:105-109`，含大 NFT/DID payload）→ `Task.detached` 或仅对大数据异步化。
+2. **PromiseGateway 每调用 3 个 Task + UUID + box + checked continuation**（`PromiseGateway.swift:41-45`、`WebviewBridgeClient.swift:86-132`）；`parseResult` 对非字符串结果先解析再反序列化（双程，`PromiseGateway.swift:152-155`）；`JSONDecoder` 每调用新建（`WebviewBridgeClient.swift:172`）→ 合并为单个可追踪 Task（同时修复 1.3 悬挂）、复用 `JSONDecoder`。
+3. **每条 console 消息主线程 `NSLog`**（`WebviewBridgeClient.swift:304`）→ DEBUG 开关。
+4. `NftMetadataImageCache`（LRU 256 上限 + per-key in-flight 去重）**设计正确，保持**；仅 `removeAll()` 后回填竞态需 generation counter（正确性 P1，非性能）。
+
+### F. 待量化（收益需 Instruments 确认）
+
+- 主线程 `deliver` 的 JSON 序列化 + `jsQuote` 双程全串拷贝（`WebAppInterface.swift:182-198`）
+- `swtcNftJson`/`ethNftJson` 逐条 `[String: Any]` 构建（`WebAppInterface.swift:630-671`）
+- `String(describing: result)` 兜底序列化（`PromiseGateway.swift:156`，NSNumber 时与 locale 相关）
 
 ---
 
@@ -380,6 +409,11 @@ enum Hex {
 
 ## 修复记录
 
+- **性能/去重批（2025-08-22）**：SwiftCore 新增 `Hex`（encode/decode 查找表，4 个单元测试）与
+  `AsyncSequence.firstValue()`；替换 4 处 hex 编码 + 2 处 hex 解码调用点；ChecksumUtils 改 UTF-8
+  字节迭代（消除 O(n²) 索引）；Keccak absorb 改 lane 读入（KAT 10/10）；`randomData` →
+  `SecRandomCopyBytes`；`loadProviderJs` 模板缓存；`jsQuote` 合一；Vault AAD 三合一；SwiftDid
+  `previousCid` 变换 ×3 / credentials 读取 / 凭据查找去重。5 模块 234 测试 + SwiftCore 11 测试全过。
 - **打包/工程（2025-08-22）**：`Package.swift` 为 7 个含 README 的 target 加 `exclude: ["README.md"]`，
   SwiftPM unhandled 告警归零（构建实测 0 warning / 0 error）；`Sources/` 磁盘 `.DS_Store` 已清理。
 - **P0-3（2025-08-22）**：`PromiseGateway.clearAll()` 恢复 pending 调用者——先取走全部 pending、
@@ -424,15 +458,34 @@ enum Hex {
 
 ## 二、跨模块重复实现（按模块审查会漏掉的部分）
 
+### 2.1 跨模块重复（应收敛到 SwiftCore / 公共 util）
+
+> 实施状态（2025-08-22）：✅ = 已去重；未标 = 待办。
+
 | 重复项 | 出现位置 | 建议 |
 |---|---|---|
-| **hex 编码 `String(format: "%02x")` 逐字节** | `Keccak256.swift:74`、`WebAppInterface.swift:65`、`EthTokenUriResolver.swift:63` + `ChecksumUtils.swift:23-30`（手写 nibble，第 4 种） | 收敛到 SwiftCore 一个 `Hex.encode([UInt8])`（查找表版） |
-| **`optString` JSON 标量取值** | `DidJson.swift:25`、`NftUrlUtils.swift:170`（同签名不同默认值语义） | 合一 |
+| ✅ **hex 编码 `String(format: "%02x")` 逐字节** | `Keccak256.swift:74`、`WebAppInterface.swift:65`、`EthTokenUriResolver.swift:63` + `ChecksumUtils.swift:23-30`（手写 nibble，第 4 种） | 已收敛到 SwiftCore `Hex.encode`（查找表版）+ 4 个单元测试 |
+| ✅ **hex → bytes 解码** | `NftUrlUtils.decodeHexToUtf8`（`NftUrlUtils.swift:210-227`）、`EthTokenUriResolver` 内联循环（`:83-92`） | 已收敛到 SwiftCore `Hex.decode`，两处共用 |
+| **`optString` JSON 标量取值** | `DidJson.swift:25`、`NftUrlUtils.swift:170`（同签名、不同默认值语义） | 合一（统一 `default:` 参数） |
 | **`isBlank` 空白判断** | `DidJson.swift:47`（死代码）、`DidCredentialHelper.swift:193`、`NftUrlUtils.swift:248` | 合一，删死代码 |
-| **`nilIfBlank`** | `NftUrlUtils.swift:241-245`（public String 扩展）、`SwiftDid.swift:862-866`（private String 扩展） | 合一 |
-| **`firstValue()` AsyncStream 取首元素** | `SwiftDappConnect/AsyncSequence+First.swift:6`、`SwiftNft/SwiftNft.swift:508` | 提到 SwiftCore |
+| **`nilIfBlank`** | `NftUrlUtils.swift:241-245`（public String 扩展）、`SwiftDid.swift:862-866`（private String 扩展） | 合一（放 SwiftCore String 扩展） |
+| ✅ **`firstValue()` AsyncStream 取首元素** | `SwiftDappConnect/AsyncSequence+First.swift:6`、`SwiftNft/SwiftNft.swift:508` | 已收敛到 SwiftCore `AsyncSequence.firstValue()`（删 DappConnect 重复文件 + SwiftNft 私有实现） |
 | **嵌套 JSON 路径读取 `readString`/`readValue`** | `SwiftNft/SwiftNft.swift:450,475`、`SwiftDid/SwiftDid.swift:612,637`（逐字同款 `$.` 剥离 + 点分路径遍历） | 合一 |
-| **O(n²) String `index(_:offsetBy:)` 随机访问** | `ChecksumUtils.swift:25`、`NftUrlUtils.swift:220-224`（`decodeHexToUtf8`）、`EthTokenUriResolver.swift:128-134`（subscript 扩展） | 统一走 UTF8 视图 / 数组下标 |
+| ✅ **O(n²) String `index(_:offsetBy:)` 随机访问** | `ChecksumUtils.swift:25`、`NftUrlUtils.swift:220-224`（`decodeHexToUtf8`）、`EthTokenUriResolver.swift:128-134`（subscript 扩展） | ChecksumUtils 已改 UTF-8 字节；后两处随 `Hex.decode` 移除内联循环（subscript 扩展保留待清） |
+| ✅ **`jsQuote` JS 字符串转义** | `DAppConnectSdk.swift:169-176`、`WebAppInterface.swift:191-198`（逐字相同） | 已提为 `DAppConnectSdk.jsQuote`（internal），WebAppInterface 复用 |
+| **地址相等语义（4 种实现）** | `VaultRepository.normalizedAddress`（lowercased）、GRDB `LOWER(address)`、`EthMiddleware` `caseInsensitiveCompare`、`WebOrigin.normalize`（小写+去默认端口） | 收敛为「存储层统一小写 + 比较层规范化后相等」（详见「四、架构层观察 #2」） |
+
+### 2.2 模块内跨文件重复（同模块不同文件，单文件审查易漏）
+
+| 重复项 | 出现位置 | 建议 |
+|---|---|---|
+| ✅ **`previousCid` 变换 ×3** | `SwiftDid.swift:318-332`（updateDidNickname）、`:351-365`（updateDidAvatar）、`:768-782`（applyPreviousCid）——三处都在 map 闭包内重建 `IpfsStorage` service | 已抽 `DidDocumentEditor.serviceWithPreviousCid(did:service:previousCid:)`，三处复用 |
+| ✅ **credentials 读取别名逻辑** | `DidDocumentEditor.credentials(from:)`（`DidDocumentEditor.swift:44-47`，注释自认镜像）vs `DidCredentialHelper.readCredentials`（`DidCredentialHelper.swift:128-131`）——同款 `credentials`/`credential` 双键回退 | 已抽 `DidCredentialHelper.credentials(in:)`，`readCredentials` 与 editor 共用 |
+| ✅ **凭据查找** | `SwiftDid.findCredentialById`（`SwiftDid.swift:660-668`）vs `DidCredentialHelper.findCredentialIndex`（`DidCredentialHelper.swift:133-138`，`DidDocumentEditor.swift:70` 已在用） | 门面已复用 `findCredentialIndex` + `DidJson.stringify` |
+| ✅ **AAD 前缀拼接 ×3** | `VaultRepository.addressAAD`/`mnemonicAAD`/`secretAAD`（`VaultRepository.swift:410-420`，三份 `"前缀:lowercased(address)"`） | 已收成 `aad(prefix:address:)` |
+| **`optString` 双实现（跨文件）** | 见 2.1 —— SwiftDid 与 SwiftNft 各一份 | 同 2.1 |
+
+> 注：2.2 中的前 3 项集中在 SwiftDid 内部，是「门面 + 工具分层」未彻底时的典型残留；`DidDocumentEditor` 已抽纯函数（做得对），但调用侧仍各自内联了同款变换。
 
 ## 三、Sendable / 并发审计（跨模块汇总）
 

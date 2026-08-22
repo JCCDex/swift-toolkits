@@ -18,17 +18,22 @@ public enum ChecksumUtils {
         }
         let lower = clean.lowercased()
         let hashHex = Keccak256.hex(data: Keccak256.hash(data: Data(lower.utf8)))
-
-        var result = "0x"
-        for (index, character) in lower.enumerated() {
-            if character >= "a", character <= "f" {
-                let nibble = hashHex[hashHex.index(hashHex.startIndex, offsetBy: index)]
-                result.append(nibble >= Character("8") ? Character(character.uppercased()) : character)
+        // EIP-55：hash nibble ≥ 0x8 时对应小写字母大写化。UTF-8 字节迭代，
+        // 避免逐字符 String.index(offsetBy:) 的 O(n²) 与每字符 uppercased() 分配。
+        let hashBytes = Array(hashHex.utf8)
+        var out = [UInt8]()
+        out.reserveCapacity(42)
+        out.append(contentsOf: "0x".utf8)
+        var index = 0
+        for ch in lower.utf8 {
+            if ch >= 0x61, ch <= 0x66 { // 'a'...'f'
+                out.append(hashBytes[index] >= 0x38 ? ch - 32 : ch) // '8' == 0x38
             } else {
-                result.append(character)
+                out.append(ch)
             }
+            index += 1
         }
-        return result
+        return String(decoding: out, as: UTF8.self)
     }
 
     public enum ChecksumError: Error, Equatable {

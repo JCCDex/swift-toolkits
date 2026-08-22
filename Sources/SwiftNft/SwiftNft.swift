@@ -64,7 +64,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
     public func getAvatarCandidates(account: WalletAccount) async -> [DidAvatarAsset] {
         // 观察流（AsyncStream）不 throw：store 读取失败会被 GRDB 流吞掉，故此处无需 do/catch（catch 不可达）。
         if account.chain == .swtc {
-            let rows = await Self.firstValue(self.store.observeSwtcNfts(ownerAddress: account.address)) ?? []
+            let rows = await self.store.observeSwtcNfts(ownerAddress: account.address).firstValue() ?? []
             return rows.map { entity in
                 let tokenName = isBlank(entity.fundCodeName) ? entity.fundCode : entity.fundCodeName
                 return DidAvatarAsset(
@@ -81,7 +81,7 @@ public final class SwiftNft: DidNftResolution, Sendable {
         } else {
             guard let chainId = account.chain.evmChainId else { return [] }
             let chainIdHex = "0x" + String(chainId, radix: 16)
-            let rows = await Self.firstValue(self.store.observeAllEvmNftItems(chainId: chainIdHex, ownerAddress: account.address)) ?? []
+            let rows = await self.store.observeAllEvmNftItems(chainId: chainIdHex, ownerAddress: account.address).firstValue() ?? []
             return rows.map { entity in
                 DidAvatarAsset(
                     image: entity.imageUrl,
@@ -502,12 +502,6 @@ public final class SwiftNft: DidNftResolution, Sendable {
 
     private func hostOf(_ url: String) -> String {
         URL(string: url)?.host ?? "unknown"
-    }
-
-    /// AsyncStream 首元素（Failure == Never，无需 try；规避 AsyncSequence.first() 的 overload 解析歧义）。
-    private static func firstValue<Element>(_ stream: AsyncStream<Element>) async -> Element? {
-        var iterator = stream.makeAsyncIterator()
-        return await iterator.next()
     }
 
     private func logFailure(_ message: String, host: String, error: Error? = nil) {

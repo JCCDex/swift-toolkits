@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 
 public actor VaultRepository {
     public static let shared = VaultRepository()
@@ -408,23 +409,32 @@ public actor VaultRepository {
     }
 
     private func addressAAD(_ address: String) -> Data {
-        Data("address:\(self.normalizedAddress(address))".utf8)
+        self.aad(prefix: "address", address: address)
     }
 
     private func mnemonicAAD(_ address: String) -> Data {
-        Data("mnemonic:\(self.normalizedAddress(address))".utf8)
+        self.aad(prefix: "mnemonic", address: address)
     }
 
     private func secretAAD(_ address: String) -> Data {
-        Data("secret:\(self.normalizedAddress(address))".utf8)
+        self.aad(prefix: "secret", address: address)
+    }
+
+    /// 按记录类型区分的 AAD 前缀（三类记录共用一个构造，见跨模块重复 2.2）。
+    private func aad(prefix: String, address: String) -> Data {
+        Data("\(prefix):\(self.normalizedAddress(address))".utf8)
     }
 
     private func normalizedAddress(_ address: String) -> String {
         address.lowercased()
     }
 
+    /// 密码学随机数（KDF salt 等必须用 CSPRNG；批量生成而非逐字节 `UInt8.random`）。
     private func randomData(count: Int) -> Data {
-        Data((0 ..< count).map { _ in UInt8.random(in: .min ... .max) })
+        var bytes = [UInt8](repeating: 0, count: count)
+        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        precondition(status == errSecSuccess, "SecRandomCopyBytes failed: \(status)")
+        return Data(bytes)
     }
 
     private static func computeProof(for key: Data) -> Data {

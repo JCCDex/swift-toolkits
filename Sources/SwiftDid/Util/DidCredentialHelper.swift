@@ -127,7 +127,12 @@ enum DidCredentialHelper {
 
     static func readCredentials(_ doc: String) -> [Any] {
         guard let object = DidJson.parseObject(doc) else { return [] }
-        return DidJson.optArray(object, "credentials") ?? DidJson.optArray(object, "credential") ?? []
+        return self.credentials(in: object)
+    }
+
+    /// 已 parse 文档中读 credentials（`credentials` / `credential` 双键别名；`DidDocumentEditor.credentials(from:)` 共用）。
+    static func credentials(in object: [String: Any]) -> [Any] {
+        DidJson.optArray(object, "credentials") ?? DidJson.optArray(object, "credential") ?? []
     }
 
     static func findCredentialIndex(_ credentials: [Any], _ credentialId: String) -> Int {

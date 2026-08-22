@@ -69,4 +69,28 @@ final class SwiftCoreTests: XCTestCase {
         )
         XCTAssertFalse(sub.isRootHD, "parentId 非空 → 非根")
     }
+
+    // MARK: Hex
+
+    func testHexEncodeRoundTrip() {
+        let bytes: [UInt8] = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x0F]
+        XCTAssertEqual(Hex.encode(bytes), "deadbeef000f")
+        XCTAssertEqual(Hex.decode("deadbeef000f"), bytes)
+        XCTAssertEqual(Hex.encode([]), "")
+        XCTAssertEqual(Hex.decode(""), [])
+    }
+
+    func testHexEncodeLowercase() {
+        XCTAssertEqual(Hex.encode([0xAB, 0xCD]), "abcd")
+    }
+
+    func testHexDecodeRejectsInvalid() {
+        XCTAssertNil(Hex.decode("abc"), "奇数长度 → nil")
+        XCTAssertNil(Hex.decode("zz"), "非法字符 → nil")
+        XCTAssertNil(Hex.decode("0x"), "含非 hex 字符 → nil")
+    }
+
+    func testHexDecodeAcceptsMixedCase() {
+        XCTAssertEqual(Hex.decode("DeAdBeEf"), [0xDE, 0xAD, 0xBE, 0xEF])
+    }
 }
