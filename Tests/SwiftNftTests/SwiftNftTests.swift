@@ -126,7 +126,7 @@ final class SwiftNftTests: XCTestCase {
         XCTAssertEqual(nft?.hasLocal, true)
         XCTAssertEqual(self.swtc.requested, ["1"])
         // 元数据已落 nft_meta（fetchAndCacheNftMeta 预取）
-        let meta = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let meta = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertNotNil(meta)
         XCTAssertEqual(meta?.tokenUri, "ipfs://bafy-test/meta.json")
     }
@@ -196,6 +196,21 @@ final class SwiftNftTests: XCTestCase {
         XCTAssertEqual(self.resolver.callCount, 1, "本地缺 tokenUri 时必须调 resolver")
     }
 
+    func testResolveEthrAvatarMissingChainIdReturnsNil() async throws {
+        // VC 未给 chainId（默认 0）且无本地缓存 → 链上解析无意义，返回 nil 而非空壳 Nft
+        self.resolver.setResult("https://example.com/token.json")
+        try await self.store.upsertEvmNftItems([
+            EvmNftItemEntity(chainId: "0x1", ownerAddress: "0xowner", contractAddress: "0xabcdef",
+                             tokenId: "1", imageUrl: "https://example.com/avatar.png", title: "avatar")
+        ])
+        let vc = """
+        {"credentialSubject":{"tokenId":"1","contractAddress":"0xabcdef"},"issuanceDate":"2025-01-01T00:00:00Z"}
+        """
+        let nft = await sdk.resolveEthrAvatar(vc: vc)
+        XCTAssertNil(nft, "无 chainId → 不得产出 uri/image 全空的壳 Nft")
+        XCTAssertEqual(self.resolver.callCount, 0, "无 chainId → 不发起 eth_call")
+    }
+
     // MARK: fetchAndCacheNftMeta
 
     func testFetchAndCacheNftMetaPersists() async throws {
@@ -204,7 +219,7 @@ final class SwiftNftTests: XCTestCase {
         let meta = await sdk.fetchAndCacheNftMeta(contract: "issuer", tokenId: "1", tokenUri: "https://example.com/meta.json")
         XCTAssertEqual(meta?.name, "avatar")
         XCTAssertEqual(meta?.image, "https://example.com/avatar.png")
-        let persisted = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let persisted = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertEqual(persisted?.image, "https://example.com/avatar.png")
     }
 
@@ -351,17 +366,17 @@ final class SwiftNftTests: XCTestCase {
     // MARK: 纯函数包装（经 config.ipfsGateway）
 
     func testNormalizeAssetUrlUsesInjectedGateway() {
-        XCTAssertEqual(self.sdk.normalizeAssetUrl("ipfs://bafy123/a.png", baseUrl: nil), "\(self.gateway)bafy123/a.png")
+        XCTAssertEqual(self.sdk.normalizeAssetURL("ipfs://bafy123/a.png", baseUrl: nil), "\(self.gateway)bafy123/a.png")
     }
 
     func testIsSupportedRemoteAssetUrlWrapper() {
-        XCTAssertTrue(self.sdk.isSupportedRemoteAssetUrl("https://example.com/a.png"))
-        XCTAssertFalse(self.sdk.isSupportedRemoteAssetUrl("ipfs://bafy123/a.png"))
+        XCTAssertTrue(self.sdk.isSupportedRemoteAssetURL("https://example.com/a.png"))
+        XCTAssertFalse(self.sdk.isSupportedRemoteAssetURL("ipfs://bafy123/a.png"))
     }
 
     func testExtractResolvedMetadataImageUrlWrapper() {
         XCTAssertEqual(
-            self.sdk.extractResolvedMetadataImageUrl(#"{"image":"./nft/a.png"}"#, metadataUri: "https://example.com/meta.json"),
+            self.sdk.extractResolvedMetadataImageURL(#"{"image":"./nft/a.png"}"#, metadataUri: "https://example.com/meta.json"),
             "https://example.com/nft/a.png"
         )
     }
@@ -395,7 +410,7 @@ final class SwiftNftTests: XCTestCase {
         self.http.enqueueJson(#"{"name":"avatar","image":"https://example.com/avatar.png"}"#,
                               for: "https://example.com/meta.json")
         await self.sdk.ensureSwtcCredentialMetadata(self.swtcVC)
-        let meta = try? await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let meta = try? await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertEqual(meta?.image, "https://example.com/avatar.png")
     }
 }

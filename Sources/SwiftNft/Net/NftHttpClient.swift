@@ -14,9 +14,11 @@ public protocol NftHttpClient: Sendable {
     func fetchJson(_ url: URL) async throws -> Data?
     /// GET 文本 body。
     func fetchText(_ url: URL) async throws -> String?
-    /// JSON-RPC POST（`eth_call` / SWTC `erc_info`）：RPC 节点可信、**跟随重定向**
-    /// （对齐 Kotlin `instanceFollowRedirects = true`，与 GET 拉取的 no-redirect 相反）；
-    /// 其余行为同 `fetchJson`（2xx + body 非空 + 2 MiB 上限 + `SsrfGuard` 建连检查）。
+    /// JSON-RPC POST（`eth_call` / SWTC `erc_info`）：RPC 节点**可信、属宿主注入信任面**
+    /// （`getRpcNode` 提供），**不做 SsrfGuard 建连检查**（避免误拦本地/私有链节点；
+    /// 重定向目标亦不在 SsrfGuard 覆盖内——由宿主保证节点可信）；
+    /// **跟随重定向**（对齐 Kotlin `instanceFollowRedirects = true`，与 GET 拉取的 no-redirect 相反）；
+    /// 其余行为同 `fetchJson`（2xx + body 非空 + 2 MiB 上限）。
     func fetchRpc(_ url: URL, body: Data) async throws -> Data?
 }
 
@@ -25,9 +27,8 @@ public struct URLSessionNftHttpClient: NftHttpClient {
     public let timeout: TimeInterval
     public let maxBodyBytes: Int
 
-    private let delegate: NoRedirectDelegate?
-    /// RPC 专用 session：**跟随重定向**（无 delegate；对齐 Kotlin `instanceFollowRedirects = true`）。
-    private let rpcSession: URLSession
+    /// 重定向策略 delegate（随 session 固定，无法 per-request 挂载——由「HTTP 方法」区分策略）。
+    private let delegate: RedirectPolicyDelegate
 
     public init(
         session: URLSession? = nil,
@@ -38,21 +39,18 @@ public struct URLSessionNftHttpClient: NftHttpClient {
         self.maxBodyBytes = maxBodyBytes
         if let session {
             // ⚠️ 注入自定义 session 时，调用方必须保证其**不跟随重定向**（delegate 随 session 固定，
-            // 无法挂上 NoRedirectDelegate）——否则重定向是 SSRF 绕过路径（勿传 URLSession.shared）。
+            // 无法挂上重定向策略 delegate）——否则重定向是 SSRF 绕过路径（勿传 URLSession.shared）。
             // RPC 请求同样走注入 session（测试注入 URLProtocol 桩 session；真实场景勿用 shared）。
             self.session = session
-            self.rpcSession = session
-            self.delegate = nil
+            self.delegate = RedirectPolicyDelegate()
         } else {
-            let delegate = NoRedirectDelegate()
+            let delegate = RedirectPolicyDelegate()
             self.delegate = delegate
             let configuration = URLSessionConfiguration.default
             configuration.timeoutIntervalForRequest = timeout
+            // 单 session（原 GET/RPC 双 session，见 review SwiftNft 补充细节）：
+            // 重定向策略由 delegate 按请求方法区分——POST（RPC）跟随、其余（GET 元数据）拒绝。
             self.session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-            // RPC：跟随重定向（无 delegate），节点可信
-            let rpcConfiguration = URLSessionConfiguration.default
-            rpcConfiguration.timeoutIntervalForRequest = timeout
-            self.rpcSession = URLSession(configuration: rpcConfiguration)
         }
     }
 
@@ -66,14 +64,13 @@ public struct URLSessionNftHttpClient: NftHttpClient {
     }
 
     public func fetchRpc(_ url: URL, body: Data) async throws -> Data? {
-        guard Self.ssrfAllowed(url) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = self.timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        // RPC 节点可信：跟随重定向（rpcSession 无 delegate，对齐 Kotlin instanceFollowRedirects=true）
-        return try await self.fetchData(request, session: self.rpcSession)
+        // RPC 节点可信：跟随重定向（delegate 按 POST 放行，对齐 Kotlin instanceFollowRedirects=true）
+        return try await self.fetchData(request, session: self.session)
     }
 
     private func fetchData(_ url: URL, session: URLSession) async throws -> Data? {
@@ -115,16 +112,18 @@ public struct URLSessionNftHttpClient: NftHttpClient {
     }
 }
 
-/// 不跟随重定向的 delegate（`willPerformHTTPRedirection` → completionHandler(nil)）。
+/// 重定向策略 delegate（`willPerformHTTPRedirection` 按请求方法决定）：
+/// - POST（RPC 节点可信）→ 跟随重定向（对齐 Kotlin instanceFollowRedirects=true）
+/// - 其余（GET 元数据拉取）→ 拒绝（重定向是 SSRF 绕过路径）
 /// @unchecked Sendable：无状态 delegate（不持有可变数据），见 review 三、Sendable 审计。
-final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class RedirectPolicyDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     nonisolated func urlSession(
         _: URLSession,
-        task _: URLSessionTask,
+        task: URLSessionTask,
         willPerformHTTPRedirection _: HTTPURLResponse,
-        newRequest _: URLRequest,
+        newRequest: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        completionHandler(nil)
+        completionHandler(task.originalRequest?.httpMethod == "POST" ? newRequest : nil)
     }
 }

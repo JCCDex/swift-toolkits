@@ -175,7 +175,7 @@ final class SwiftDidTests: XCTestCase {
         XCTAssertTrue(ok)
         let entity = try await store.get("did:swtc:aaa")
         XCTAssertNotNil(entity)
-        XCTAssertNotNil(try DidJson.parseObject(XCTUnwrap(entity?.doc))?["credentials"], "初始文档必须带 credentials 数组")
+        XCTAssertNotNil(try Json.parseObject(XCTUnwrap(entity?.doc))?["credentials"], "初始文档必须带 credentials 数组")
         XCTAssertEqual(self.bridge.calls.filter { $0.method == "publishDid" }.count, 1)
     }
 
@@ -242,7 +242,7 @@ final class SwiftDidTests: XCTestCase {
         XCTAssertNil(fields)
         XCTAssertNil(resolved)
         XCTAssertNil(uri)
-        XCTAssertFalse(self.did.isSupportedRemoteAssetUrl("https://example.com/a.png"))
+        XCTAssertFalse(self.did.isSupportedRemoteAssetURL("https://example.com/a.png"))
         XCTAssertEqual(images, [])
     }
 

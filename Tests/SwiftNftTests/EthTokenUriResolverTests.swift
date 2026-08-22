@@ -3,7 +3,7 @@ import XCTest
 
 /// `EthTokenUriResolver` 纯函数 KAT（对齐 Kotlin `DefaultEthTokenUriResolver`，见 02 §4.2）：
 /// calldata 只拼 selector + 32 字节十进制 tokenId（合约地址走 `to` 字段，不进 calldata）、
-/// ABI string 解码假定 offset=32、URI 过 normalizeRemoteAssetUrl。网络路径（多节点 eth_call）
+/// ABI string 解码假定 offset=32、URI 过 normalizeRemoteAssetURL。网络路径（多节点 eth_call）
 /// 由 demo/冒烟覆盖，此处不联网。
 final class EthTokenUriResolverTests: XCTestCase {
     private let selector = "0xc87b56dd"

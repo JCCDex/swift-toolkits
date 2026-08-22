@@ -109,8 +109,8 @@ enum DidCredentialHelper {
     }
 
     static func credentialIncludesType(_ credentialJson: String, _ type: String) -> Bool {
-        guard let object = DidJson.parseObject(credentialJson),
-              let types = DidJson.optArray(object, "type")
+        guard let object = Json.parseObject(credentialJson),
+              let types = Json.readArray(object, "type")
         else { return false }
         return types.contains { ($0 as? String)?.caseInsensitiveCompare(type) == .orderedSame }
     }
@@ -127,28 +127,28 @@ enum DidCredentialHelper {
     }
 
     static func readCredentials(_ doc: String) -> [Any] {
-        guard let object = DidJson.parseObject(doc) else { return [] }
+        guard let object = Json.parseObject(doc) else { return [] }
         return self.credentials(in: object)
     }
 
     /// 已 parse 文档中读 credentials（`credentials` / `credential` 双键别名；`DidDocumentEditor.credentials(from:)` 共用）。
     static func credentials(in object: [String: Any]) -> [Any] {
-        DidJson.optArray(object, "credentials") ?? DidJson.optArray(object, "credential") ?? []
+        Json.readArray(object, "credentials") ?? Json.readArray(object, "credential") ?? []
     }
 
     static func findCredentialIndex(_ credentials: [Any], _ credentialId: String) -> Int {
         credentials.firstIndex { credential -> Bool in
             guard let object = credential as? [String: Any] else { return false }
-            return DidJson.optString(object, "id").caseInsensitiveCompare(credentialId) == .orderedSame
+            return Json.readString(object, "id", default: "").caseInsensitiveCompare(credentialId) == .orderedSame
         } ?? -1
     }
 
     static func clearPreferredAvatarIfMatches(_ services: [Any], _ credentialId: String) -> [Any] {
         services.map { service -> Any in
             guard var serviceObject = service as? [String: Any],
-                  DidJson.optString(serviceObject, "type") == "Profile",
-                  var endpoint = DidJson.optDict(serviceObject, "serviceEndpoint"),
-                  DidJson.optString(endpoint, "preferredAvatar").caseInsensitiveCompare(credentialId) == .orderedSame
+                  Json.readString(serviceObject, "type", default: "") == "Profile",
+                  var endpoint = Json.readDict(serviceObject, "serviceEndpoint"),
+                  Json.readString(endpoint, "preferredAvatar", default: "").caseInsensitiveCompare(credentialId) == .orderedSame
             else { return service }
             endpoint["preferredAvatar"] = ""
             serviceObject["serviceEndpoint"] = endpoint

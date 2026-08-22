@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import OSLog
 import SwiftCore
 
 // MARK: - GRDB 记录适配（表结构对齐 Kotlin NftEntities.kt）
@@ -29,6 +30,7 @@ extension EvmNftCollectionEntity: FetchableRecord, TableRecord {
 /// @unchecked Sendable：持有的 DatabasePool 线程安全（GRDB 官方文档），见 review 三、Sendable 审计。
 public final class GRDBNftStore: NftStore, @unchecked Sendable {
     private let database: DatabasePool
+    private static let logger = Logger(subsystem: "com.jccdex.toolkits.swiftnft", category: "GRDBNftStore")
 
     public init(database: DatabasePool) throws {
         self.database = database
@@ -117,7 +119,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
             }
         }
         // v2（review P1#4）：swtc_nfts 旧行统一小写（新写入在 upsertSwtcNfts 归一），
-        // 查询去掉 LOWER() 使 ownerAddress 索引生效；issuer 补索引（getSwtcNftByIssuerAndTokenId 用）。
+        // 查询去掉 LOWER() 使 ownerAddress 索引生效；issuer 补索引（swtcNftByIssuerAndTokenId 用）。
         migrator.registerMigration("v2") { db in
             try db.execute(sql: "UPDATE swtc_nfts SET ownerAddress = LOWER(ownerAddress), issuer = LOWER(issuer)")
             try db.create(index: "idx_swtc_nfts_issuer", on: "swtc_nfts", columns: ["issuer"])
@@ -127,7 +129,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
 
     // MARK: - nft_meta
 
-    public func getNftMeta(contract: String, tokenId: String) async throws -> NftMeta? {
+    public func nftMeta(contract: String, tokenId: String) async throws -> NftMeta? {
         try await self.database.read { db in
             // 头像解析只需 name/image/tokenUri：投影去掉可能达 2 MiB 的 fullContent（review P1#6）
             try NftMeta.fetchOne(db, sql: "SELECT contract, tokenId, name, image, tokenUri, updatedAt FROM nft_meta WHERE contract = ? AND tokenId = ? LIMIT 1",
@@ -191,7 +193,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         }
     }
 
-    public func getSwtcNftByIssuerAndTokenId(issuer: String, tokenId: String) async throws -> SwtcNftEntity? {
+    public func swtcNftByIssuerAndTokenId(issuer: String, tokenId: String) async throws -> SwtcNftEntity? {
         try await self.database.read { db in
             try SwtcNftEntity.fetchOne(
                 db,
@@ -201,7 +203,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         }
     }
 
-    public func getSwtcNftByTokenId(ownerAddress: String, tokenId: String) async throws -> SwtcNftEntity? {
+    public func swtcNftByTokenId(ownerAddress: String, tokenId: String) async throws -> SwtcNftEntity? {
         try await self.database.read { db in
             try SwtcNftEntity.fetchOne(
                 db,
@@ -308,7 +310,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         }
     }
 
-    public func getEvmNftItemByContractAndTokenId(chainId: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity? {
+    public func evmNftItemByContractAndTokenId(chainId: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity? {
         try await self.database.read { db in
             try EvmNftItemEntity.fetchOne(
                 db,
@@ -318,7 +320,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         }
     }
 
-    public func getEvmNftItem(chainId: String, ownerAddress: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity? {
+    public func evmNftItem(chainId: String, ownerAddress: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity? {
         try await self.database.read { db in
             try EvmNftItemEntity.fetchOne(
                 db,
@@ -375,7 +377,7 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
         }
     }
 
-    public func getNftCollectionsFlow(chainId: String, ownerAddress: String) -> AsyncStream<[EvmNftCollectionEntity]> {
+    public func observeNftCollections(chainId: String, ownerAddress: String) -> AsyncStream<[EvmNftCollectionEntity]> {
         let observation = ValueObservation.tracking { db in
             try EvmNftCollectionEntity.fetchAll(
                 db,
@@ -406,15 +408,25 @@ public final class GRDBNftStore: NftStore, @unchecked Sendable {
 
     // MARK: - 观察流适配（ValueObservation → AsyncStream）
 
-    private static func stream<T: Sendable>(_ observation: ValueObservation<ValueReducers.Fetch<T>>, in database: DatabasePool) -> AsyncStream<T> {
-        AsyncStream { continuation in
+    /// - 值去重：每次写都会重发射，值未变时跳过（等价 removeDuplicates；AsyncValueObservation
+    ///   非泛型 AsyncSequence，手动比较上一个值——review SwiftNft 补充细节）
+    /// - `.bufferingNewest(1)`：观察流消费者取最新值，无界缓冲无意义（默认无界会积压）
+    /// - 观察出错：记日志后 finish（原实现静默结束，消费方无从得知流死亡）
+    private static func stream<T: Sendable & Equatable>(_ observation: ValueObservation<ValueReducers.Fetch<T>>, in database: DatabasePool) -> AsyncStream<T> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
+                var lastValue: T?
                 do {
                     for try await value in observation.values(in: database) {
+                        if lastValue == value {
+                            continue
+                        }
+                        lastValue = value
                         continuation.yield(value)
                     }
                     continuation.finish()
                 } catch {
+                    Self.logger.error("nft observation stream failed: \(error)")
                     continuation.finish()
                 }
             }

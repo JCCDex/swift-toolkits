@@ -70,7 +70,8 @@ Sources/SwiftDid/
 └── Util/
     ├── Keccak256.swift             // keccak-256 自实现（EIP-55 checksum 用）
     ├── ChecksumUtils.swift         // EIP-55 地址校验和
-    ├── DidJson.swift               // DID 文档 JSON 解析工具
+    ├── DidJson.swift               // DID 文档字段读取（readProfileField/extractUpdated；
+    │                               //   通用 JSON 取值/解析归口 SwiftCore.Json，时间戳归口 SwiftCore.Date）
     └── DidCredentialHelper.swift   // 凭证/头像 VC 辅助
 ```
 

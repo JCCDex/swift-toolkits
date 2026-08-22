@@ -12,7 +12,8 @@ public protocol ISwtcTokenUriResolver: Sendable {
 /// SWTC `erc_info` 元数据 URI 解析器（对齐 Kotlin `SwtcNftClient`）：
 /// - POST `{"method":"erc_info","params":[{"tokenid": tokenId}]}`；**RPC 节点由 `getRpcNode` 注入**（单 URL）；
 /// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、**跟随重定向**——对齐 Kotlin
-///   `instanceFollowRedirects = true`，RPC 节点可信；SsrfGuard 建连检查与响应体上限由客户端统一）；
+///   `instanceFollowRedirects = true`，RPC 节点可信、属宿主注入信任面，不做 SsrfGuard 建连检查；
+///   响应体上限由客户端统一）。
 /// - 网关 `gateway` 供 ipfs→网关重写（SWTC 元数据 URI 常为 ipfs://）。
 public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
     /// ipfs→网关重写用（SWTC 元数据 URI 常为 ipfs://），默认 defaultGateway。

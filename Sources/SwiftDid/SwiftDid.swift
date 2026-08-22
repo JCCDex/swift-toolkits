@@ -120,7 +120,7 @@ public final class SwiftDid: DidSDK {
     }
 
     public func getProfile(_ doc: String) -> Profile? {
-        guard let root = DidJson.parseObject(doc) else { return nil }
+        guard let root = Json.parseObject(doc) else { return nil }
         return self.getProfile(root)
     }
 
@@ -136,7 +136,7 @@ public final class SwiftDid: DidSDK {
     public func readCredentials(_ doc: String) -> [String] {
         DidCredentialHelper.readCredentials(doc).compactMap { credential -> String? in
             guard let object = credential as? [String: Any] else { return nil }
-            return DidJson.stringify(object)
+            return Json.stringify(object)
         }
     }
 
@@ -162,18 +162,18 @@ public final class SwiftDid: DidSDK {
 
     public func generateDid(_ did: String) async -> Did? {
         guard let entity = try? await core.getDidDocument(did),
-              let root = DidJson.parseObject(entity.doc) else { return nil }
+              let root = Json.parseObject(entity.doc) else { return nil }
         let created = Json.readString(root, "created", default: "")
         let updated = Json.readString(root, "updated", default: "")
         let verificationMethods = self.readJsonArray(root, "verificationMethod").compactMap { element -> VerificationMethod? in
             guard let item = element as? [String: Any] else { return nil }
             return VerificationMethod(
-                id: DidJson.optString(item, "id"),
-                controller: DidJson.optString(item, "controller"),
-                type: DidJson.optString(item, "type"),
-                publicKeyBase58: DidJson.optString(item, "publicKeyBase58"),
+                id: Json.readString(item, "id", default: ""),
+                controller: Json.readString(item, "controller", default: ""),
+                type: Json.readString(item, "type", default: ""),
+                publicKeyBase58: Json.readString(item, "publicKeyBase58", default: ""),
                 // DID 规范允许空格分隔的多 controller；逐一比较（review SwiftDid 补充细节）
-                isSelf: DidJson.optString(item, "controller")
+                isSelf: Json.readString(item, "controller", default: "")
                     .split(separator: " ")
                     .contains { $0.caseInsensitiveCompare(did) == .orderedSame }
             )
@@ -183,7 +183,7 @@ public final class SwiftDid: DidSDK {
 
     public func generateProfileVC(_ did: String) async -> ProfileVC? {
         guard let entity = try? await core.getDidDocument(did),
-              let root = DidJson.parseObject(entity.doc) else { return nil }
+              let root = Json.parseObject(entity.doc) else { return nil }
         let profile = self.getProfile(root)
         // 与 DidCredentialHelper.readCredentials 同款双键别名（`credential` / `credentials`，review SwiftDid 补充细节）
         let credentials = DidCredentialHelper.credentials(in: root)
@@ -205,7 +205,7 @@ public final class SwiftDid: DidSDK {
     }
 
     public func generateSwtcNft(_ vc: String) async -> Nft? {
-        await self.generateSwtcNft(DidJson.parseObject(vc) ?? [:], vc: vc)
+        await self.generateSwtcNft(Json.parseObject(vc) ?? [:], vc: vc)
     }
 
     private func generateSwtcNft(_ root: [String: Any], vc: String) async -> Nft? {
@@ -219,7 +219,7 @@ public final class SwiftDid: DidSDK {
     }
 
     public func generateEthrNft(_ vc: String) async -> Nft? {
-        await self.generateEthrNft(DidJson.parseObject(vc) ?? [:], vc: vc)
+        await self.generateEthrNft(Json.parseObject(vc) ?? [:], vc: vc)
     }
 
     private func generateEthrNft(_ root: [String: Any], vc: String) async -> Nft? {
@@ -254,16 +254,16 @@ public final class SwiftDid: DidSDK {
 
     /// 只校验 VC 结构（M-15 三条 + keyDoc 两条，见 Did-Swift 04 坑 #19）；用户确认由宿主 UI 完成。
     public func signCredential(privateKey: String, vcJson: String) async throws -> String {
-        guard let object = DidJson.parseObject(vcJson) else { throw SwiftDidError.invalidPayload }
-        guard let credential = DidJson.optDict(object, "credential"),
+        guard let object = Json.parseObject(vcJson) else { throw SwiftDidError.invalidPayload }
+        guard let credential = Json.readDict(object, "credential"),
               credential["@context"] != nil || credential["type"] != nil,
               credential["credentialSubject"] != nil,
               credential["issuer"] != nil || object["issuerObject"] != nil
         else { throw SwiftDidError.invalidCredential }
         // JS signCredential 强依赖 keyDoc.did / keyDoc.id（见 Did-Swift 03 §2）
-        guard let keyDoc = DidJson.optDict(object, "keyDoc"),
-              !(DidJson.optString(keyDoc, "did").isEmpty),
-              !(DidJson.optString(keyDoc, "id").isEmpty)
+        guard let keyDoc = Json.readDict(object, "keyDoc"),
+              !(Json.readString(keyDoc, "did", default: "").isEmpty),
+              !(Json.readString(keyDoc, "id", default: "").isEmpty)
         else { throw SwiftDidError.invalidCredential }
         var params = object
         params["privateKey"] = privateKey
@@ -339,7 +339,7 @@ public final class SwiftDid: DidSDK {
             guard previousCid != nil else { return false } // didStat 失败 → 中止发布
             let updatedServices = services.map { element -> Any in
                 guard let service = element as? [String: Any] else { return element }
-                switch DidJson.optString(service, "type") {
+                switch Json.readString(service, "type", default: "") {
                 case "Profile":
                     return DidDocumentEditor.profileService(
                         did: did,
@@ -373,7 +373,7 @@ public final class SwiftDid: DidSDK {
             let vcJson = try await self.generateAvatarVc(privateKey: privateKey, did: did, selectedAvatar: selectedAvatar)
             let updatedServices = services.map { element -> Any in
                 guard let service = element as? [String: Any] else { return element }
-                switch DidJson.optString(service, "type") {
+                switch Json.readString(service, "type", default: "") {
                 case "Profile":
                     return DidDocumentEditor.profileService(
                         did: did,
@@ -389,7 +389,7 @@ public final class SwiftDid: DidSDK {
             // upsert 原位替换（旧实现 filter+append 会把匹配项挪到数组末尾，破坏顺序；见 review SwiftDid 补充细节）
             let credentials = DidCredentialHelper.credentials(in: json)
             json["credentials"] = DidDocumentEditor.upsertCredential(
-                credentials, incoming: DidJson.parseObject(vcJson) ?? [:], byId: selectedAvatar.credentialId
+                credentials, incoming: Json.parseObject(vcJson) ?? [:], byId: selectedAvatar.credentialId
             )
             DidDocumentEditor.setServices(updatedServices, on: &json)
             let (ok, _) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
@@ -427,7 +427,7 @@ public final class SwiftDid: DidSDK {
             var json = doc
             let credentials = DidDocumentEditor.credentials(from: json)
             json["credentials"] = DidDocumentEditor.upsertCredential(
-                credentials, incoming: DidJson.parseObject(vcJson) ?? [:], byId: vcId
+                credentials, incoming: Json.parseObject(vcJson) ?? [:], byId: vcId
             )
             guard await self.applyPreviousCid(&json, did: did) else { return DidWriteResult(success: false) }
             let (ok, finalDoc) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
@@ -473,7 +473,7 @@ public final class SwiftDid: DidSDK {
         let credentials = DidCredentialHelper.readCredentials(ownerDoc)
         let matchedIndex = DidCredentialHelper.findCredentialIndex(credentials, vcid)
         guard matchedIndex >= 0, let matched = credentials[matchedIndex] as? [String: Any] else { return QueryVcidResult(isValid: false) }
-        let credentialJson = DidJson.stringify(matched)
+        let credentialJson = Json.stringify(matched)
         do {
             let verifyResult = try await self.verifyCredential(credentialJson)
             return QueryVcidResult(isValid: verifyResult.verified, credential: credentialJson)
@@ -487,8 +487,8 @@ public final class SwiftDid: DidSDK {
     public func bindVcidToDid(privateKey: String, did: String, currentDoc: String, credentialJson: String) async -> DidWriteResult {
         do {
             guard !credentialJson.isEmpty else { throw SwiftDidError.invalidPayload }
-            guard let incoming = DidJson.parseObject(credentialJson) else { throw SwiftDidError.invalidPayload }
-            let credentialId = DidJson.optString(incoming, "id")
+            guard let incoming = Json.parseObject(credentialJson) else { throw SwiftDidError.invalidPayload }
+            let credentialId = Json.readString(incoming, "id", default: "")
             guard !credentialId.isEmpty else { throw SwiftDidError.invalidPayload }
             let vcResult = try await self.verifyCredential(credentialJson)
             guard vcResult.verified else { throw SwiftDidError.invalidCredential }
@@ -513,14 +513,14 @@ public final class SwiftDid: DidSDK {
             guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return DidWriteResult(success: false) }
             let credentials = DidDocumentEditor.credentials(from: doc)
             let found = credentials.contains { element in
-                (element as? [String: Any]).map { DidJson.optString($0, "id") == credentialId } ?? false
+                (element as? [String: Any]).map { Json.readString($0, "id", default: "") == credentialId } ?? false
             }
             guard found else { throw SwiftDidError.invalidPayload }
             var json = doc
             let services = DidDocumentEditor.services(from: json)
             let updatedServices = services.map { element -> Any in
                 guard let service = element as? [String: Any] else { return element }
-                if DidJson.optString(service, "type") == "Profile" {
+                if Json.readString(service, "type", default: "") == "Profile" {
                     return DidDocumentEditor.profileService(
                         did: did,
                         nickname: DidJson.readProfileField(json, "nickname") ?? "",
@@ -544,14 +544,14 @@ public final class SwiftDid: DidSDK {
     // MARK: - VC 校验
 
     public func verifyCredential(_ credentialJson: String) async throws -> CredentialVerificationResult {
-        guard !credentialJson.isEmpty, let credential = DidJson.parseObject(credentialJson) else {
+        guard !credentialJson.isEmpty, let credential = Json.parseObject(credentialJson) else {
             throw SwiftDidError.invalidPayload
         }
-        let expirationDate = DidJson.optString(credential, "expirationDate")
+        let expirationDate = Json.readString(credential, "expirationDate", default: "")
         if !expirationDate.isEmpty {
             // P0-6：非空但无法解析的 expirationDate（攻击者可控字段）不得跳过过期检查——fail-closed。
-            // 与 DidJson.parseISO8601 的「解析失败 = 无法比较」契约一致：present-but-malformed 视为校验失败。
-            guard let date = DidJson.parseISO8601(expirationDate) else {
+            // 与 Date.parseISO8601 的「解析失败 = 无法比较」契约一致：present-but-malformed 视为校验失败。
+            guard let date = Date.parseISO8601(expirationDate) else {
                 return CredentialVerificationResult(verified: false, errorKind: "invalidExpirationDate")
             }
             if date < Date() {
@@ -564,21 +564,21 @@ public final class SwiftDid: DidSDK {
             }
         }
         let raw = try await bridge.call(method: "verifyCredential", params: ["credential": credentialJson])
-        guard let result = DidJson.parseObject(raw) else { return CredentialVerificationResult(verified: false) }
+        guard let result = Json.parseObject(raw) else { return CredentialVerificationResult(verified: false) }
         // Swift 增强：保留 errorKind / error（Kotlin 丢弃，见 Did-Swift 04 坑 #21）
         return CredentialVerificationResult(
-            verified: DidJson.optString(result, "verified") == "true",
-            results: DidJson.optArray(result, "results").map { DidJson.stringify($0) },
-            errorKind: DidJson.optString(result, "errorKind").nilIfBlank,
-            error: DidJson.optString(result, "error").nilIfBlank
+            verified: Json.readString(result, "verified", default: "") == "true",
+            results: Json.readArray(result, "results").map { Json.stringify($0) },
+            errorKind: Json.readString(result, "errorKind", default: "").nilIfBlank,
+            error: Json.readString(result, "error", default: "").nilIfBlank
         )
     }
 
     public func checkGranteeCredentialUpdate(_ credentialJson: String) async -> GranteeCredentialUpdateResult {
-        guard let credential = DidJson.parseObject(credentialJson) else {
+        guard let credential = Json.parseObject(credentialJson) else {
             return GranteeCredentialUpdateResult(isUpdate: true, credential: nil, fetchFailed: true)
         }
-        let credentialId = DidJson.optString(credential, "id")
+        let credentialId = Json.readString(credential, "id", default: "")
         let ownerDid = DidCredentialHelper.ownerDidFromCredentialId(credentialId)
         guard !ownerDid.isEmpty else { return GranteeCredentialUpdateResult(isUpdate: true) }
         guard let ownerDoc = await self.resolveOwnerDidDocument(ownerDid) else {
@@ -589,13 +589,13 @@ public final class SwiftDid: DidSDK {
         guard matchedIndex >= 0, let matched = credentials[matchedIndex] as? [String: Any] else {
             return GranteeCredentialUpdateResult(isUpdate: true)
         }
-        let matchedJson = DidJson.stringify(matched)
-        let originalSubjectId = DidJson.optDict(credential, "credentialSubject").map { DidJson.optString($0, "id") }
-        let matchedSubjectId = DidJson.optDict(matched, "credentialSubject").map { DidJson.optString($0, "id") }
+        let matchedJson = Json.stringify(matched)
+        let originalSubjectId = Json.readDict(credential, "credentialSubject").map { Json.readString($0, "id", default: "") }
+        let matchedSubjectId = Json.readDict(matched, "credentialSubject").map { Json.readString($0, "id", default: "") }
         if originalSubjectId != matchedSubjectId {
             return GranteeCredentialUpdateResult(isUpdate: true, credential: matchedJson)
         }
-        if DidJson.optString(matched, "expirationDate") != DidJson.optString(credential, "expirationDate") {
+        if Json.readString(matched, "expirationDate", default: "") != Json.readString(credential, "expirationDate", default: "") {
             return GranteeCredentialUpdateResult(isUpdate: true, credential: matchedJson)
         }
         return GranteeCredentialUpdateResult(isUpdate: false, credential: matchedJson)
@@ -619,16 +619,16 @@ public final class SwiftDid: DidSDK {
         await self.nft?.fetchResolvedMetadataImage(metadataUrl)
     }
 
-    public func normalizeAssetUrl(_ rawUrl: String?, baseUrl: String?) -> String? {
-        self.nft?.normalizeAssetUrl(rawUrl, baseUrl: baseUrl)
+    public func normalizeAssetURL(_ rawUrl: String?, baseUrl: String?) -> String? {
+        self.nft?.normalizeAssetURL(rawUrl, baseUrl: baseUrl)
     }
 
-    public func extractResolvedMetadataImageUrl(_ metadataBody: String, metadataUri: String) -> String? {
-        self.nft?.extractResolvedMetadataImageUrl(metadataBody, metadataUri: metadataUri)
+    public func extractResolvedMetadataImageURL(_ metadataBody: String, metadataUri: String) -> String? {
+        self.nft?.extractResolvedMetadataImageURL(metadataBody, metadataUri: metadataUri)
     }
 
-    public func isSupportedRemoteAssetUrl(_ url: String?) -> Bool {
-        self.nft?.isSupportedRemoteAssetUrl(url) ?? false
+    public func isSupportedRemoteAssetURL(_ url: String?) -> Bool {
+        self.nft?.isSupportedRemoteAssetURL(url) ?? false
     }
 
     public func extractSwtcMetadataUri(_ tokenInfosPayload: String?) -> String? {
@@ -646,7 +646,7 @@ public final class SwiftDid: DidSDK {
     }
 
     private func readJsonArray(_ root: [String: Any], _ key: String) -> [Any] {
-        if let array = DidJson.optArray(root, key) {
+        if let array = Json.readArray(root, key) {
             return array
         }
         let alias: String
@@ -655,13 +655,13 @@ public final class SwiftDid: DidSDK {
         case "verificationMethod": alias = "verificationMethods"
         default: return []
         }
-        return DidJson.optArray(root, alias) ?? []
+        return Json.readArray(root, alias) ?? []
     }
 
     private func findCredentialById(_ credentials: [Any], _ id: String) -> String? {
         let index = DidCredentialHelper.findCredentialIndex(credentials, id)
         guard index >= 0, let object = credentials[index] as? [String: Any] else { return nil }
-        return DidJson.stringify(object)
+        return Json.stringify(object)
     }
 
     private func isSwtcAvatarVc(_ root: [String: Any]) -> Bool {
@@ -676,7 +676,7 @@ public final class SwiftDid: DidSDK {
     }
 
     private func generateAvatarNft(_ vc: String) async -> Nft? {
-        let root = DidJson.parseObject(vc) ?? [:]
+        let root = Json.parseObject(vc) ?? [:]
         if self.isSwtcAvatarVc(root) {
             return await self.generateSwtcNft(root, vc: vc)
         }
@@ -722,24 +722,24 @@ public final class SwiftDid: DidSDK {
 
     private func resolveBaseDoc(_ did: String, _ currentDoc: String) async throws -> [String: Any]? {
         if !currentDoc.isEmpty {
-            return DidJson.parseObject(currentDoc)
+            return Json.parseObject(currentDoc)
         }
         let chainDoc = await (try? self.resolver.resolve(did)) ?? ""
-        if !chainDoc.isEmpty, !DidJson.isMissingDidDocument(chainDoc), let parsed = DidJson.parseObject(chainDoc) {
+        if !chainDoc.isEmpty, !Json.isEmpty(chainDoc), let parsed = Json.parseObject(chainDoc) {
             return parsed
         }
-        guard let local = try? await core.getDidDocument(did), !DidJson.isMissingDidDocument(local.doc) else { return nil }
-        return DidJson.parseObject(local.doc)
+        guard let local = try? await core.getDidDocument(did), !Json.isEmpty(local.doc) else { return nil }
+        return Json.parseObject(local.doc)
     }
 
     private func resolveOwnerDidDocument(_ ownerDid: String) async -> String? {
         switch await self.resolveDid(ownerDid) {
-        case let .document(doc) where !DidJson.isMissingDidDocument(doc):
+        case let .document(doc) where !Json.isEmpty(doc):
             return doc
         case .missing, .error, .document:
             break
         }
-        guard let local = try? await core.getDidDocument(ownerDid), !DidJson.isMissingDidDocument(local.doc) else { return nil }
+        guard let local = try? await core.getDidDocument(ownerDid), !Json.isEmpty(local.doc) else { return nil }
         return local.doc
     }
 
@@ -784,12 +784,12 @@ public final class SwiftDid: DidSDK {
         json: inout [String: Any],
         save: @escaping (String, String) async throws -> Void
     ) async -> (success: Bool, didDocument: String?) {
-        json["updated"] = DidJson.nowISO()
+        json["updated"] = Date.nowISO()
         json.removeValue(forKey: "did")
         do {
-            let res = try await self.publishDid(did: did, privateKey: privateKey, didDocument: DidJson.stringify(json))
+            let res = try await self.publishDid(did: did, privateKey: privateKey, didDocument: Json.stringify(json))
             guard res.code == "0" else { return (false, nil) }
-            let finalDoc = DidJson.stringify(json)
+            let finalDoc = Json.stringify(json)
             try await save(did, finalDoc)
             return (true, finalDoc)
         } catch {
@@ -820,24 +820,24 @@ public final class SwiftDid: DidSDK {
             "privateKey": privateKey,
             "address": String(ownerDid.split(separator: ":").last ?? ""),
             "did": ownerDid,
-            "expirationDate": DidJson.nowISO(offsetMillis: credentialData.expirationDurationMs),
+            "expirationDate": Date.nowISO(offsetMillis: credentialData.expirationDurationMs),
             "contextType": DidCredentialHelper.contextTypeFor(credentialData)
         ]
     }
 
     func ensureCredentialsArrayInDidDocument(_ didDocJson: String) -> String {
-        guard var json = DidJson.parseObject(didDocJson) else { return didDocJson }
+        guard var json = Json.parseObject(didDocJson) else { return didDocJson }
         if json["credentials"] == nil {
             json["credentials"] = [Any]()
         }
-        return DidJson.stringify(json)
+        return Json.stringify(json)
     }
 
     // MARK: - 内部小工具
 
     static func formatUtc(_ utc: String) -> String {
         guard !utc.isEmpty else { return "" }
-        guard let date = DidJson.parseISO8601(utc) else { return utc }
+        guard let date = Date.parseISO8601(utc) else { return utc }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
         let comps = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)

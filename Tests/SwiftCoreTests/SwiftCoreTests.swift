@@ -115,15 +115,15 @@ final class SwiftCoreTests: XCTestCase {
 
     // MARK: Json
 
-    func testJsonOptStringCoercion() {
+    func testJsonReadStringCoercion() {
         let dict: [String: Any] = ["s": "str", "b": true, "n": 42, "d": 1.5, "nil": NSNull()]
-        XCTAssertEqual(Json.optString(dict, "s"), "str")
-        XCTAssertEqual(Json.optString(dict, "b"), "true")
-        XCTAssertEqual(Json.optString(dict, "n"), "42")
-        XCTAssertEqual(Json.optString(dict, "d"), "1.5")
-        XCTAssertEqual(Json.optString(dict, "missing"), "")
-        XCTAssertEqual(Json.optString(dict, "missing", default: "def"), "def")
-        XCTAssertEqual(Json.optString(dict, "nil"), "", "NSNull → 默认值")
+        XCTAssertEqual(Json.readString(dict, "s", default: ""), "str")
+        XCTAssertEqual(Json.readString(dict, "b", default: ""), "true")
+        XCTAssertEqual(Json.readString(dict, "n", default: ""), "42")
+        XCTAssertEqual(Json.readString(dict, "d", default: ""), "1.5")
+        XCTAssertEqual(Json.readString(dict, "missing", default: ""), "")
+        XCTAssertEqual(Json.readString(dict, "missing", default: "def"), "def")
+        XCTAssertEqual(Json.readString(dict, "nil", default: ""), "", "NSNull → 默认值")
     }
 
     func testJsonReadValuePathTraversal() {
@@ -189,5 +189,23 @@ final class SwiftCoreTests: XCTestCase {
         XCTAssertTrue("0xABC".addressEquals("0xabc"))
         XCTAssertFalse("0xabc".addressEquals("0xabcd"))
         XCTAssertEqual(mixed.normalizedAddress, "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed")
+    }
+
+    // MARK: 字符串处理（trimmingPrefix / removingPrefix / hex2utf8）
+
+    func testTrimmingAndRemovingPrefix() {
+        XCTAssertEqual("///ipfs".trimmingPrefix("/"), "ipfs")
+        XCTAssertEqual("/ipfs/".trimmingPrefix("/"), "ipfs/")
+        XCTAssertEqual("ipfs://xyz".removingPrefix("ipfs://"), "xyz")
+        XCTAssertEqual("abc".removingPrefix("zz"), "abc", "不匹配 → 原样")
+        XCTAssertEqual("/ipfs/Qm".trimmingPrefix("/").removingPrefix("ipfs/"), "Qm")
+    }
+
+    func testHexDecodedUTF8() {
+        XCTAssertEqual("68656c6c6f".hex2utf8(), "hello")
+        XCTAssertEqual("0x68656c6c6f".hex2utf8(), "hello", "剥 0x 前缀")
+        XCTAssertEqual("68 65 6c 6c 6f".hex2utf8(), "hello", "去空白")
+        XCTAssertEqual("zz".hex2utf8(), "", "非法 → 空")
+        XCTAssertEqual("abc".hex2utf8(), "", "奇数长度 → 空")
     }
 }

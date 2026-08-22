@@ -239,15 +239,15 @@ final class FakeNftResolver: DidNftResolution, @unchecked Sendable {
         nil
     }
 
-    func normalizeAssetUrl(_ rawUrl: String?, baseUrl _: String?) -> String? {
+    func normalizeAssetURL(_ rawUrl: String?, baseUrl _: String?) -> String? {
         rawUrl
     }
 
-    func extractResolvedMetadataImageUrl(_: String, metadataUri _: String) -> String? {
+    func extractResolvedMetadataImageURL(_: String, metadataUri _: String) -> String? {
         nil
     }
 
-    func isSupportedRemoteAssetUrl(_ url: String?) -> Bool {
+    func isSupportedRemoteAssetURL(_ url: String?) -> Bool {
         url != nil
     }
 

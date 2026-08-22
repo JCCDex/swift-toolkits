@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// 观察/取档/写操作编排 + pending 对账状态机（对应 Kotlin `DidCoreService`，见 Did-Swift 01 §6）。
 ///
@@ -48,7 +49,7 @@ final class DidCoreService {
                 return .error(error) // 桥/网络错误不得伪装成「链上缺失」
             }
 
-            if DidJson.isMissingDidDocument(chainDoc) {
+            if Json.isEmpty(chainDoc) {
                 return await self.handleMissingChainDocument(did, localDoc)
             }
 
@@ -84,8 +85,8 @@ final class DidCoreService {
             }
 
             // `updated` 比较（Swift 修正 #1：Date，勿字符串比较）
-            let localUpdated = DidJson.extractUpdated(localDoc.doc).flatMap { DidJson.parseISO8601($0) }
-            let chainUpdated = DidJson.extractUpdated(chainDoc).flatMap { DidJson.parseISO8601($0) }
+            let localUpdated = DidJson.extractUpdated(localDoc.doc).flatMap { Date.parseISO8601($0) }
+            let chainUpdated = DidJson.extractUpdated(chainDoc).flatMap { Date.parseISO8601($0) }
             if let chainUpdated, localUpdated.map({ chainUpdated > $0 }) ?? true {
                 try await self.store.save(DidEntity(did: did, doc: chainDoc, updatedAt: Self.nowMillis()))
                 return .document(chainDoc)

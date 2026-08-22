@@ -34,7 +34,7 @@ final class GRDBNftStoreTests: XCTestCase {
                                                    image: nil, tokenUri: "https://example.com/m.json",
                                                    fullContent: #"{"name":"first"}"#, updatedAt: now))
 
-        let first = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let first = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertEqual(first?.name, "first")
         let savedID = first?.id
 
@@ -42,11 +42,11 @@ final class GRDBNftStoreTests: XCTestCase {
         try await self.store.upsertNftMeta(NftMeta(contract: "issuer", tokenId: "1", name: "second",
                                                    image: "https://example.com/a.png", tokenUri: "https://example.com/m.json",
                                                    fullContent: #"{"name":"second"}"#, updatedAt: now + 1))
-        let second = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let second = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertEqual(second?.name, "second")
         XCTAssertEqual(second?.image, "https://example.com/a.png")
         XCTAssertEqual(second?.id, savedID, "upsert 不得改变自增 id")
-        let missing = try await store.getNftMeta(contract: "issuer", tokenId: "2")
+        let missing = try await store.nftMeta(contract: "issuer", tokenId: "2")
         XCTAssertNil(missing)
     }
 
@@ -66,10 +66,10 @@ final class GRDBNftStoreTests: XCTestCase {
         XCTAssertEqual(rows?.first?.name, "avatar")
 
         // 大小写不敏感的 issuer 查询
-        let byIssuer = try await store.getSwtcNftByIssuerAndTokenId(issuer: "issuer", tokenId: "1")
+        let byIssuer = try await store.swtcNftByIssuerAndTokenId(issuer: "issuer", tokenId: "1")
         XCTAssertEqual(byIssuer?.fundCode, "FUND")
 
-        let byToken = try await store.getSwtcNftByTokenId(ownerAddress: "jcccc", tokenId: "1")
+        let byToken = try await store.swtcNftByTokenId(ownerAddress: "jcccc", tokenId: "1")
         XCTAssertNotNil(byToken)
     }
 
@@ -83,9 +83,9 @@ final class GRDBNftStoreTests: XCTestCase {
 
         try await self.store.deleteSwtcNftsByOwner(ownerAddress: "jcccc")
 
-        let deleted = try await store.getSwtcNftByTokenId(ownerAddress: "jcccc", tokenId: "1")
+        let deleted = try await store.swtcNftByTokenId(ownerAddress: "jcccc", tokenId: "1")
         XCTAssertNil(deleted, "持仓行已删除")
-        let meta = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let meta = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertEqual(meta?.tokenUri, "https://example.com/meta.json", "preserveSwtcEntityAsMeta 把 metadataUri 写进 nft_meta")
     }
 
@@ -96,7 +96,7 @@ final class GRDBNftStoreTests: XCTestCase {
         )
         try await store.upsertSwtcNfts([entity])
         try await self.store.deleteSwtcNftsByOwner(ownerAddress: "jcccc")
-        let metaAfterDelete = try await store.getNftMeta(contract: "issuer", tokenId: "1")
+        let metaAfterDelete = try await store.nftMeta(contract: "issuer", tokenId: "1")
         XCTAssertNil(metaAfterDelete)
     }
 
@@ -113,11 +113,11 @@ final class GRDBNftStoreTests: XCTestCase {
         XCTAssertEqual(all?.count, 1)
         XCTAssertEqual(all?.first?.title, "avatar")
 
-        let byContract = try await store.getEvmNftItemByContractAndTokenId(chainId: "0x1", contractAddress: "0xabcdef", tokenId: "1")
+        let byContract = try await store.evmNftItemByContractAndTokenId(chainId: "0x1", contractAddress: "0xabcdef", tokenId: "1")
         XCTAssertNotNil(byContract)
 
         try await self.store.deleteEvmNftItemsByCollection(chainId: "0x1", ownerAddress: "0xowner", contractAddress: "0xabcdef")
-        let removedItem = try await store.getEvmNftItem(chainId: "0x1", ownerAddress: "0xowner", contractAddress: "0xabcdef", tokenId: "1")
+        let removedItem = try await store.evmNftItem(chainId: "0x1", ownerAddress: "0xowner", contractAddress: "0xabcdef", tokenId: "1")
         XCTAssertNil(removedItem)
     }
 
@@ -130,16 +130,16 @@ final class GRDBNftStoreTests: XCTestCase {
         )
         try await store.insertCollections([collection])
 
-        let flow = await firstValue(store.getNftCollectionsFlow(chainId: "0x1", ownerAddress: "0xowner"))
+        let flow = await firstValue(store.observeNftCollections(chainId: "0x1", ownerAddress: "0xowner"))
         XCTAssertEqual(flow?.count, 1)
         XCTAssertEqual(flow?.first?.tokenCount, 10)
 
         try await self.store.updateTokenCount(chainId: "0x1", ownerAddress: "0xowner", contractAddress: "0xabcdef", tokenCount: 42)
-        let updated = await firstValue(store.getNftCollectionsFlow(chainId: "0x1", ownerAddress: "0xowner"))
+        let updated = await firstValue(store.observeNftCollections(chainId: "0x1", ownerAddress: "0xowner"))
         XCTAssertEqual(updated?.first?.tokenCount, 42)
 
         try await self.store.deleteByChainAndOwner(chainId: "0x1", ownerAddress: "0xowner")
-        let remainingCollections = await firstValue(store.getNftCollectionsFlow(chainId: "0x1", ownerAddress: "0xowner"))
+        let remainingCollections = await firstValue(store.observeNftCollections(chainId: "0x1", ownerAddress: "0xowner"))
         XCTAssertEqual(remainingCollections?.count, 0)
     }
 

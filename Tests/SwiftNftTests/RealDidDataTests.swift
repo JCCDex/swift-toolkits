@@ -75,7 +75,7 @@ final class RealDidDataTests: XCTestCase {
         XCTAssertEqual(nft?.uri, self.gateway + "bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/8")
         XCTAssertEqual(self.swtc.requested, [self.swtcTokenId])
         // 元数据已落 nft_meta（fetchAndCacheNftMeta 预取）
-        let meta = try await self.store.getNftMeta(contract: self.swtcIssuer, tokenId: self.swtcTokenId)
+        let meta = try await self.store.nftMeta(contract: self.swtcIssuer, tokenId: self.swtcTokenId)
         XCTAssertEqual(meta?.name, "CCDAO NFT #8")
         XCTAssertEqual(meta?.tokenUri, self.swtcMetadataUri)
     }
@@ -87,10 +87,10 @@ final class RealDidDataTests: XCTestCase {
     func testResolveEthrAvatarWithRealDidData() async {
         let tokenUri = self.gateway + "bafybeidymecalbda5mlmgrhxwfubr7mlojlf7wjdzy5rnv7qsy76zmux4y/4"
         self.resolver.setResult(self.ethrMetadataUri)
-        // resolveRemoteImageUrl 对元数据走 fetchText（提图）；fetchAndCacheNftMeta 走 fetchJson（落库）
+        // resolveRemoteImageURL 对元数据走 fetchText（提图）；fetchAndCacheNftMeta 走 fetchJson（落库）
         self.http.enqueueText(self.nft4Metadata, for: tokenUri)
 
-        // 第一轮：无 evm item → 仅 resolver tokenURI；image 由 resolveRemoteImageUrl 拉元数据提图
+        // 第一轮：无 evm item → 仅 resolver tokenURI；image 由 resolveRemoteImageURL 拉元数据提图
         let nft = await self.sdk.resolveEthrAvatar(vc: self.ethrErc721VC)
         XCTAssertEqual(nft?.name, "")
         XCTAssertEqual(nft?.uri, tokenUri)

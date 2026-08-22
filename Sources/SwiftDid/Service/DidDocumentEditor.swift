@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// DID 文档读改写纯函数（无 I/O）：抽取门面里 services/credentials 的重构逻辑，
 /// 使各写操作只提供差异化 transform（见 review 优化 #13）。
@@ -8,7 +9,7 @@ enum DidDocumentEditor {
 
     /// 读 service（`service` / `services` 双键别名）。
     static func services(from json: [String: Any]) -> [Any] {
-        DidJson.optArray(json, "service") ?? DidJson.optArray(json, "services") ?? []
+        Json.readArray(json, "service") ?? Json.readArray(json, "services") ?? []
     }
 
     /// 写 `service` 前删除旧 `services` 键（Swift 修正：Kotlin 会双键漂移，见 Did-Swift 01 §6 缺陷 #4）。
@@ -28,12 +29,12 @@ enum DidDocumentEditor {
 
     /// 重建 IpfsStorage service：保留原 id 与 serviceEndpoint 键，仅 previousCid 非空时写入（镜像 `applyPreviousCid`）。
     static func ipfsStorageService(did: String, from service: [String: Any], previousCid: String?) -> [String: Any] {
-        var endpoint = DidJson.optDict(service, "serviceEndpoint") ?? [:]
+        var endpoint = Json.readDict(service, "serviceEndpoint") ?? [:]
         if let previousCid, !previousCid.isEmpty {
             endpoint["previousCid"] = previousCid
         }
         return [
-            "id": DidJson.optString(service, "id", default: "\(did)#ipfs-storage"),
+            "id": Json.readString(service, "id", default: "\(did)#ipfs-storage"),
             "type": "IpfsStorage",
             "serviceEndpoint": endpoint
         ]
@@ -50,7 +51,7 @@ enum DidDocumentEditor {
     /// 门面三处（updateDidNickname / updateDidAvatar / applyPreviousCid）共用同一「类型判断 +
     /// 重建」变换（见跨模块重复 2.2）。
     static func serviceWithPreviousCid(did: String, service: [String: Any], previousCid: String?) -> Any {
-        guard DidJson.optString(service, "type") == "IpfsStorage" else { return service }
+        guard Json.readString(service, "type", default: "") == "IpfsStorage" else { return service }
         return self.ipfsStorageService(did: did, from: service, previousCid: previousCid)
     }
 
@@ -60,7 +61,7 @@ enum DidDocumentEditor {
         var replaced = false
         for element in credentials {
             if let existing = element as? [String: Any],
-               DidJson.optString(existing, "id").caseInsensitiveCompare(id) == .orderedSame {
+               Json.readString(existing, "id", default: "").caseInsensitiveCompare(id) == .orderedSame {
                 updated.append(incoming)
                 replaced = true
             } else {

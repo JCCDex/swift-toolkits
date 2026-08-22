@@ -12,10 +12,11 @@ public typealias ChainRpcUrlsProvider = @Sendable (Int64) -> String?
 /// - `buildTokenUriCallData`：仅拼 selector `0xc87b56dd` + **32 字节 tokenId**（合约地址走 `to`
 ///   字段，不进 calldata）；tokenId 按**十进制**解析转 hex（逐位除法，支持任意长度 uint256）；
 /// - `decodeAbiString`：ABI string 解码（假定 offset=32，取第 2 个 32 字节字为长度，数据从第 128 hex 位起）；
-/// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetUrl(raw) ?: raw`（ipfs:// → 默认网关）；
+/// - `normalizeTokenMetadataUri`：`normalizeRemoteAssetURL(raw) ?: raw`（ipfs:// → 默认网关）；
 /// - **RPC URL 由 `init(getRpcNode:)` 注入**（chainId → RPC URL 的函数），本类不内置任何端点——
 ///   端点属宿主配置（对应 Kotlin `AppEndpoints.RPC_*`）；
-/// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、跟随重定向、SsrfGuard/上限由客户端统一）。
+/// - **网络走模块 `NftHttpClient`**（`fetchRpc`：POST JSON-RPC、跟随重定向；RPC 节点属宿主注入
+///   信任面，不做 SsrfGuard 建连检查——SsrfGuard/上限由客户端统一（GET 元数据拉取））。
 public final class EthTokenUriResolver: IEthTokenUriResolver {
     private let getRpcNode: ChainRpcUrlsProvider
     private let httpClient: any NftHttpClient
@@ -92,10 +93,10 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
         return value?.isEmpty == false ? value : nil
     }
 
-    /// ipfs:// 等 → 默认网关；其余原样（对齐 Kotlin `normalizeRemoteAssetUrl(raw) ?: raw`）。
+    /// ipfs:// 等 → 默认网关；其余原样（对齐 Kotlin `normalizeRemoteAssetURL(raw) ?: raw`）。
     static func normalizeTokenMetadataUri(_ rawUri: String?) -> String? {
         guard let rawUri, !rawUri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return normalizeRemoteAssetUrl(rawUri, baseUrl: nil) ?? rawUri
+        return normalizeRemoteAssetURL(rawUri, baseUrl: nil) ?? rawUri
     }
 
     // MARK: - 工具

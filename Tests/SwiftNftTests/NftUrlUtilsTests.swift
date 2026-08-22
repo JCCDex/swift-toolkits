@@ -4,110 +4,110 @@ import XCTest
 final class NftUrlUtilsTests: XCTestCase {
     private let defaultGateway = "https://ipfs.jccdex.cn/ipfs/"
 
-    // MARK: normalizeAssetUrl KAT（对齐 Kotlin NftSdkTest）
+    // MARK: normalizeAssetURL KAT（对齐 Kotlin NftSdkTest）
 
     func testNormalizeIpfsUriToGateway() {
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("ipfs://bafy123/avatar.png"),
+            normalizeRemoteAssetURL("ipfs://bafy123/avatar.png"),
             "\(self.defaultGateway)bafy123/avatar.png"
         )
     }
 
     func testNormalizeSlashIpfsPrefix() {
-        XCTAssertEqual(normalizeRemoteAssetUrl("/ipfs/bafy123/avatar.png"), "\(self.defaultGateway)bafy123/avatar.png")
-        XCTAssertEqual(normalizeRemoteAssetUrl("ipfs/bafy123/avatar.png"), "\(self.defaultGateway)bafy123/avatar.png")
+        XCTAssertEqual(normalizeRemoteAssetURL("/ipfs/bafy123/avatar.png"), "\(self.defaultGateway)bafy123/avatar.png")
+        XCTAssertEqual(normalizeRemoteAssetURL("ipfs/bafy123/avatar.png"), "\(self.defaultGateway)bafy123/avatar.png")
     }
 
     func testNormalizeBareCid() {
-        XCTAssertEqual(normalizeRemoteAssetUrl("QmHash/avatar.png"), "\(self.defaultGateway)QmHash/avatar.png")
-        XCTAssertEqual(normalizeRemoteAssetUrl("bafyHash/meta.json"), "\(self.defaultGateway)bafyHash/meta.json")
+        XCTAssertEqual(normalizeRemoteAssetURL("QmHash/avatar.png"), "\(self.defaultGateway)QmHash/avatar.png")
+        XCTAssertEqual(normalizeRemoteAssetURL("bafyHash/meta.json"), "\(self.defaultGateway)bafyHash/meta.json")
     }
 
     func testNormalizeHttpIpfsPathCanonicalized() {
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("https://cdn.thirdparty.com/ipfs/xyz/a.png"),
+            normalizeRemoteAssetURL("https://cdn.thirdparty.com/ipfs/xyz/a.png"),
             "\(self.defaultGateway)xyz/a.png"
         )
     }
 
     func testCanonicalizeHttpIpfsStripsDotDotSegments() {
         // review SwiftNft 补充细节：`/ipfs/../../etc` 剥掉 `..` 段，不拼接进网关 URL
-        XCTAssertEqual(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/QmFoo/a.png"), "\(self.defaultGateway)QmFoo/a.png")
-        XCTAssertEqual(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/../../etc/passwd"), "\(self.defaultGateway)etc/passwd")
-        XCTAssertNil(canonicalizeHttpIpfsUrl("https://evil.com/ipfs/../.."), "剥完为空 → nil")
-        XCTAssertNil(canonicalizeHttpIpfsUrl("https://evil.com/other/../x.png"), "非 /ipfs/ 路径 → nil")
+        XCTAssertEqual(canonicalizeHttpIpfsURL("https://evil.com/ipfs/QmFoo/a.png"), "\(self.defaultGateway)QmFoo/a.png")
+        XCTAssertEqual(canonicalizeHttpIpfsURL("https://evil.com/ipfs/../../etc/passwd"), "\(self.defaultGateway)etc/passwd")
+        XCTAssertNil(canonicalizeHttpIpfsURL("https://evil.com/ipfs/../.."), "剥完为空 → nil")
+        XCTAssertNil(canonicalizeHttpIpfsURL("https://evil.com/other/../x.png"), "非 /ipfs/ 路径 → nil")
     }
 
     func testNormalizeRelativePathAgainstMetadataUrl() {
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("assets/avatar.png", baseUrl: "https://example.com/meta.json"),
+            normalizeRemoteAssetURL("assets/avatar.png", baseUrl: "https://example.com/meta.json"),
             "https://example.com/assets/avatar.png"
         )
     }
 
     func testNormalizeProtocolRelative() {
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("//host/a.png", baseUrl: "https://example.com/meta.json"),
+            normalizeRemoteAssetURL("//host/a.png", baseUrl: "https://example.com/meta.json"),
             "https://host/a.png"
         )
     }
 
     func testNormalizeNoBaseKeepsRawValue() {
         // 对齐 Kotlin：无 base 的不可解析路径返回原样（不判 nil）。
-        XCTAssertEqual(normalizeRemoteAssetUrl("not-a-url"), "not-a-url")
+        XCTAssertEqual(normalizeRemoteAssetURL("not-a-url"), "not-a-url")
     }
 
     func testNormalizeJsonPayloadReturnsNil() {
-        XCTAssertNil(normalizeRemoteAssetUrl(#"{"image":"x"}"#))
-        XCTAssertNil(normalizeRemoteAssetUrl(#"["a"]"#))
+        XCTAssertNil(normalizeRemoteAssetURL(#"{"image":"x"}"#))
+        XCTAssertNil(normalizeRemoteAssetURL(#"["a"]"#))
     }
 
     func testNormalizeBlankReturnsNil() {
-        XCTAssertNil(normalizeRemoteAssetUrl(nil))
-        XCTAssertNil(normalizeRemoteAssetUrl("   "))
+        XCTAssertNil(normalizeRemoteAssetURL(nil))
+        XCTAssertNil(normalizeRemoteAssetURL("   "))
     }
 
     func testNormalizeDataUrlPassthrough() {
         let dataURL = "data:image/png;base64,AAAA"
-        XCTAssertEqual(normalizeRemoteAssetUrl(dataURL), dataURL)
+        XCTAssertEqual(normalizeRemoteAssetURL(dataURL), dataURL)
     }
 
     func testNormalizeCustomGatewayThreadsThrough() {
         let custom = "https://custom.gateway/ipfs/"
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("ipfs://bafy123/a.png", gateway: custom),
+            normalizeRemoteAssetURL("ipfs://bafy123/a.png", gateway: custom),
             "\(custom)bafy123/a.png"
         )
         XCTAssertEqual(
-            normalizeRemoteAssetUrl("https://cdn.x.com/ipfs/xyz", gateway: custom),
+            normalizeRemoteAssetURL("https://cdn.x.com/ipfs/xyz", gateway: custom),
             "\(custom)xyz"
         )
     }
 
-    // MARK: isSupportedRemoteAssetUrl
+    // MARK: isSupportedRemoteAssetURL
 
     func testIsLoadableRemoteAssetUrl() {
-        XCTAssertTrue(isLoadableRemoteAssetUrl("https://example.com/a.png"))
-        XCTAssertTrue(isLoadableRemoteAssetUrl("http://example.com/a.png"))
-        XCTAssertTrue(isLoadableRemoteAssetUrl("data:image/png;base64,AAAA"))
-        XCTAssertFalse(isLoadableRemoteAssetUrl("ipfs://bafy123/a.png"))
-        XCTAssertFalse(isLoadableRemoteAssetUrl(nil))
-        XCTAssertFalse(isLoadableRemoteAssetUrl(""))
+        XCTAssertTrue(isLoadableRemoteAssetURL("https://example.com/a.png"))
+        XCTAssertTrue(isLoadableRemoteAssetURL("http://example.com/a.png"))
+        XCTAssertTrue(isLoadableRemoteAssetURL("data:image/png;base64,AAAA"))
+        XCTAssertFalse(isLoadableRemoteAssetURL("ipfs://bafy123/a.png"))
+        XCTAssertFalse(isLoadableRemoteAssetURL(nil))
+        XCTAssertFalse(isLoadableRemoteAssetURL(""))
     }
 
     func testIsDataImageUrl() {
-        XCTAssertTrue(isDataImageUrl("data:image/png;base64,AAAA"))
-        XCTAssertTrue(isDataImageUrl("data:image/svg+xml;base64,AAAA"))
-        XCTAssertFalse(isDataImageUrl("data:text/html;base64,AAAA"))
-        XCTAssertFalse(isDataImageUrl("https://example.com/a.png"))
-        XCTAssertFalse(isDataImageUrl(nil))
+        XCTAssertTrue(isDataImageURL("data:image/png;base64,AAAA"))
+        XCTAssertTrue(isDataImageURL("data:image/svg+xml;base64,AAAA"))
+        XCTAssertFalse(isDataImageURL("data:text/html;base64,AAAA"))
+        XCTAssertFalse(isDataImageURL("https://example.com/a.png"))
+        XCTAssertFalse(isDataImageURL(nil))
     }
 
-    // MARK: extractMetadataImageUrlFromBody（原公开 2 参便捷版已并入门面，纯函数走内部版）
+    // MARK: extractMetadataImageURLFromBody（原公开 2 参便捷版已并入门面，纯函数走内部版）
 
     func testExtractResolvedMetadataImageUrl() {
         XCTAssertEqual(
-            extractMetadataImageUrlFromBody(#"{"image":"./nft/avatar.png"}"#, metadataUri: "https://example.com/meta.json"),
+            extractMetadataImageURLFromBody(#"{"image":"./nft/avatar.png"}"#, metadataUri: "https://example.com/meta.json"),
             "https://example.com/nft/avatar.png"
         )
     }
@@ -115,20 +115,20 @@ final class NftUrlUtilsTests: XCTestCase {
     func testExtractImageKeyOrderImageFirst() {
         // 键顺序：image → image_url → imageUrl
         let body = #"{"image_url":"https://a.png","image":"https://b.png"}"#
-        XCTAssertEqual(extractMetadataImageUrlFromBody(body, metadataUri: "https://example.com/meta.json"), "https://b.png")
+        XCTAssertEqual(extractMetadataImageURLFromBody(body, metadataUri: "https://example.com/meta.json"), "https://b.png")
     }
 
     func testExtractDataUnwrap() {
         let body = #"{"data":{"name":"avatar","description":"hello","image":"./images/avatar.png"}}"#
         XCTAssertEqual(
-            extractMetadataImageUrlFromBody(body, metadataUri: "https://example.com/meta.json"),
+            extractMetadataImageURLFromBody(body, metadataUri: "https://example.com/meta.json"),
             "https://example.com/images/avatar.png"
         )
     }
 
     func testExtractMalformedJsonReturnsNil() {
-        XCTAssertNil(extractMetadataImageUrlFromBody("not-json", metadataUri: "https://example.com/meta.json"))
-        XCTAssertNil(extractMetadataImageUrlFromBody(#"{"no_image":true}"#, metadataUri: "https://example.com/meta.json"))
+        XCTAssertNil(extractMetadataImageURLFromBody("not-json", metadataUri: "https://example.com/meta.json"))
+        XCTAssertNil(extractMetadataImageURLFromBody(#"{"no_image":true}"#, metadataUri: "https://example.com/meta.json"))
     }
 
     func testExtractMetadataFields() {

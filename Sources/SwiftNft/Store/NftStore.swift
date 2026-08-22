@@ -11,15 +11,15 @@ public protocol NftStore: AnyObject, Sendable {
 
     // MARK: 元数据缓存表 nft_meta（(contract, tokenId) UNIQUE）
 
-    func getNftMeta(contract: String, tokenId: String) async throws -> NftMeta?
+    func nftMeta(contract: String, tokenId: String) async throws -> NftMeta?
     func upsertNftMeta(_ entity: NftMeta) async throws
 
     // MARK: SWTC 持仓表 swtc_nfts（(ownerAddress, tokenId) 复合 PK）
 
     func observeSwtcNfts(ownerAddress: String) -> AsyncStream<[SwtcNftEntity]>
     func upsertSwtcNfts(_ entities: [SwtcNftEntity]) async throws
-    func getSwtcNftByIssuerAndTokenId(issuer: String, tokenId: String) async throws -> SwtcNftEntity?
-    func getSwtcNftByTokenId(ownerAddress: String, tokenId: String) async throws -> SwtcNftEntity?
+    func swtcNftByIssuerAndTokenId(issuer: String, tokenId: String) async throws -> SwtcNftEntity?
+    func swtcNftByTokenId(ownerAddress: String, tokenId: String) async throws -> SwtcNftEntity?
     /// 删除前先 preserveSwtcEntityAsMeta（有 metadataUri 的行写进 nft_meta，防头像元数据随持仓删除丢失）。
     func deleteSwtcNftsByOwner(ownerAddress: String) async throws
 
@@ -28,14 +28,14 @@ public protocol NftStore: AnyObject, Sendable {
     func observeEvmNftItems(chainId: String, ownerAddress: String, contractAddress: String) -> AsyncStream<[EvmNftItemEntity]>
     func observeAllEvmNftItems(chainId: String, ownerAddress: String) -> AsyncStream<[EvmNftItemEntity]>
     func upsertEvmNftItems(_ entities: [EvmNftItemEntity]) async throws
-    func getEvmNftItemByContractAndTokenId(chainId: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity?
-    func getEvmNftItem(chainId: String, ownerAddress: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity?
+    func evmNftItemByContractAndTokenId(chainId: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity?
+    func evmNftItem(chainId: String, ownerAddress: String, contractAddress: String, tokenId: String) async throws -> EvmNftItemEntity?
     func deleteEvmNftItemsByCollection(chainId: String, ownerAddress: String, contractAddress: String) async throws
 
     // MARK: EVM 集合表 evm_nft_collections（三列复合 PK）
 
     func insertCollections(_ collections: [EvmNftCollectionEntity]) async throws
-    func getNftCollectionsFlow(chainId: String, ownerAddress: String) -> AsyncStream<[EvmNftCollectionEntity]>
+    func observeNftCollections(chainId: String, ownerAddress: String) -> AsyncStream<[EvmNftCollectionEntity]>
     func deleteByChainAndOwner(chainId: String, ownerAddress: String) async throws
     func updateTokenCount(chainId: String, ownerAddress: String, contractAddress: String, tokenCount: Int) async throws
 }

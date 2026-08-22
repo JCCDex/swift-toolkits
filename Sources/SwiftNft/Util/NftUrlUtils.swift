@@ -13,7 +13,7 @@ public enum IpfsResolver {
 
     /// ipfs://<CID> → https://<gateway>/<CID>（含冗余前缀剥除）。
     public static func rewrite(_ raw: String, gateway: String = defaultGateway) -> String? {
-        normalizeRemoteAssetUrl(raw, baseUrl: nil, gateway: gateway)
+        normalizeRemoteAssetURL(raw, baseUrl: nil, gateway: gateway)
     }
 
     /// 网关规范化：trim + 保证尾部 `/`（`gateway + path` 拼接的前提），空值回退默认网关。
@@ -26,24 +26,25 @@ public enum IpfsResolver {
 
 // MARK: - 判定
 
-/// 可加载的远程资产 URL：http/https/**data:** 前缀即 true（对齐 Kotlin `isLoadableRemoteAssetUrl`）。
-public func isLoadableRemoteAssetUrl(_ url: String?) -> Bool {
+/// 可加载的远程资产 URL：http/https/**data:** 前缀即 true（对齐 Kotlin `isLoadableRemoteAssetURL`）。
+public func isLoadableRemoteAssetURL(_ url: String?) -> Bool {
     guard let value = url?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return false }
     let lower = value.lowercased()
     return lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("data:")
 }
 
 /// 独立的 data: 图片检查（Swift 设计决策）：解析路径直出前仅放行 `data:image/*`。
-/// 注意：`image/svg+xml` 命中但其中可含脚本——渲染须走 UIImage/CGImage，勿用 WKWebView（见 Nft-Swift 02 §8）。
-public func isDataImageUrl(_ url: String?) -> Bool {
+/// ⚠️ **`data:image/svg+xml` 命中但其中可含脚本**——宿主必须用 `UIImage`/`CGImage` 渲染、
+/// 禁止 `WKWebView`/`WKWebView`-based 加载（review SwiftNft 补充细节）。
+public func isDataImageURL(_ url: String?) -> Bool {
     guard let value = url?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return false }
     return value.lowercased().hasPrefix("data:image/")
 }
 
 /// 形如图片资产 URL：`data:` 或路径后缀 ∈ {.png,.jpg,.jpeg,.webp,.gif,.svg,.avif,.bmp}（对齐 Kotlin）。
-func looksLikeImageAssetUrl(_ value: String) -> Bool {
+func looksLikeImageAssetURL(_ value: String) -> Bool {
     let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard isLoadableRemoteAssetUrl(v) else { return false }
+    guard isLoadableRemoteAssetURL(v) else { return false }
     if v.lowercased().hasPrefix("data:") {
         return true
     }
@@ -63,14 +64,14 @@ func looksLikeIpfsIdentifier(_ value: String) -> Bool {
     return trimmed.lowercased().hasPrefix("bafy") || trimmed.hasPrefix("Qm")
 }
 
-// MARK: - normalizeRemoteAssetUrl
+// MARK: - normalizeRemoteAssetURL
 
-/// 资产 URL 规范化（对齐 Kotlin `normalizeRemoteAssetUrl`，含自定义网关参数）：
+/// 资产 URL 规范化（对齐 Kotlin `normalizeRemoteAssetURL`，含自定义网关参数）：
 /// 1. nil/空白/JSON-looking → nil；
 /// 2. `ipfs://` / `/ipfs/` / `ipfs/` 前缀与裸 CID → 网关 URL；
-/// 3. http(s) 路径含 `/ipfs/` → 强制换网关（canonicalizeHttpIpfsUrl）；其余 http(s)/data: 原样；
+/// 3. http(s) 路径含 `/ipfs/` → 强制换网关（canonicalizeHttpIpfsURL）；其余 http(s)/data: 原样；
 /// 4. 相对路径 → `URL(base, raw)` 标准解析（无 base 时原样返回——对齐 Kotlin，不判 nil）。
-public func normalizeRemoteAssetUrl(
+public func normalizeRemoteAssetURL(
     _ rawUrl: String?,
     baseUrl: String? = nil,
     gateway: String = IpfsResolver.defaultGateway
@@ -93,18 +94,18 @@ public func normalizeRemoteAssetUrl(
         return path.isEmpty ? nil : gateway + path
     }
     if lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("data:") {
-        return canonicalizeHttpIpfsUrl(value, gateway: gateway) ?? value
+        return canonicalizeHttpIpfsURL(value, gateway: gateway) ?? value
     }
     if looksLikeIpfsIdentifier(value) {
         return gateway + value.trimmingPrefix("/")
     }
-    return resolveRelativeAssetUrl(baseUrl, value)
+    return resolveRelativeAssetURL(baseUrl, value)
 }
 
-/// http(s) 路径中含 `/ipfs/` 的 URL 强制换到（可配置的）网关（对齐 Kotlin `canonicalizeHttpIpfsUrl`）。
+/// http(s) 路径中含 `/ipfs/` 的 URL 强制换到（可配置的）网关（对齐 Kotlin `canonicalizeHttpIpfsURL`）。
 /// 注意：网关可注入后可能误伤第三方 URL（如 `https://cdn.thirdparty.com/ipfs/xyz`）——
 /// 「保持 Kotlin 行为」或「限定已知 IPFS 网关域名」二选一固化（见 Nft-Swift 03 §4.2 / 04 坑 #9）。
-func canonicalizeHttpIpfsUrl(_ rawUrl: String, gateway: String = IpfsResolver.defaultGateway) -> String? {
+func canonicalizeHttpIpfsURL(_ rawUrl: String, gateway: String = IpfsResolver.defaultGateway) -> String? {
     let lower = rawUrl.lowercased()
     guard lower.hasPrefix("http://") || lower.hasPrefix("https://") else { return nil }
     guard let parsed = URL(string: rawUrl) else { return nil }
@@ -119,16 +120,16 @@ func canonicalizeHttpIpfsUrl(_ rawUrl: String, gateway: String = IpfsResolver.de
     return gateway + cleaned
 }
 
-func resolveRelativeAssetUrl(_ baseUrl: String?, _ rawValue: String) -> String {
+func resolveRelativeAssetURL(_ baseUrl: String?, _ rawValue: String) -> String {
     guard let baseUrl, let base = URL(string: baseUrl) else { return rawValue }
     return URL(string: rawValue, relativeTo: base)?.absoluteString ?? rawValue
 }
 
 // MARK: - 元数据提取
 
-/// 从元数据 JSON body 提取图片 URL（对齐 Kotlin `extractMetadataImageUrl`，带 gateway 参数）：
+/// 从元数据 JSON body 提取图片 URL（对齐 Kotlin `extractMetadataImageURL`，带 gateway 参数）：
 /// `data` 键解包 → 键顺序 `image`/`image_url`/`imageUrl` → 首个非空且可规范化。
-func extractMetadataImageUrlFromBody(
+func extractMetadataImageURLFromBody(
     _ metadataBody: String,
     metadataUri: String,
     gateway: String = IpfsResolver.defaultGateway
@@ -136,19 +137,19 @@ func extractMetadataImageUrlFromBody(
     guard let data = metadataBody.data(using: .utf8),
           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     else { return nil }
-    return extractMetadataImageUrl(dict: root, metadataUri: metadataUri, gateway: gateway)
+    return extractMetadataImageURL(dict: root, metadataUri: metadataUri, gateway: gateway)
 }
 
 /// dict 版（fetchJson 的 Data → JSON 解析后使用，避免二次序列化）。
-func extractMetadataImageUrl(
+func extractMetadataImageURL(
     dict: [String: Any],
     metadataUri: String,
     gateway: String = IpfsResolver.defaultGateway
 ) -> String? {
     let payload = (dict["data"] as? [String: Any]) ?? dict
     for key in ["image", "image_url", "imageUrl"] {
-        let value = Json.optString(payload, key)
-        if !value.isEmpty, let normalized = normalizeRemoteAssetUrl(value, baseUrl: metadataUri, gateway: gateway) {
+        let value = Json.readString(payload, key, default: "")
+        if !value.isEmpty, let normalized = normalizeRemoteAssetURL(value, baseUrl: metadataUri, gateway: gateway) {
             return normalized
         }
     }
@@ -165,9 +166,9 @@ public func extractMetadataFields(
           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     else { return .empty }
     let payload = (root["data"] as? [String: Any]) ?? root
-    let image = extractMetadataImageUrl(dict: root, metadataUri: metadataUri, gateway: gateway)
-    let name = Json.optString(payload, "name").nilIfBlank
-    let description = Json.optString(payload, "description").nilIfBlank
+    let image = extractMetadataImageURL(dict: root, metadataUri: metadataUri, gateway: gateway)
+    let name = Json.readString(payload, "name", default: "").nilIfBlank
+    let description = Json.readString(payload, "description", default: "").nilIfBlank
     return NftMetadataFields(image: image, name: name, description: description)
 }
 
@@ -185,35 +186,12 @@ func parseSwtcMetadataUri(_ tokenInfosPayload: String?, gateway: String = IpfsRe
         guard let item = element as? [String: Any],
               let tokenInfo = item["TokenInfo"] as? [String: Any]
         else { continue }
-        let infoType = decodeHexToUtf8(Json.optString(tokenInfo, "InfoType"))
+        let infoType = Json.readString(tokenInfo, "InfoType", default: "").hex2utf8()
         guard infoType == "tokenUri" else { continue }
-        let infoData = decodeHexToUtf8(Json.optString(tokenInfo, "InfoData"))
-        if let normalized = normalizeRemoteAssetUrl(infoData, baseUrl: nil, gateway: gateway) {
+        let infoData = Json.readString(tokenInfo, "InfoData", default: "").hex2utf8()
+        if let normalized = normalizeRemoteAssetURL(infoData, baseUrl: nil, gateway: gateway) {
             return normalized
         }
     }
     return nil
-}
-
-/// hex 字符串 → UTF-8 文本（剥 `0x` 前缀、去空白；非偶数/非法字节 → ""，对齐 Kotlin `decodeHexToUtf8`）。
-func decodeHexToUtf8(_ hex: String) -> String {
-    var clean = hex
-    if clean.lowercased().hasPrefix("0x") {
-        clean = String(clean.dropFirst(2))
-    }
-    clean = clean.replacingOccurrences(of: "\\s", with: "", options: .regularExpression)
-    guard let bytes = Hex.decode(clean) else { return "" }
-    return String(bytes: bytes, encoding: .utf8) ?? ""
-}
-
-// MARK: - 内部小工具
-
-extension StringProtocol {
-    func trimmingPrefix(_ prefix: Character) -> String {
-        String(drop(while: { $0 == prefix }))
-    }
-
-    func removingPrefix(_ prefix: String) -> String {
-        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : String(self)
-    }
 }

@@ -230,11 +230,13 @@ if !expirationDate.isEmpty,
 - ✅ **`SwtcTokenUriResolver.gateway`** 已改 `let`（init 缺 http(s) scheme 校验的缺口保留：门面 `SwiftNft.init` 已兜底回退，见下条）
 - ✅ 死代码：`SwiftNft.swift` 非法网关告警已改为与原始 `config.ipfsGateway` 比较，回退时正确触发
 - ✅ `fetchMetadataFields` 已补 `logFailure`（guard / 空体 / 传输错误三路）
-- `resolveEthrAvatar` 无 `chainId` 时 `?? 0` → `"0x0"` 查库 + `getRpcNode(0)`（应视为 unknown 跳过 DB 查询）；VC issuer 大小写未归一化导致 `nft_meta` 精确匹配落空 | `SwiftNft.swift:148,165-169`、`GRDBNftStore.swift:122-127`（issuer 写入已随 P1#4 归一，落空风险已消）
+- ✅ `resolveEthrAvatar` 入口守卫校验：`guard !tokenId.isEmpty, !contract.isEmpty, let chainId else { return nil }`（chainId 无默认值，未知 chainId 直接 nil，不再查 `"0x0"`；eth_call 由宿主 `getRpcNode` 决定）；issuer 大小写已随 P1#4 写入归一，`nft_meta` 落空风险消除
 - ✅ `buildCredentialAssetKey`：`normalized!` 改 `nilIfBlank ??`，死尾显式 `"image:"`
-- `ValueObservation` 无 `distinctUntilChanged` 每次写都重发；`AsyncStream` 默认无界缓冲；观察出错静默 `finish()` 无日志 | `GRDBNftStore.swift:392-406`
-- `getaddrinfo`（阻塞系统调用）在协作线程池内同步执行且每次 fetch 检查两次（facade + `ssrfAllowed`）；`NftHttpClient` 默认 client 持有两个 `URLSession` 实例（GET no-redirect + RPC follow-redirect）| `SsrfGuard.swift:38-58`、`NftHttpClient.swift:47-56`
-- 命名：`Url`→`URL`（`normalizeRemoteAssetUrl`/`isLoadableRemoteAssetUrl`/`resolveRemoteImageUrl` 等 10+ 处）、`get*` 前缀（`getNftMeta`/`getSwtcNftByIssuerAndTokenId`）、`observe*` vs `getNftCollectionsFlow` 不一致、`decodeHexToUtf8`/`optString` org.json 风格 | `NftUrlUtils.swift`、`NftStore.swift:14-40`
+- ✅ `ValueObservation` 观察流：手动值去重（等价 distinctUntilChanged）+ `.bufferingNewest(1)` 有界缓冲 + 出错记日志 | `GRDBNftStore.swift:409-427`
+- ✅ `isDataImageUrl` 已显式文档警告 `data:image/svg+xml` 可含脚本（宿主须 `UIImage`/`CGImage` 渲染、禁 WKWebView）
+- ✅ **默认 client 已改单 `URLSession`**：重定向策略由 `RedirectPolicyDelegate` 按请求方法区分（POST/RPC 跟随、GET 拒绝），原 GET/RPC 双 session 删除；`fetchRpc` 不再做 SsrfGuard 建连检查（RPC 节点属宿主注入信任面，SsrfGuard 亦不覆盖重定向目标——由宿主保证节点可信，避免误拦本地/私有链节点），GET 元数据拉取仍全量过 SsrfGuard | `NftHttpClient.swift`
+- 未做（保留待办）：`getaddrinfo` 阻塞 + 每次 GET fetch 双次 SSRF 检查（facade 缓存门 + client 建连门，属纵深防御，开销可接受）| `SsrfGuard.swift:38-58`、`NftHttpClient.swift`
+- ✅ **命名批（SwiftNft 部分已落地，见修复记录）**：`Url`→`URL` 全部改完（`NftUrlUtils` 8 个 + 门面 `SwiftNft` 3 个 + SwiftDid 门面透传 + 测试同步）；`get*` 前缀清除（`NftStore` 协议 6 处：`getNftMeta`→`nftMeta`、`getSwtcNftByIssuerAndTokenId`→`swtcNftByIssuerAndTokenId`、`getSwtcNftByTokenId`→`swtcNftByTokenId`、`getEvmNftItemByContractAndTokenId`→`evmNftItemByContractAndTokenId`、`getEvmNftItem`→`evmNftItem`、`getNftCollectionsFlow`→`observeNftCollections`）；hex→UTF-8 字符串处理归口 SwiftCore（`String.trimmingPrefix/removingPrefix/hex2utf8`，删 NftUrlUtils 本地私有扩展）；`optString` 已删除（调用点统一走 `readString(_:default:)`，`optDict`/`optArray` → `readDict`/`readArray`，org.json 风格命名清除） | `NftUrlUtils.swift`、`NftStore.swift:14-40`
 
 ### SwiftDid
 
@@ -409,6 +411,32 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **DidJson 并入 SwiftCore 并按职责拆分（2025-08-22）**：`SwiftDid/Util/DidJson.swift` 并入
+  `SwiftCore` 后按用户要求拆分，DID 文档字段读取（`readProfileField` ×2 / `extractUpdated`）
+  单独成 `SwiftDid/Util/DidJson.swift`（模块内 `internal`）——`Json.swift` 保留通用 JSON
+  （取值/解析/序列化 + 缺失文档哨兵 `isEmpty`，原 `isMissingDidDocument` 改名）；
+  **新增 `SwiftCore/Date.swift`**（`Date.nowISO`/`nowISO(offsetMillis:)`/`parseISO8601`，
+  日期从 Json 移出，`extension Date`）。
+  相似 API 以 `Json` 为准：`optString` **删除**（调用点统一 `readString(_:_:default:)`）、
+  `optDict`/`optArray` → `readDict`/`readArray`（org.json 风格命名清除）；
+  SwiftDid 5 个文件（门面/DidCoreService/DidDocumentEditor/DidCredentialHelper + 测试）
+  调用点全量改 `Json.*`/`DidJson.*`/`Date.*`，`DidCoreService`/`DidDocumentEditor` 补
+  `import SwiftCore`；模块 README 文件树同步。
+  `fetchRpc` 删除 ssrfAllowed 建连检查（RPC 节点属宿主注入信任面、SsrfGuard 不覆盖重定向
+  目标，宿主保证节点可信；GET 拉取仍过 SsrfGuard），协议注释/设计文档/README 同步。
+- **SwiftNft 命名批 + 补充批 3（2025-08-22）**：`Url`→`URL` 全量改名（NftUrlUtils 8 个工具 +
+  SwiftNft 门面 3 个 + SwiftDid 门面透传 3 个 + 测试同步）；`NftStore` 协议 `get*` 前缀清除 6 处
+  （`getNftMeta`→`nftMeta` 等，`getNftCollectionsFlow`→`observeNftCollections`）；
+  字符串处理归口 SwiftCore——新增 `String+Manipulation.swift`
+  （`StringProtocol.trimmingPrefix/removingPrefix` + `String.hex2utf8`，删 NftUrlUtils
+  本地私有扩展，按用户要求「string 处理直接移入 swiftcore」）；
+  `resolveEthrAvatar` 改入口守卫 `guard !tokenId.isEmpty, !contract.isEmpty, let chainId else { return nil }`
+  （chainId 无默认值，未知 chainId 直接 nil，`Json.readLong` 不带 `default: 0`，按用户 159 行方案）；
+  `NftHttpClient` 单 `URLSession` + `RedirectPolicyDelegate`（POST/RPC 跟随、GET 拦截）。
+  三套件 256 用例通过。`getaddrinfo`/双次 SSRF 检查/`optString` org.json 风格保留待办。
+- **SwiftNft 补充批 2（2025-08-22）**：`resolveEthrAvatar` 未知 chainId（==0）跳过 `"0x0"` 查库；
+  GRDBNftStore 观察流加值去重 + `.bufferingNewest(1)` + 出错日志；`isDataImageUrl` SVG 渲染警告。
+  `getaddrinfo`/双 session/命名批保留待办（见补充细节）。SwiftNftTests 132/132 通过。
 - **SwiftNft P1 批（2025-08-22）**：返回宿主 URL 过 SSRF（P1#1）；缓存 `removeAll` 期间回填用
   generation 计数拦截（P1#3）；swtc_nfts 写入归一 + v2 迁移 `issuer` 索引 + 查询去 LOWER（P1#4）；
   `deleteSwtcNftsByOwner` 批量查 nft_meta（P1#5）；`getNftMeta`/批量查询投影去 fullContent（P1#6）；

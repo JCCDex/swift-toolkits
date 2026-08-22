@@ -282,7 +282,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
 }
 ```
 
-- **安全边界**：RPC 节点与网关同属「注入信任面」——建连走宿主提供的 URL；`EthTokenUriResolver`/`SwtcTokenUriResolver` 均经 `NftHttpClient.fetchRpc`（POST JSON-RPC、跟随重定向，对齐 Kotlin `instanceFollowRedirects=true`），SsrfGuard 建连检查与 2 MiB 上限由客户端统一。若宿主注入不可信节点，应自实现 resolver。
+- **安全边界**：RPC 节点与网关同属「注入信任面」——建连走宿主提供的 URL；`EthTokenUriResolver`/`SwtcTokenUriResolver` 均经 `NftHttpClient.fetchRpc`（POST JSON-RPC、跟随重定向，对齐 Kotlin `instanceFollowRedirects=true`）；RPC 节点可信，**不做 SsrfGuard 建连检查**（宿主保证节点可信；SsrfGuard 亦不覆盖重定向目标），2 MiB 上限由客户端统一；GET 元数据拉取仍全量过 SsrfGuard。若宿主注入不可信节点，应自实现 resolver。
 - **单测**（`EthTokenUriResolverTests`，macOS `swift test`）：calldata KAT（`"4"` → `0xc87b56dd` + 63 个 0 + `04`；`2^256-1` → 64 位全 `f`；超长/非数字拒）、`decodeAbiString` 向量（`"hi"`、URI、畸形/超短/空拒、尾随垃圾截断）、`normalizeTokenMetadataUri`（ipfs:// → 网关、http 原样、空白 → nil）。
 
 ## 5. 存储（GRDB 替代 Room）

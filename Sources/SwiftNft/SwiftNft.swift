@@ -18,9 +18,9 @@ public protocol DidNftResolution: AnyObject, Sendable {
     func resolveCredentialImage(_ request: CredentialImageRequest) async -> ResolvedCredentialImage?
     func resolveCredentialImages(_ requests: [CredentialImageRequest]) async -> [ResolvedCredentialImage?]
     func fetchResolvedMetadataImage(_ metadataUrl: String) async -> String?
-    func normalizeAssetUrl(_ rawUrl: String?, baseUrl: String?) -> String?
-    func extractResolvedMetadataImageUrl(_ metadataBody: String, metadataUri: String) -> String?
-    func isSupportedRemoteAssetUrl(_ url: String?) -> Bool
+    func normalizeAssetURL(_ rawUrl: String?, baseUrl: String?) -> String?
+    func extractResolvedMetadataImageURL(_ metadataBody: String, metadataUri: String) -> String?
+    func isSupportedRemoteAssetURL(_ url: String?) -> Bool
     func extractSwtcMetadataUri(_ tokenInfosPayload: String?) -> String?
     func fetchMetadataFields(_ metadataUri: String) async -> NftMetadataFields
     func ensureSwtcCredentialMetadata(_ vc: String) async
@@ -114,14 +114,14 @@ public final class NftClient: DidNftResolution, Sendable {
 
         do {
             // 1) nft_meta 命中
-            if let localMeta = try await self.store.getNftMeta(contract: nftIssuer, tokenId: tokenId),
+            if let localMeta = try await self.store.nftMeta(contract: nftIssuer, tokenId: tokenId),
                let nft = await buildSwtcNftFromMeta(nftIssuer: nftIssuer, tokenId: tokenId,
                                                     tokenName: tokenName, issuance: issuance, meta: localMeta) {
                 return nft
             }
             // 2) swtc_nfts 行命中（image 或 metadataUri 非空）
-            if let swtcNft = try await self.store.getSwtcNftByIssuerAndTokenId(issuer: nftIssuer, tokenId: tokenId) {
-                let resolvedUri = self.sanitizeUri(normalizeRemoteAssetUrl(swtcNft.metadataUri, baseUrl: nil, gateway: self.ipfsGateway))
+            if let swtcNft = try await self.store.swtcNftByIssuerAndTokenId(issuer: nftIssuer, tokenId: tokenId) {
+                let resolvedUri = self.sanitizeUri(normalizeRemoteAssetURL(swtcNft.metadataUri, baseUrl: nil, gateway: self.ipfsGateway))
                 if !isBlank(swtcNft.image) || !resolvedUri.isEmpty {
                     return await Nft(
                         contract: nftIssuer,
@@ -129,7 +129,7 @@ public final class NftClient: DidNftResolution, Sendable {
                         name: swtcNft.name ?? tokenName,
                         uri: resolvedUri,
                         issuanceDate: issuance,
-                        image: self.resolveRemoteImageUrl(swtcNft.image, resolvedUri),
+                        image: self.resolveRemoteImageURL(swtcNft.image, resolvedUri),
                         hasLocal: !isBlank(swtcNft.image), // 修正 Kotlin image != null（空串也算 true）
                         chainId: nil
                     )
@@ -154,35 +154,37 @@ public final class NftClient: DidNftResolution, Sendable {
         guard let root = self.parseVc(vc) else { return nil }
         let tokenId = Json.readString(root, "credentialSubject.tokenId", default: "")
         let contract = Json.readString(root, "credentialSubject.contractAddress", default: "")
-        let chainId = Json.readLong(root, "credentialSubject.chainId", default: 0)
+        let chainId = Json.readLong(root, "credentialSubject.chainId") // 缺失 = nil（用户要求：不给 chainId 直接失败）
         let issuance = Json.readString(root, "issuanceDate", default: "")
-        guard !tokenId.isEmpty, !contract.isEmpty else { return nil }
+        // 未知 chainId（VC 未给）：链上解析无意义（"0x0" 查库必 miss、getRpcNode(nil) 无节点）——
+        // 整个函数直接返回 nil，不产出 uri/image 全空的壳 Nft（用户要求）。
+        guard !tokenId.isEmpty, !contract.isEmpty, let chainId else { return nil }
 
         do {
             // 1) nft_meta 命中（本地 tokenUri 优先；仅当本地缺 tokenUri 时才调 resolver——惰性，省一次 eth_call）
-            if let localMeta = try await self.store.getNftMeta(contract: contract, tokenId: tokenId) {
-                let localTokenUri = self.sanitizeUri(normalizeRemoteAssetUrl(localMeta.tokenUri, baseUrl: nil, gateway: self.ipfsGateway))
+            if let localMeta = try await self.store.nftMeta(contract: contract, tokenId: tokenId) {
+                let localTokenUri = self.sanitizeUri(normalizeRemoteAssetURL(localMeta.tokenUri, baseUrl: nil, gateway: self.ipfsGateway))
                 let uri = localTokenUri.isEmpty ? await self.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId) : localTokenUri
                 return await Nft(
                     contract: contract, tokenId: tokenId, name: localMeta.name ?? "",
                     uri: uri, issuanceDate: issuance,
-                    image: self.resolveRemoteImageUrl(localMeta.image, uri),
+                    image: self.resolveRemoteImageURL(localMeta.image, uri),
                     hasLocal: true, chainId: chainId
                 )
             }
             // 2) evm_nft_items 兜底（resolver 优先级高于本地 metadata，仍须调用）
-            let evmItem = try await self.store.getEvmNftItemByContractAndTokenId(
+            let evmItem = try await self.store.evmNftItemByContractAndTokenId(
                 chainId: "0x" + String(chainId, radix: 16),
                 contractAddress: contract,
                 tokenId: tokenId
             )
-            let fallbackMetadataUri = self.sanitizeUri(normalizeRemoteAssetUrl(evmItem?.metadata, baseUrl: nil, gateway: self.ipfsGateway))
+            let fallbackMetadataUri = self.sanitizeUri(normalizeRemoteAssetURL(evmItem?.metadata, baseUrl: nil, gateway: self.ipfsGateway))
             let resolvedTokenUri = await self.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
             let uri = resolvedTokenUri.isEmpty ? fallbackMetadataUri : resolvedTokenUri
             return await Nft(
                 contract: contract, tokenId: tokenId, name: evmItem?.title ?? "",
                 uri: uri, issuanceDate: issuance,
-                image: self.resolveRemoteImageUrl(evmItem?.imageUrl, uri),
+                image: self.resolveRemoteImageURL(evmItem?.imageUrl, uri),
                 hasLocal: !isBlank(evmItem?.imageUrl), chainId: chainId // 修正 Kotlin image != null（空串也算 true）
             )
         } catch {
@@ -198,7 +200,7 @@ public final class NftClient: DidNftResolution, Sendable {
         guard !tokenUri.isEmpty else { return nil }
 
         // 1) 先归一化（ipfs:// 等 → 最终 HTTP URL），再 SSRF 校验（对齐 Kotlin L-R3 注释）。
-        guard let normalized = normalizeRemoteAssetUrl(tokenUri, baseUrl: nil, gateway: self.ipfsGateway),
+        guard let normalized = normalizeRemoteAssetURL(tokenUri, baseUrl: nil, gateway: self.ipfsGateway),
               let url = URL(string: normalized), SsrfGuard.check(url)
         else {
             self.logFailure("fetchAndCacheNftMeta rejected by SsrfGuard", host: self.hostOf(tokenUri))
@@ -214,7 +216,7 @@ public final class NftClient: DidNftResolution, Sendable {
             return nil
         }
         let nameValue = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let imageValue = extractMetadataImageUrl(dict: json, metadataUri: normalized, gateway: self.ipfsGateway)
+        let imageValue = extractMetadataImageURL(dict: json, metadataUri: normalized, gateway: self.ipfsGateway)
         let body = String(data: data, encoding: .utf8) ?? ""
 
         // 3) upsert（ON CONFLICT DO UPDATE 保留自增 id，对齐 Kotlin copy(id) 语义）→ 读回返回。
@@ -223,7 +225,7 @@ public final class NftClient: DidNftResolution, Sendable {
                              updatedAt: Int64(Date().timeIntervalSince1970 * 1000))
         do {
             try await self.store.upsertNftMeta(entity)
-            return try await self.store.getNftMeta(contract: contract, tokenId: tokenId)
+            return try await self.store.nftMeta(contract: contract, tokenId: tokenId)
         } catch {
             self.logFailure("fetchAndCacheNftMeta store failed", host: self.hostOf(normalized), error: error)
             return nil
@@ -231,9 +233,10 @@ public final class NftClient: DidNftResolution, Sendable {
     }
 
     public func fetchMetadataFields(_ metadataUri: String) async -> NftMetadataFields {
-        guard let normalized = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway),
-              let url = URL(string: normalized), SsrfGuard.check(url)
+        guard let normalized = normalizeRemoteAssetURL(metadataUri, baseUrl: nil, gateway: self.ipfsGateway),
+              let url = URL(string: normalized)
         else {
+            // SSRF 建连门由 NftHttpClient 统一把关（此处不再重复 check，见 review SwiftNft 补充细节）
             self.logFailure("fetchMetadataFields guard failed", host: self.hostOf(metadataUri))
             return .empty
         }
@@ -261,7 +264,7 @@ public final class NftClient: DidNftResolution, Sendable {
     // MARK: - 凭证/元数据图片解析（对齐 NftSdk 3.3，4 签名 = 3 方法名 + resolveCredentialImage 重载）
 
     public func resolveCredentialImage(_ imageUrl: String?, metadataUri: String?) async -> String? {
-        await self.resolveRemoteImageUrl(imageUrl, metadataUri)
+        await self.resolveRemoteImageURL(imageUrl, metadataUri)
     }
 
     public func resolveCredentialImage(_ request: CredentialImageRequest) async -> ResolvedCredentialImage? {
@@ -317,26 +320,26 @@ public final class NftClient: DidNftResolution, Sendable {
     public func fetchResolvedMetadataImage(_ metadataUrl: String) async -> String? {
         let url = metadataUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return nil }
-        let normalized = normalizeRemoteAssetUrl(url, baseUrl: nil, gateway: self.ipfsGateway) ?? url
+        let normalized = normalizeRemoteAssetURL(url, baseUrl: nil, gateway: self.ipfsGateway) ?? url
         return await self.imageCache.getOrFetch(normalized) {
             guard let target = URL(string: normalized), SsrfGuard.check(target) else { return nil }
             guard let body = try? await self.httpClient.fetchText(target) else { return nil }
-            return extractMetadataImageUrlFromBody(body, metadataUri: normalized, gateway: self.ipfsGateway)
+            return extractMetadataImageURLFromBody(body, metadataUri: normalized, gateway: self.ipfsGateway)
         }
     }
 
     // MARK: - 纯函数（Util/NftUrlUtils.swift，同步；对齐 Kotlin 非 suspend）
 
-    public func normalizeAssetUrl(_ rawUrl: String?, baseUrl: String?) -> String? {
-        normalizeRemoteAssetUrl(rawUrl, baseUrl: baseUrl, gateway: self.ipfsGateway)
+    public func normalizeAssetURL(_ rawUrl: String?, baseUrl: String?) -> String? {
+        normalizeRemoteAssetURL(rawUrl, baseUrl: baseUrl, gateway: self.ipfsGateway)
     }
 
-    public func extractResolvedMetadataImageUrl(_ metadataBody: String, metadataUri: String) -> String? {
-        extractMetadataImageUrlFromBody(metadataBody, metadataUri: metadataUri, gateway: self.ipfsGateway)
+    public func extractResolvedMetadataImageURL(_ metadataBody: String, metadataUri: String) -> String? {
+        extractMetadataImageURLFromBody(metadataBody, metadataUri: metadataUri, gateway: self.ipfsGateway)
     }
 
-    public func isSupportedRemoteAssetUrl(_ url: String?) -> Bool {
-        isLoadableRemoteAssetUrl(url)
+    public func isSupportedRemoteAssetURL(_ url: String?) -> Bool {
+        isLoadableRemoteAssetURL(url)
     }
 
     public func extractSwtcMetadataUri(_ tokenInfosPayload: String?) -> String? {
@@ -346,7 +349,7 @@ public final class NftClient: DidNftResolution, Sendable {
     // MARK: - 内部：SWTC 元数据预取
 
     private func resolveAndCacheSwtcNftMeta(nftIssuer: String, tokenId: String) async -> NftMeta? {
-        let existing = try? await self.store.getNftMeta(contract: nftIssuer, tokenId: tokenId)
+        let existing = try? await self.store.nftMeta(contract: nftIssuer, tokenId: tokenId)
         if let existing, !isBlank(existing.image) {
             return existing
         }
@@ -361,8 +364,8 @@ public final class NftClient: DidNftResolution, Sendable {
     }
 
     private func buildSwtcNftFromMeta(nftIssuer: String, tokenId: String, tokenName: String, issuance: String, meta: NftMeta) async -> Nft? {
-        let resolvedUri = self.sanitizeUri(normalizeRemoteAssetUrl(meta.tokenUri, baseUrl: nil, gateway: self.ipfsGateway))
-        let image = await resolveRemoteImageUrl(meta.image, resolvedUri)
+        let resolvedUri = self.sanitizeUri(normalizeRemoteAssetURL(meta.tokenUri, baseUrl: nil, gateway: self.ipfsGateway))
+        let image = await resolveRemoteImageURL(meta.image, resolvedUri)
         if isBlank(image), resolvedUri.isEmpty {
             return nil
         }
@@ -375,7 +378,7 @@ public final class NftClient: DidNftResolution, Sendable {
         )
     }
 
-    // MARK: - 内部：图片解析（对齐 Kotlin resolveRemoteImageUrl 四步）
+    // MARK: - 内部：图片解析（对齐 Kotlin resolveRemoteImageURL 四步）
 
     /// P1#1：返回给宿主的非 `data:` URL 必须过 SSRF 检查——恶意元数据可注入
     /// `http://192.168.1.1/...`，模块不拦则宿主加载器直接命中内网（宿主侧仍需自行复检）。
@@ -387,22 +390,22 @@ public final class NftClient: DidNftResolution, Sendable {
         return SsrfGuard.check(parsed)
     }
 
-    private func resolveRemoteImageUrl(_ imageUrl: String?, _ metadataUri: String?) async -> String? {
-        let normalizedMetadataUri = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)
+    private func resolveRemoteImageURL(_ imageUrl: String?, _ metadataUri: String?) async -> String? {
+        let normalizedMetadataUri = normalizeRemoteAssetURL(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)
 
         // 1) imageUrl 内联 JSON → 提图
         if let imageUrl {
             let trimmed = imageUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if looksLikeJsonPayload(trimmed),
-               let inline = extractResolvedMetadataImageUrl(trimmed, metadataUri: normalizedMetadataUri ?? "") {
+               let inline = extractResolvedMetadataImageURL(trimmed, metadataUri: normalizedMetadataUri ?? "") {
                 return inline
             }
         }
         // 2) imageUrl 规范化后可加载 → 直出（data: 仅放行 data:image/*，其余不直出、继续后续步骤）
-        if let resolved = normalizeRemoteAssetUrl(imageUrl, baseUrl: normalizedMetadataUri, gateway: self.ipfsGateway),
-           isLoadableRemoteAssetUrl(resolved) {
+        if let resolved = normalizeRemoteAssetURL(imageUrl, baseUrl: normalizedMetadataUri, gateway: self.ipfsGateway),
+           isLoadableRemoteAssetURL(resolved) {
             if resolved.lowercased().hasPrefix("data:") {
-                if isDataImageUrl(resolved) {
+                if isDataImageURL(resolved) {
                     return resolved
                 }
             } else if self.isReturnable(resolved) {
@@ -410,9 +413,9 @@ public final class NftClient: DidNftResolution, Sendable {
             }
         }
         // 3) metadataUri 本身是图片 URL → 直出（data: 同上，仅放行 data:image/*）
-        if let normalizedMetadataUri, !isBlank(normalizedMetadataUri), looksLikeImageAssetUrl(normalizedMetadataUri) {
+        if let normalizedMetadataUri, !isBlank(normalizedMetadataUri), looksLikeImageAssetURL(normalizedMetadataUri) {
             if normalizedMetadataUri.lowercased().hasPrefix("data:") {
-                if isDataImageUrl(normalizedMetadataUri) {
+                if isDataImageURL(normalizedMetadataUri) {
                     return normalizedMetadataUri
                 }
             } else if self.isReturnable(normalizedMetadataUri) {
@@ -423,17 +426,19 @@ public final class NftClient: DidNftResolution, Sendable {
         //    data:image/* 直出——提前短路，避免无效缓存键与（旁路测试下的）无谓拉取）
         guard let normalizedMetadataUri, !normalizedMetadataUri.lowercased().hasPrefix("data:") else { return nil }
         let metadataImage = await imageCache.getOrFetch(normalizedMetadataUri) {
-            guard let url = URL(string: normalizedMetadataUri), SsrfGuard.check(url) else { return nil }
+            // SSRF 建连门由 NftHttpClient 统一把关（此处不再重复 check——client 门更贴近建连，
+            // 单点解析省一次 DNS 且缩小 TOCTOU，见 review SwiftNft 补充细节）
+            guard let url = URL(string: normalizedMetadataUri) else { return nil }
             guard let body = try? await self.httpClient.fetchText(url) else { return nil }
-            return extractMetadataImageUrlFromBody(body, metadataUri: normalizedMetadataUri, gateway: self.ipfsGateway)
+            return extractMetadataImageURLFromBody(body, metadataUri: normalizedMetadataUri, gateway: self.ipfsGateway)
         }
         guard let metadataImage else { return nil }
         if metadataImage.lowercased().hasPrefix("data:") {
-            // 直出仅放行 data:image/*（与 step 2/3 同口径）；否则 data:text/html 会经 isLoadableRemoteAssetUrl 漏出
-            return isDataImageUrl(metadataImage) ? metadataImage : nil
+            // 直出仅放行 data:image/*（与 step 2/3 同口径）；否则 data:text/html 会经 isLoadableRemoteAssetURL 漏出
+            return isDataImageURL(metadataImage) ? metadataImage : nil
         }
-        if let resolved = normalizeRemoteAssetUrl(metadataImage, baseUrl: normalizedMetadataUri, gateway: self.ipfsGateway),
-           isLoadableRemoteAssetUrl(resolved), self.isReturnable(resolved) {
+        if let resolved = normalizeRemoteAssetURL(metadataImage, baseUrl: normalizedMetadataUri, gateway: self.ipfsGateway),
+           isLoadableRemoteAssetURL(resolved), self.isReturnable(resolved) {
             return resolved // P1#1：非 data: 返回必须过 SSRF
         }
         return nil
@@ -454,13 +459,13 @@ public final class NftClient: DidNftResolution, Sendable {
         }
         let metadataUri = request.metadataUri?.trimmingCharacters(in: .whitespaces)
         if let metadataUri, !metadataUri.isEmpty {
-            let normalized = normalizeRemoteAssetUrl(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)?
+            let normalized = normalizeRemoteAssetURL(metadataUri, baseUrl: nil, gateway: self.ipfsGateway)?
                 .trimmingCharacters(in: .whitespaces)
             return "metadata:\(normalized?.nilIfBlank ?? metadataUri)"
         }
         let imageUrl = request.imageUrl?.trimmingCharacters(in: .whitespaces)
         if let imageUrl, !imageUrl.isEmpty {
-            let normalized = normalizeRemoteAssetUrl(imageUrl, baseUrl: request.metadataUri, gateway: self.ipfsGateway)?
+            let normalized = normalizeRemoteAssetURL(imageUrl, baseUrl: request.metadataUri, gateway: self.ipfsGateway)?
                 .trimmingCharacters(in: .whitespaces)
             return "image:\(normalized?.nilIfBlank ?? imageUrl)"
         }
@@ -473,8 +478,8 @@ public final class NftClient: DidNftResolution, Sendable {
             request.chainId.map(String.init) ?? "",
             request.contractAddress?.trimmingCharacters(in: .whitespaces).lowercased() ?? "",
             request.tokenId?.trimmingCharacters(in: .whitespaces) ?? "",
-            normalizeRemoteAssetUrl(request.metadataUri, baseUrl: nil, gateway: gateway)?.trimmingCharacters(in: .whitespaces) ?? "",
-            normalizeRemoteAssetUrl(request.imageUrl, baseUrl: request.metadataUri, gateway: gateway)?.trimmingCharacters(in: .whitespaces) ?? ""
+            normalizeRemoteAssetURL(request.metadataUri, baseUrl: nil, gateway: gateway)?.trimmingCharacters(in: .whitespaces) ?? "",
+            normalizeRemoteAssetURL(request.imageUrl, baseUrl: request.metadataUri, gateway: gateway)?.trimmingCharacters(in: .whitespaces) ?? ""
         ].joined(separator: "|")
     }
 
@@ -497,7 +502,7 @@ public final class NftClient: DidNftResolution, Sendable {
     /// 惰性解析 EVM tokenURI（本地数据足够时不发起 eth_call）。
     private func resolveEthrTokenUri(contract: String, tokenId: String, chainId: Int64) async -> String {
         let uri = await self.ethTokenUriResolver?.resolveEthrTokenUri(contract: contract, tokenId: tokenId, chainId: chainId)
-        return self.sanitizeUri(normalizeRemoteAssetUrl(uri, baseUrl: nil, gateway: self.ipfsGateway))
+        return self.sanitizeUri(normalizeRemoteAssetURL(uri, baseUrl: nil, gateway: self.ipfsGateway))
     }
 
     private func hostOf(_ url: String) -> String {
