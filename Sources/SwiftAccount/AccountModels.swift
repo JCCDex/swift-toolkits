@@ -15,7 +15,6 @@ public enum AccountOperationError: Error, Equatable, Sendable {
     case accountAlreadyExists
     case rootAccountNotFound
     case passwordRequired
-    case passwordRequiredForClear
     case wrongPassword(String = "Password is wrong")
     /// 底层错误描述（Kotlin `Failure(cause: Throwable)` 的 message 对应物；不跨模块暴露 Error 装箱）。
     case failure(String)

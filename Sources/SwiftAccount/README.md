@@ -62,7 +62,7 @@ if case let .success(accountId) = result {
 2. **冲突即抛错**：`addAccount`/`addAccounts` 走 GRDB insert（ABORT 语义），不做 upsert 静默覆盖；编排器先判重（见 04 坑 #14）。
 3. **`getMaxIndexByChain` 空表 → -1**：`deriveSubAccount` 依赖 -1 + 1 = 0 让首个子账户落在 index 0（见 04 坑 #15）。
 4. **`findNonRootAccount` SQL 含 `((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)`**：与 Kotlin 一致；`importSingleAccount`/`importSubAccount` 用它判重（不判根）。
-5. **`DeriveGate` 互斥**：`deriveSubAccount` 用链式 Task 串行（对应 Kotlin `Mutex`）；`NSLock` 跨 await 会死锁、actor 在 await 点可重入都会破坏互斥（见 04 坑 #16）。
+5. **`AsyncMutex` 互斥**：`deriveSubAccount` 用链式 Task 串行（对应 Kotlin `Mutex`）；`NSLock` 跨 await 会死锁、actor 在 await 点可重入都会破坏互斥（见 04 坑 #16）。
 6. **`removeAccount` 幂等 + vault 清理**：账户不存在返回成功；同地址仅此一条时同步删 vault 密钥（`getSameAccountsCount == 1`）。
 7. **`clearWalletData` 须当前密码**：vault 已有密码时必须传 `password`，不得把 nil 透传给 `clearAllData`（SwiftVault 缺省 nil 不验密直接清库，见 02 设计稿 importHdWallet 段）。
 8. **密钥三选一落库**：`mnemonic`（+pathPrefix）> `secret` > `privateKey`，对应 Kotlin `persistVaultMaterial`；`importSubAccount` 不碰私钥（地址已在派生阶段入 vault）。
@@ -73,7 +73,7 @@ if case let .success(accountId) = result {
 ```text
 Sources/SwiftAccount/
 ├── SwiftAccount.swift               // 门面：观察流 / CRUD / 查询 + accountManager 成员
-├── AccountManager.swift             // 六条流程 + DeriveGate（链式 Task 互斥）
+├── AccountManager.swift             // 六条流程（deriveSubAccount 经 SwiftCore.AsyncMutex 互斥）
 ├── AccountModels.swift              // AccountOperationResult/Error、ImportHdWalletResult、DerivedSubAccount
 └── Store/
     ├── AccountStore.swift           // 协议：观察 / 写 / 查

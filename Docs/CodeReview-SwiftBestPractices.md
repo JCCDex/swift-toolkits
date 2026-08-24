@@ -173,26 +173,26 @@ if !expirationDate.isEmpty,
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| 1 | `changePassword` 重建 `newStore` 时**丢弃 biometric**（旧 store 的 biometric 未迁移） | `VaultRepository.swift:274-287` | 未做（待办） |
+| 1 | `changePassword` 重建 `newStore` 时**丢弃 biometric**（旧 store 的 biometric 未迁移） | `VaultRepository.swift:274-287` | ✅ 重建 store 时迁移 `store.biometric`（`biometric: store.biometric`） |
 | 2 | **KDF 三重复制**：`verifyPassword`/`unlock`/`ensureUnlocked` 各自写一遍「derive + 常量时间比对」，派生的 key 被丢弃后 `unlock` 再派生一次 → 提取一个私有 `deriveAndVerifyKey` 助手 | `VaultRepository.swift:71-111,393-404` | ✅ 已随性能专项 B-3 收敛为私有 `deriveAndVerifyKey`（单点实现） |
-| 3 | 同步 Argon2（64–256 MiB 内存）在 actor 上执行，且 README 写的是 `try await`；应挪到后台或提供 async 变体 | `Argon2idVaultKeyDeriver.swift` | 未做（待办） |
+| 3 | 同步 Argon2（64–256 MiB 内存）在 actor 上执行，且 README 写的是 `try await`；应挪到后台或提供 async 变体 | `Argon2idVaultKeyDeriver.swift` | ✅ `VaultKeyDeriver` 加 `Sendable` + `deriveKeyAsync`（默认实现 `Task.detached` 包裹同步派生）；`VaultRepository` KDF 链（initializePassword/verifyPassword/unlock/changePassword/getPrivateKey/getMnemonic/getSecret/removeAddress/clearAllData/ensureUnlocked/deriveAndVerifyKey）全部 async 化——README 的 `try await` 与 API 现在一致 |
 | 4 | 导入路径 2–4 次全量 store load/save 往返（`importMnemonic`/`importSecret` 内部先调 `importPrivateKey` 再自己 load+append+save） | `VaultRepository.swift:128-168` | ✅ 已随存储专项 C-6 改单次 load + save（1 load + 1 save，对齐 `importPrivateKeys` 批量范式） |
-| 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` | 未做（待办） |
-| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` | 未做（待办；Data COW 陷阱见补充细节） |
+| 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` | ✅ `clearAllData`：vault 有密码时 nil/错误密码均抛 `wrongPassword`（不再免密清库，测试同步）；`importPrivateKeys` 幂等 continue 为编排路径期望语义，注释确认 |
+| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` | ✅ `lock()` 先 `sessionKey?.wipe()` 再置 nil（主动擦除派生 key 内存，Wipe 不再死代码）；COW 陷阱见补充细节 |
 
 > ⚠️ **更正（第二轮 pro 复核）**：第一轮曾把 `try store.keys.append(...)`（`:119,142,161,181,291,301,313`）判为「冗余 try」——**该结论错误**。`Array.append` 本身不抛错，但这些 `try` 覆盖的是**实参里的抛错调用**（`self.cipher.encrypt(...)`、`self.requireSessionKey()`、`keyDeriver.deriveKey(...)`），`VaultCipher.encrypt`/`VaultKeyDeriver.deriveKey` 均为 `throws`（`VaultCipher.swift:4-5`、`VaultKeyDeriver.swift:4`），故 `try` 是必要的。整库干净重编译**零告警**印证了这一点。
 
-**SwiftVault 补充细节（第二轮审查新增，均验证）：**
+**SwiftVault 补充细节（第二轮审查新增，均验证；✅ = 已修复）：**
 
-- P0-1 的 `*Internal` 方法**被测试使用**（`VaultTests.swift:350,396,398`）且有文档说明是「刻意 public 但不稳定」（`Docs/Account-Swift/04-migration-and-testing.md:26`）→ 改 `private` 需配套把测试改为 `@testable import SwiftVault`（本包测试已是 @testable 风格，可安全收紧）
-- **更正**：`VaultKeyDeriver`（及 `Argon2idVaultKeyDeriver`）非 `Sendable` 但存于 actor 内部——**这不是问题**（actor 隔离本就保护非 Sendable 状态；仅当跨越隔离边界时才需 Sendable）。干净编译确认无告警。
-- **Wipe 的 Data COW 陷阱**：`sessionKey = key` 后对局部 `key` 做 `wipe()` 会因 COW 共享缓冲区**同时清零 store 里的 sessionKey**——擦除必须针对唯一持有者、在引用断开后进行；`Wipe.swift` 目前生产零引用（仅测试调用 `VaultTests.swift:429-449`）
-- **README 与签名不符**：`Sources/SwiftVault/README.md:53-62` 文档写 `try await`，实际 API 是同步 `throws`（文档需修正或补 async 重载）
-- 导入往返精确计数：`importPrivateKey` = 2 load + 1 save（`:114,118,125`）；`importMnemonic`/`importSecret` = 4 load + 2 save（`:135,137,141,150`）；`importPrivateKeys`（`:170-189`）已是正确的批量范式，前两者应改造成同款
-- **篡改 store 文件的 KDF 参数 DoS**：`ProtobufVaultStoreDriver.swift:93-98` 直接信任文件内 `iterations`/`memoryKiB`，篡改后可令 `unlock` 分配数百 MiB × 多次 → 反序列化时 clamp 上限
-- `TinkVaultCipher`：`registerAead` 每次调用重注册 + `@unchecked Sendable` 下可变 `cachedHandle`（`TinkVaultCipher.swift:6,10,33-42`）
+- ✅ P0-1 的 `*Internal` 方法（`getPrivateKeyInternal`/`getMnemonicInternal`/`getSecretInternal`）改 `private` 需配套测试改 `@testable`——见 P0-1 项
+- ✅ **更正**：`VaultKeyDeriver`（及 `Argon2idVaultKeyDeriver`）非 `Sendable`——已随 P1#3 补 `Sendable`（deriver 现跨 detached 任务使用，必须）
+- ✅ **Wipe 的 Data COW 陷阱**：`lock()` 现先 `sessionKey?.wipe()` 再置 nil（sessionKey 为唯一持有者时擦除安全）；Wipe 从生产零引用变为 lock 的必需工具
+- ✅ **README 与签名不符**：KDF API 已随 P1#3 async 化，`try await` 与签名一致（无需改文档）
+- ✅ 导入往返精确计数：已随存储专项 C-6 改单次 load + save
+- ✅ **篡改 store 文件的 KDF 参数 DoS**：`ProtobufVaultStoreDriver.mapPassword` 反序列化时 clamp `iterations`（≤10k）/`memoryKiB`（≤1 GiB）/`parallelism`（≤64）——篡改文件不再令 `unlock` 无界分配内存
+- ✅ `TinkVaultCipher`：`registerAead` 每次调用重注册 → 静态惰性 `ensureAeadRegistered`（NSLock 幂等，单次注册）
 - 锁定态信息面：`hasPassword`/`listAccounts`/`addressInKeys`/`hasBiometric` 等元数据 API 在锁定时即可应答（`:41,191,195-205,207`），P3
-- `VaultKeyDeriver` 及实现非 `Sendable` 却存于 actor（Swift 6 下应补 `Sendable` 或 `@unchecked`）
+- ✅ `VaultKeyDeriver` 及实现补 `Sendable`（随 P1#3）
 
 ### SwiftAccount
 
@@ -432,7 +432,7 @@ if !expirationDate.isEmpty,
 3. **SSRF 守卫**（`SsrfGuard.swift`）：DNS fail-closed、全地址解析、IPv4-mapped IPv6、CGNAT/ULA/link-local 覆盖全面，且把残余 TOCTOU 显式写入注释。
 4. **CachingSecretProvider**：actor + per-key in-flight 去重 + 桥接窗口/绝对上限设计正确（仅 P1 的 clearCache 回填与取消遗留）。
 5. **GRDB 使用**：`DatabasePool`、单事务批量写、ValueObservation + onTermination 取消、upsert 语义克制（只用于固定单行）。
-6. **DeriveGate**：链式 Task 实现异步互斥，正确规避了 NSLock 跨 await 与 actor 重入两个陷阱。
+6. **AsyncMutex**：链式 Task 实现异步互斥，正确规避了 NSLock 跨 await 与 actor 重入两个陷阱。
 7. **桥接层**：`;null` 结尾规避 WebKit Promise 序列化坑、token 鉴权、主 frame + securityOrigin 实时推导的 origin 策略、弱引用纪律（无 retain cycle）。
 8. **Kotlin 对齐文档**：几乎所有偏离/对齐点都有坑号注释（04 坑 #N），可追溯性极佳。
 9. **SwiftCore 模型收敛**：Path/ChainType/WalletAccount 去重合并完成、无残留重复定义。

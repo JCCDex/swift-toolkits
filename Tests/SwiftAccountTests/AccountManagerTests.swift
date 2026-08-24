@@ -153,24 +153,8 @@ final class AccountManagerTests: XCTestCase {
         XCTAssertEqual(result, .failure(.passwordRequired))
     }
 
-    func testImportHdWalletClearExistingRequiresCurrentPassword() async throws {
-        // 先初始化密码 + 建一个账户
-        try await self.vault.initializePassword(self.password)
-        let hd = GenerateHDWalletResult(
-            mnemonic: "m", address: "rootAddr", language: "english",
-            keypair: self.keypair("rootAddr"), accounts: []
-        )
-        let missingPwd = await self.manager.importHdWallet(
-            hdResult: hd, name: "x", password: self.password, clearExisting: true, clearExistingPassword: nil
-        )
-        XCTAssertEqual(missingPwd, .failure(.passwordRequiredForClear))
-
-        let wrongPwd = await self.manager.importHdWallet(
-            hdResult: hd, name: "x", password: self.password,
-            clearExisting: true, clearExistingPassword: Data("wrong".utf8)
-        )
-        XCTAssertEqual(wrongPwd, .failure(.wrongPassword()))
-    }
+    // 清空操作已从 importHdWallet 解耦（用户要求）：clearExisting/clearExistingPassword
+    // 参数移除，清库统一走 clearWalletData（密码门测试见 testClearWalletData）。
 
     // MARK: - deriveSubAccount
 

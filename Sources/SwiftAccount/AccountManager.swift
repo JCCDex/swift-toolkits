@@ -10,7 +10,7 @@ public final class AccountManager: Sendable {
     private let store: any AccountStore
     private let vault: VaultRepository
     private let wallet: any WalletDeriving
-    private let deriveGate = DeriveGate()
+    private let deriveGate = AsyncMutex()
 
     public init(store: any AccountStore, vault: VaultRepository, wallet: any WalletDeriving) {
         self.store = store
@@ -53,32 +53,13 @@ public final class AccountManager: Sendable {
 
     /// 导入 HD 钱包：根账户（SWTC）+ 各链子账户；可选清空既有数据。
     /// - Parameters:
-    ///   - password: vault 为空时初始化密码；⚠️ 与 clearExistingPassword 不要复用同一 Data 缓冲。
-    ///   - clearExistingPassword: clearExisting=true 且 vault 已有密码时的当前密码
-    ///     （**不得把 nil 透传给 `clearAllData`**——SwiftVault 缺省 nil 会不验密直接清库）。
+    ///   - password: vault 为空时初始化密码；vault 已有密码时忽略。
     public func importHdWallet(
         hdResult: GenerateHDWalletResult,
         name: String,
-        password: Data?,
-        clearExisting: Bool = false,
-        clearExistingPassword: Data? = nil
+        password: Data?
     ) async -> AccountOperationResult<ImportHdWalletResult> {
         await self.runOperation {
-            if clearExisting {
-                if try await self.vault.hasPassword() {
-                    guard let pwd = clearExistingPassword else {
-                        return .failure(.passwordRequiredForClear)
-                    }
-                    do {
-                        try await self.vault.clearAllData(password: pwd)
-                    } catch {
-                        return .failure(.wrongPassword())
-                    }
-                } else {
-                    try await self.vault.clearAllData()
-                }
-                try await self.store.clearAllAccounts()
-            }
 
             if try await self.store.findRootAccountByAddress(hdResult.address) != nil {
                 return .failure(.accountAlreadyExists)
@@ -250,14 +231,12 @@ public final class AccountManager: Sendable {
         }
     }
 
-    /// 清空 vault 与账户；vault 已有密码时须当前密码。
+    /// 清空 vault 与账户；vault 已有密码时须当前密码（无密码 = 无数据，直接清账户）。
     public func clearWalletData(password: Data) async -> AccountOperationResult<Void> {
         await self.runOperation {
             do {
                 if try await self.vault.hasPassword() {
                     try await self.vault.clearAllData(password: password)
-                } else {
-                    try await self.vault.clearAllData()
                 }
             } catch {
                 return .failure(.wrongPassword())
@@ -300,27 +279,5 @@ public final class AccountManager: Sendable {
         } catch {
             return .failure(.failure(String(describing: error)))
         }
-    }
-}
-
-// MARK: - 派生互斥门（链式 Task 串行，对应 Kotlin Mutex）
-
-/// 异步互斥门：对应 Kotlin `Mutex`（仅 `deriveSubAccount` 互斥）。
-/// ⚠️ 不能用 `NSLock`（临界区跨 await、阻塞协作线程池、要求同线程 unlock）；
-/// 不靠「actor 方法内直接写临界区」（actor 在 await 点可重入，并发调用会交错）；
-/// 用**链式 Task**：每次调用排在上一次完成后执行，天然 FIFO 互斥。
-private actor DeriveGate {
-    private var tail: Task<Void, Never>?
-
-    func withLock<T: Sendable>(_ body: @escaping @Sendable () async -> T) async -> T {
-        let previous = self.tail
-        let task = Task { () -> T in
-            if let previous {
-                _ = await previous.value
-            }
-            return await body()
-        }
-        self.tail = Task { _ = await task.value }
-        return await task.value
     }
 }

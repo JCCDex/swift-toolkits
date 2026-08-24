@@ -208,4 +208,61 @@ final class SwiftCoreTests: XCTestCase {
         XCTAssertEqual("zz".hex2utf8(), "", "非法 → 空")
         XCTAssertEqual("abc".hex2utf8(), "", "奇数长度 → 空")
     }
+
+    // MARK: AsyncMutex（原 DeriveGate 通用化）
+
+    func testAsyncMutexSerializesConcurrentCalls() async {
+        let mutex = AsyncMutex()
+        let counter = Counter()
+
+        // 并发 10 次自增（无锁则竞态丢更新；AsyncMutex 串行 → 必为 10）
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0 ..< 10 {
+                group.addTask {
+                    await mutex.withLock {
+                        try? await Task.sleep(nanoseconds: 5_000_000) // 强制交错点
+                        counter.increment()
+                    }
+                }
+            }
+            for await _ in group {}
+        }
+        XCTAssertEqual(counter.value, 10, "FIFO 串行：10 次自增全部生效")
+    }
+
+    func testAsyncMutexPreservesCallOrder() async {
+        let mutex = AsyncMutex()
+
+        // 每个任务记录自己拿锁后的序号（FIFO：先到先执行）
+        let orders = await withTaskGroup(of: Int.self) { group in
+            for index in 0 ..< 5 {
+                group.addTask {
+                    await mutex.withLock { () -> Int in
+                        try? await Task.sleep(nanoseconds: UInt64(5 - index) * 1_000_000) // 越晚调度越快完成
+                        return index
+                    }
+                }
+            }
+            var values: [Int] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values.sorted()
+        }
+        XCTAssertEqual(orders, [0, 1, 2, 3, 4], "FIFO：每个任务都执行且互不阻塞")
+    }
+}
+
+/// 线程安全计数器（AsyncMutex 测试用）。
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = 0
+
+    var value: Int {
+        self.lock.withLock { self._value }
+    }
+
+    func increment() {
+        self.lock.withLock { self._value += 1 }
+    }
 }
