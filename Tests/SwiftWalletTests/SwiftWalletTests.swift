@@ -221,3 +221,32 @@ private func makeWallet(bridge: FakeWalletBridge) -> SwiftWallet {
     #expect(tx["TransactionType"] as? String == "NFTTokenTransferPage")
     #expect(tx["Sequence"] as? Int == 7)
 }
+
+@Test @MainActor func `wallet signing nft transfer throws on invalid response`() async throws {
+    // review SwiftWallet P1#1：桥返回非 JSON 对象不再吞错返回 [:]
+    let bridge = FakeWalletBridge()
+    bridge.responses["buildSwtcNftTransfer"] = "not-json"
+    let wallet = makeWallet(bridge: bridge)
+    try wallet.start()
+
+    await #expect(throws: SwiftWalletError.self) {
+        let _: [String: Any] = try await wallet.buildSwtcNftTransfer(address: "jAddr", to: "jTo", tokenId: "1", memo: "m")
+    }
+}
+
+@Test func `generate hd wallet result decodes missing accounts as empty`() throws {
+    // review SwiftWallet P1#2：JS 缺 accounts 键 → []（合成 Decodable 会 keyNotFound）
+    let json = #"{"mnemonic":"m","address":"a","language":"english","keypair":{"privateKey":"pk","publicKey":"pub"}}"#
+    let data = Data(json.utf8)
+    let result = try JSONDecoder().decode(GenerateHDWalletResult.self, from: data)
+    #expect(result.accounts.isEmpty)
+    #expect(result.address == "a")
+}
+
+@Test func `generate hd wallet result decodes present accounts`() throws {
+    let json = #"{"mnemonic":"m","address":"a","language":"english","keypair":{"privateKey":"pk","publicKey":"pub"},"accounts":[{"chain":60,"address":"0x1","path":{"chain":60,"account":0,"change":0,"index":0},"keypair":{"privateKey":"pk1","publicKey":"pub1"}}]}"#
+    let data = Data(json.utf8)
+    let result = try JSONDecoder().decode(GenerateHDWalletResult.self, from: data)
+    #expect(result.accounts.count == 1)
+    #expect(result.accounts.first?.address == "0x1")
+}

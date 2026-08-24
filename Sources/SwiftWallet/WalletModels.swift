@@ -61,6 +61,17 @@ public struct GenerateHDWalletResult: Codable, Sendable, Equatable {
         self.keypair = keypair
         self.accounts = accounts
     }
+
+    /// 自定义 Decodable：JS 缺 `accounts` 键时按 `[]` 处理——合成 `init(from:)` 会忽略
+    /// 属性默认值直接 `keyNotFound`（见 review SwiftWallet P1#2）。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.mnemonic = try container.decode(String.self, forKey: .mnemonic)
+        self.address = try container.decode(String.self, forKey: .address)
+        self.language = try container.decode(String.self, forKey: .language)
+        self.keypair = try container.decode(Keypair.self, forKey: .keypair)
+        self.accounts = try container.decodeIfPresent([SubWallet].self, forKey: .accounts) ?? []
+    }
 }
 
 /// 传统派生结果（从助记词 / 私钥派生）

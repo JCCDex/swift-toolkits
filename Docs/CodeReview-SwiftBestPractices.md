@@ -262,9 +262,9 @@ if !expirationDate.isEmpty,
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| 1 | `buildSwtcNftTransfer` 解析失败返回 `[:]` 吞错：下游 `SwtcMiddleware` 只注入 Sequence 就签名 → 应 throw 带描述的错误 | `SwiftWallet+WalletSigning.swift:42-51` | 未做（待办） |
-| 2 | `WalletModels.swift:56` `accounts: [SubWallet] = []` 默认值对合成 `Decodable` 无效，JS 缺 `accounts` 键直接 `keyNotFound` → 自定义 `init(from:)` + `decodeIfPresent ?? []` | `WalletModels.swift:56` | 未做（待办） |
-| 3 | `SwiftWalletError` 缺 `Sendable`；`buildSwtcNftTransfer` 与类内同名方法仅返回类型不同（易混淆） | `SwiftWallet.swift:239` | ✅ Sendable 已补（随 Sendable 批）；同名方法混淆未做（待办） |
+| 1 | `buildSwtcNftTransfer` 解析失败返回 `[:]` 吞错：下游 `SwtcMiddleware` 只注入 Sequence 就签名 → 应 throw 带描述的错误 | `SwiftWallet+WalletSigning.swift:42-51` | ✅ 已改 `throw SwiftWalletError.invalidResponse`（带 120 字符截断预览；不落原始 payload）+ 回归测试 |
+| 2 | `WalletModels.swift:56` `accounts: [SubWallet] = []` 默认值对合成 `Decodable` 无效，JS 缺 `accounts` 键直接 `keyNotFound` → 自定义 `init(from:)` + `decodeIfPresent ?? []` | `WalletModels.swift:56` | ✅ `GenerateHDWalletResult` 自定义 `init(from:)`（`decodeIfPresent ?? []`）+ 2 个回归测试（缺键/有键） |
+| 3 | `SwiftWalletError` 缺 `Sendable`；`buildSwtcNftTransfer` 与类内同名方法仅返回类型不同（易混淆） | `SwiftWallet.swift:239` | ✅ Sendable 已补（随 Sendable 批）；同名方法已消除——类自身方法改 `buildSwtcNftTransferRaw`（返回 String），协议实现独占 `buildSwtcNftTransfer`（返回 `[String: Any]`） |
 
 ### SwiftWebviewBridge（P1 部分）
 

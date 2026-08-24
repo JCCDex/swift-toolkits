@@ -119,7 +119,9 @@ public final class SwiftWallet: WalletDeriving {
         ])
     }
 
-    public func buildSwtcNftTransfer(
+    /// 桥原始版本：返回序列化 JSON 字符串（协议实现 `buildSwtcNftTransfer` 解析为字典，
+    /// 见 review SwiftWallet P1#3——原与协议方法同名仅返回类型不同，易混淆）。
+    public func buildSwtcNftTransferRaw(
         address: String,
         to: String,
         tokenId: String,
@@ -238,4 +240,6 @@ public final class SwiftWallet: WalletDeriving {
 
 public enum SwiftWalletError: Error, Equatable, Sendable {
     case notInitialized
+    /// 桥响应解析失败（携带截断预览；非预期数据形态，见 review SwiftWallet P1#1）。
+    case invalidResponse(String)
 }
