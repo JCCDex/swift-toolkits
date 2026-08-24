@@ -83,9 +83,14 @@ public final class SwiftDid: DidSDK {
         // 必须被 start——旧实现对具体类型 WebViewBridgeEngine 特判，自定义桥会被静默跳过
         // （见 review 四、架构层观察 #3）。默认桥网关保持 did-bridge.js 硬编码（见 Did-Swift 03 §3）。
         try self.bridge.start()
-        // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）
+        // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）；
+        // 失败记日志不阻塞启动（清理失败会泄漏 pending 状态，须可观测，见 review 六 V-4）。
         Task {
-            try? await self.core.deleteExpiredPending(now: Date.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)
+            do {
+                try await self.core.deleteExpiredPending(now: Date.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)
+            } catch {
+                Self.logWriteError("deleteExpiredPending", error: error, did: nil)
+            }
         }
         self.started = true
     }
@@ -406,7 +411,15 @@ public final class SwiftDid: DidSDK {
         do {
             let res = try await self.publishDid(did: did, privateKey: privateKey, didDocument: "{}")
             if res.code == "0" {
-                let doc = try? await core.getDidDocument(did)?.doc
+                // 读本地旧文档用于 deletedDoc 时间戳（删除防复活用）；失败降级 nil（不写 pending）
+                // 但记日志——读失败会让后续删除无 deletedDoc 校验（见 review 六 V-4）。
+                let doc: String?
+                do {
+                    doc = try await self.core.getDidDocument(did)?.doc
+                } catch {
+                    Self.logWriteError("publishDidDelete.readLocalDoc", error: error, did: did)
+                    doc = nil
+                }
                 try await self.core.deleteDidDocument(did, deletedDoc: doc)
                 return true
             }

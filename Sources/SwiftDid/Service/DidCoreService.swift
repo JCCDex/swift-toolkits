@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftCore
 
 /// 观察/取档/写操作编排 + pending 对账状态机（对应 Kotlin `DidCoreService`，见 Did-Swift 01 §6）。
@@ -18,12 +19,55 @@ final class DidCoreService {
 
     static let pendingTTLMillis: Int64 = 24 * 60 * 60 * 1000
 
+    private static let logger = Logger(subsystem: "com.jccdex.toolkits.swiftdid", category: "DidCoreService")
+
     private let store: any DidStore
     private let resolver: any DidResolver
 
     init(store: any DidStore, resolver: any DidResolver) {
         self.store = store
         self.resolver = resolver
+    }
+
+    /// 写路径失败日志（对齐 `SwiftDid.logWriteError` 隐私纪律：NSError 只打 domain#code，
+    /// 纯枚举打 case 名，不落 payload——见 review 六 V-4）。
+    private func logError(_ operation: String, error: Error, did: String?) {
+        let summary = if let nsError = error as NSError? {
+            "\(nsError.domain)#\(nsError.code)"
+        } else {
+            String(describing: error)
+        }
+        let didSuffix = did.map { " did=\($0)" } ?? ""
+        Self.logger.error("\(operation, privacy: .public) failed: \(summary, privacy: .public)\(didSuffix, privacy: .public)")
+    }
+
+    /// pending 读取（对账分支内失败降级 nil + 记日志——失败会让「删除防复活/头像保护」
+    /// 检查失效，必须可观测，见 review 六 V-4）。
+    private func loadPendingLogging(kind: String, did: String) async -> DidPending? {
+        do {
+            return try await self.store.loadPending(kind: kind, did: did)
+        } catch {
+            self.logError("loadPending(\(kind))", error: error, did: did)
+            return nil
+        }
+    }
+
+    /// pending 清理（对账分支内失败降级 + 记日志——清理失败会泄漏 pending 状态，见 review 六 V-4）。
+    private func deletePendingLogging(kind: String, did: String) async {
+        do {
+            try await self.store.deletePending(kind: kind, did: did)
+        } catch {
+            self.logError("deletePending(\(kind))", error: error, did: did)
+        }
+    }
+
+    /// 本地文档删除（`handleMissingChainDocument` 收尾；失败降级 + 记日志）。
+    private func deleteDidLogging(_ did: String) async {
+        do {
+            try await self.store.delete(did)
+        } catch {
+            self.logError("delete", error: error, did: did)
+        }
     }
 
     // MARK: - 观察
@@ -56,9 +100,9 @@ final class DidCoreService {
             // 删除防复活（Swift 修正 #3）：链上旧文档仍服务且 `updated == 删除时间戳` → 不复活、清表、返回缺失。
             // 必须**先于**下方 `localDoc == nil` 的 upsert 分支执行，否则已删除 DID 会被旧文档复活。
             if let chainUpdated = DidJson.extractUpdated(chainDoc),
-               let pendingDelete = try? await store.loadPending(kind: Self.pendingDelete, did: did),
+               let pendingDelete = await self.loadPendingLogging(kind: Self.pendingDelete, did: did),
                chainUpdated == pendingDelete.value {
-                try? await self.store.deletePending(kind: Self.pendingDelete, did: did)
+                await self.deletePendingLogging(kind: Self.pendingDelete, did: did)
                 return .missing
             }
 
@@ -68,20 +112,20 @@ final class DidCoreService {
             }
 
             // avatar pending：链上头像未刷新到 pending 值 → 保护本地
-            if let pendingAvatar = try? await store.loadPending(kind: Self.pendingAvatar, did: did) {
+            if let pendingAvatar = await self.loadPendingLogging(kind: Self.pendingAvatar, did: did) {
                 let chainAvatar = DidJson.readProfileField(chainDoc, "preferredAvatar")
                 if chainAvatar != pendingAvatar.value {
                     return .document(localDoc.doc)
                 }
-                try? await self.store.deletePending(kind: Self.pendingAvatar, did: did)
+                await self.deletePendingLogging(kind: Self.pendingAvatar, did: did)
             }
             // nickname pending：同上
-            if let pendingNickname = try? await store.loadPending(kind: Self.pendingNickname, did: did) {
+            if let pendingNickname = await self.loadPendingLogging(kind: Self.pendingNickname, did: did) {
                 let chainNickname = DidJson.readProfileField(chainDoc, "nickname")
                 if chainNickname != pendingNickname.value {
                     return .document(localDoc.doc)
                 }
-                try? await self.store.deletePending(kind: Self.pendingNickname, did: did)
+                await self.deletePendingLogging(kind: Self.pendingNickname, did: did)
             }
 
             // `updated` 比较（Swift 修正 #1：Date，勿字符串比较）
@@ -99,15 +143,15 @@ final class DidCoreService {
 
     private func handleMissingChainDocument(_ did: String, _ localDoc: DidEntity?) async -> DidResolveOutcome {
         // create pending 命中：初始 DID 刚发布、链上尚未可见 → 保留本地
-        if let _ = try? await store.loadPending(kind: Self.pendingCreate, did: did) {
-            try? await self.store.deletePending(kind: Self.pendingCreate, did: did)
+        if let _ = await self.loadPendingLogging(kind: Self.pendingCreate, did: did) {
+            await self.deletePendingLogging(kind: Self.pendingCreate, did: did)
             return localDoc.map { .document($0.doc) } ?? .missing
         }
         // delete pending 命中：链上缺失（tombstone 已传播）→ 删除已确认，清表
-        if let _ = try? await store.loadPending(kind: Self.pendingDelete, did: did) {
-            try? await self.store.deletePending(kind: Self.pendingDelete, did: did)
+        if let _ = await self.loadPendingLogging(kind: Self.pendingDelete, did: did) {
+            await self.deletePendingLogging(kind: Self.pendingDelete, did: did)
         }
-        try? await self.store.delete(did)
+        await self.deleteDidLogging(did)
         return .missing
     }
 
