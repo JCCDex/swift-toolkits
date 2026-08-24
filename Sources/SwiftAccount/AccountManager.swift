@@ -161,19 +161,23 @@ public final class AccountManager: Sendable {
                 let mnemonic = try await self.vault.getMnemonic(address: root.address, password: password)
                 let language = try await self.vault.getMnemonicLanguage(address: root.address)
 
-                let deriveIndex: Int = if let index {
+                var deriveIndex: Int = if let index {
                     index
                 } else {
                     try await self.store.getMaxIndexByChain(parentId: rootAccountId, chain: chain) + 1
                 }
-                let subWallet = try await self.wallet.deriveChild(
-                    mnemonic: String(decoding: mnemonic, as: UTF8.self),
-                    chain: chain.bip44Code,
-                    account: 0,
-                    change: 0,
-                    index: deriveIndex,
-                    language: language
-                )
+                var subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
+
+                // 占用探测（仅自动推进 index == nil 时；显式 index 尊重调用方选择）：
+                // 派生地址已被占用（同地址传统账户或已落库子账户）→ deriveIndex + 1 继续派生。
+                // store 出错由 runOperation 统一兜底为 failure（不用 `try?` 当「未占用」，
+                // 见 review SwiftAccount P1#6）。
+                if index == nil {
+                    while try await self.isOccupied(address: subWallet.address, chain: chain) {
+                        deriveIndex += 1
+                        subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
+                    }
+                }
 
                 return .success(DerivedSubAccount(
                     address: subWallet.address,
@@ -227,6 +231,29 @@ public final class AccountManager: Sendable {
     }
 
     // MARK: - 内部
+
+    /// 派生指定 index 的子账户（固定 BIP44 account=0/change=0；deriveSubAccount 占用探测复用）。
+    private func deriveChild(
+        mnemonic: Data,
+        language: String,
+        chain: ChainType,
+        index: Int
+    ) async throws -> SubWallet {
+        try await self.wallet.deriveChild(
+            mnemonic: String(decoding: mnemonic, as: UTF8.self),
+            chain: chain.bip44Code,
+            account: 0,
+            change: 0,
+            index: index,
+            language: language
+        )
+    }
+
+    /// 地址占用探测（review SwiftAccount P1#6）：显式抛错（不 `try?` 当「未占用」），
+    /// 由 `runOperation` 统一映射为 failure。
+    private func isOccupied(address: String, chain: ChainType) async throws -> Bool {
+        try await self.store.findNonRootAccount(address: address, chain: chain) != nil
+    }
 
     /// vault 写入失败必须向上抛（P0-5：曾用 `try?` 吞错，导致 `importSingleAccount` 报成功
     /// 但私钥从未入库——账户元数据存在却无法签名）。`runOperation` 负责把错误映射为 failure。

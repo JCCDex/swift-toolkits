@@ -203,7 +203,7 @@ if !expirationDate.isEmpty,
 | 3 | `removeAccount` 双重 Argon2：先 `verifyPassword` 再 `removeAddress` → `ensureUnlocked` → `unlock` 再派生一次 | `AccountManager.swift:237,246` | ✅ 已随性能专项 B-3 改 `unlock` + `removeAddressUnlocked`（单次派生） |
 | 4 | `SwiftAccount` 是 `AccountStore` 的 ~26 个方法纯透传（零逻辑），会随协议漂移 → 直接暴露 `store` 或让门面 conform `AccountStore` | `SwiftAccount.swift:29-131` | ✅ 门面公开 `store` 属性（需协议级操作直接用；门面方法保留为便捷层，demo/测试在用，删除为破坏性无收益） |
 | 5 | `deriveSubAccount` 连续两次相同 `findById`（第一次 guard 是死代码） | `AccountManager.swift:177-182` | ✅ 合并为单次 `guard let root = findById` |
-| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` | ✅ 占用探测循环已删除（用户要求）——`deriveSubAccount` 只派生不落库（见 #1），index 由 `getMaxIndexByChain+1` 推进；相关 `try?` 问题随之消除 |
+| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` | ✅ 占用探测循环已恢复（用户要求：`index == nil` 时地址被占用 → `deriveIndex + 1` 继续派生；显式 index 尊重调用方）；`try?` 改显式 `do/catch`（store 出错即失败） |
 | 7 | 无 `(address, chain)` 唯一索引：预检 + 插入非原子，并发导入同地址会重复入库 | `GRDBAccountStore.swift:23-34` | ✅ v3 迁移加 `(address, chain)` 唯一索引（v2 归一后 address 已小写） |
 | 8 | 观察流出错时静默 `finish()`，消费方无法感知流死亡 | `GRDBAccountStore.swift:283-284` | ✅ 流错误记 `os.Logger`（只打 domain#code，不打 payload）；仍 finish（AsyncStream 无错误通道） |
 | 9 | UPDATE 方法不检查影响行数（更新不存在的 id 静默成功，Kotlin Room `@Update` 有行数返回） | `GRDBAccountStore.swift:142-173` | ✅ `requireUpdate` helper：0 行抛 `accountNotFound`；3 个 update 方法（name/publicKey/parentId）接入 |

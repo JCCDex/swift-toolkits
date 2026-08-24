@@ -188,6 +188,42 @@ final class AccountManagerTests: XCTestCase {
         XCTAssertEqual(derived2.address, "0xchild-1", "已有 index 0 → 自动推进到 1")
     }
 
+    func testDeriveSubAccountSkipsOccupiedAddress() async throws {
+        // review SwiftAccount P1#6：index == nil 时若派生地址已被占用（同地址传统账户），
+        // deriveIndex + 1 继续派生；显式 index 尊重调用方选择不跳过。
+        try await self.vault.initializePassword(self.password)
+        let hd = GenerateHDWalletResult(
+            mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            address: "rootAddr", language: "english",
+            keypair: self.keypair("rootAddr"), accounts: []
+        )
+        guard case let .success(imported) = await self.manager.importHdWallet(hdResult: hd, name: "Root", password: self.password) else {
+            return XCTFail("导入根失败")
+        }
+        // 传统账户占用 index 0 的地址（0xchild-0）
+        _ = await self.manager.importSingleAccount(
+            derived: TraditionalDeriveResult(address: "0xchild-0", keypair: self.keypair("0xchild-0"), path: nil),
+            chain: .eth, name: "pre", isHD: false, parentId: nil
+        )
+        self.wallet.setDeriveAddresses { _, index in
+            "0xchild-\(index)"
+        }
+
+        // index == nil：0 被占 → 跳过到 1
+        let auto = await self.manager.deriveSubAccount(chain: .eth, rootAccountId: imported.rootAccountId, password: self.password)
+        guard case let .success(derived) = auto else {
+            return XCTFail("自动派生失败：\(auto)")
+        }
+        XCTAssertEqual(derived.address, "0xchild-1", "index 0 被传统账户占用 → 自动跳到 1")
+
+        // 显式 index: 0：尊重调用方，不跳过（仍派生 0xchild-0）
+        let explicit = await self.manager.deriveSubAccount(chain: .eth, rootAccountId: imported.rootAccountId, password: self.password, index: 0)
+        guard case let .success(explicitDerived) = explicit else {
+            return XCTFail("显式派生失败：\(explicit)")
+        }
+        XCTAssertEqual(explicitDerived.address, "0xchild-0", "显式 index 尊重调用方选择")
+    }
+
     func testDeriveSubAccountRootNotFound() async {
         let result = await self.manager.deriveSubAccount(chain: .eth, rootAccountId: "missing", password: self.password)
         XCTAssertEqual(result, .failure(.rootAccountNotFound))
