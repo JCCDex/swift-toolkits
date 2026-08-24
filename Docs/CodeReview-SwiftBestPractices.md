@@ -280,15 +280,15 @@ if !expirationDate.isEmpty,
 
 ## 命名规范问题（Swift API Design Guidelines 专项）
 
-1. **`get` 前缀泛滥**（应删）：`EthMiddleware.getChainId/getBlockNumber/getAccountsForChain/getCurrentChainIdHex`、`SwtcMiddleware.getPublicKey`、`WebAppInterface.getPrivateKeyOrFail`、`VaultRepository.get()`（与 `static let shared` 重复）、`AccountStore.getCurrentAccountId/getMaxIndexByChain/getSameAccountsCount`、`NftProvider.getRpcUrl/getTransactionCount/getGasPrice/getEvmNfts/getSwtcNfts`、`WalletSigning.getEncryptionPublicKey`。
+1. ✅ **已实现**：`get` 前缀清除——`EthMiddleware.chainId/blockNumber/accountsForChain`（`getCurrentChainIdHex` 早前已删）、`SwtcMiddleware.publicKey`、`WebAppInterface.privateKeyOrFail`、`VaultRepository.get()` 删除（与 `static let shared` 重复，测试改 `shared`）、`AccountStore.currentAccountId/maxIndexByChain/sameAccountsCount`（协议+GRDB 实现+门面+调用点）、`NftProvider.rpcUrl/blockNumber(chain:)/transactionCount/gasPrice/evmNfts/swtcNfts`、`WalletSigning.encryptionPublicKey`（SwiftWallet 实现同步；JS 桥方法名 `"getEncryptionPublicKey"` 保留）。
 2. ✅ **已实现**：`load*` 误用——`DAppConnectSdk.loadInitJs/loadAddressJs/loadUpdateChainIdJs/loadEip6963IconOverrideJs` 是生成 JS 字符串，`load` 暗示读资源 → 已改名 `initJavaScript(chainIdHex:rpcUrl:token:)`、`setAddressJavaScript(...)`、`updateChainIdJavaScript(...)`、`overrideEip6963IconJavaScript(...)`（`loadProviderJs` 真读资源保留）。
-3. **大小写不一致**：`WebviewBridgeClient/WebviewBridgeConfig/WebviewBridgeEngine/WebviewBridgeError` vs `WebViewRuntime`；`callJsMethod` 的 "Js" vs "JS"。
-4. **三层命名同一操作**：`WebviewBridgeClient.callJsMethod` vs `EngineBridge.call/callAs`；`callAs` 的 `as:` 标签与关键字撞名 → `callTyped(asType:)`。
-5. **`Hd` → `HD`**：`importHdWallet`/`hdResult:`/`rootHDAccounts`。
-6. **标签冗余**：`hdWalletFromMnemonic(mnemonic:)`、`deriveFromMnemonic(mnemonic:)`、`updateParentId(accountId:parentId:)`。
-7. **同操作不同名**：`ContinuationBox.resume` vs `ReadyWaitBox.resumeIfPending`；`PromiseGateway` 内 `onPromiseResult/register/finish/remove` 四动词。
+3. ✅ **已实现**：大小写统一——`WebviewBridgeClient/WebviewBridgeConfig/WebviewBridgeEngine/WebviewBridgeError/WebviewBridgeResources` → `WebViewBridge*`（与 `WebViewRuntime` 一致；文件同步改名，模块名 `SwiftWebviewBridge` 保留）；`callJsMethod`/`callJsMethodAs` → `callJSMethod`/`callJSMethodAs`（测试方法名同步）。
+4. ✅ **已实现**：三层命名同一操作——`EngineBridge` 协议与 `WebviewBridgeEngine` 统一 `call`/`callTyped`；`callAs` 的 `as:` 标签与关键字撞名 → `callTyped(method:params:asType:timeoutMs:readyWaitMs:)`（SwiftWallet/SwiftDid 桥调用与测试 Fake 同步）。
+5. ✅ **已实现**：`Hd` → `HD`——`importHdWallet`→`importHDWallet`、`HdChildAccountId`→`HDChildAccountId`、`hdResult:`/`rootHDAccounts` 相关。
+6. ✅ **已实现**：标签冗余——`hdWalletFromMnemonic(_:chains:language:)`、`deriveFromMnemonic(_:chain:...)`、`deriveFromPrivateKey(_:chain:)`、`updateParentId(_:parentId:)`（冗余标签删除，测试同步）。
+7. ✅ **已实现**：同操作不同名——`ReadyWaitBox.resumeIfPending` → `resume`（与 `ContinuationBox.resume` 统一，取消路径一并走 `resume(throwing:)`）。
 8. ✅ **已实现**：`route()` / `WebAppInterface` 672 行——已按域拆 `routeSwtc`/`routeEth`/`routeWallet`/`routeDidNft`（顶层 `route` 只按 `DAppMethod` 域分发，各域方法内做参数提取与 handler 调用；参数提取位置不变——用户评估后认为下沉到 handler 更啰嗦，见 SwiftDappConnect P1#8）。
-9. `handleEthSignTypedData` 收整个 `request` 与其余 handler 收提取参数的风格不一致。
+9. `handleEthSignTypedData` 收整个 `request` 与其余 handler 收提取参数的风格不一致。（用户决定不修，保持现状）
 
 ---
 
@@ -444,13 +444,30 @@ if !expirationDate.isEmpty,
 1. **P0 六项**（1-2 天）：~~Account persistVault 改 throws~~（✅ 已修复，见 P0-5）→ ~~Did 过期校验 fail-closed~~（✅ 已修复，见 P0-6）→ ~~Nft 溢出界长~~（✅ 已修复，见 P0-4）→ ~~Bridge 跨线程 double-resume~~（✅ 已修复，见 P0-2）→ ~~Bridge clearAll 悬挂~~（✅ 已修复，见 P0-3）→ Vault 内部方法改 private。
 2. **P1 高价值**：DappConnect 的 currentChain 污染（#1）+ `eth_accounts` 静默化（#2）+ 管线移出 MainActor；Account 的 removeAccount 同名陷阱 + 空私钥路径；Vault 的 KDF 去重 + biometric 迁移。
 3. **性能批**：hex 工具合并、Keccak lane 读入、GRDB 表达式索引、主线程 JSON 异步化。
-4. **命名批**：`get*`/`load*`/`Webview` 大小写/`Hd` 统一（API 破坏性改动，建议与下一主版本号一起发）。
+4. ~~**命名批**：`get*`/`load*`/`Webview` 大小写/`Hd` 统一（API 破坏性改动，建议与下一主版本号一起发）~~（✅ 已修复，见命名规范专项 #1-#8 与修复记录「命名规范批」）。
 5. 补测试：Account 空私钥。
 
 ---
 
 ## 修复记录
 
+- **命名规范批（2025-08-22，Swift API Design Guidelines 专项 #1/#3/#4/#5/#6/#7）**：
+  `get` 前缀清除——EthMiddleware/SwtcMiddleware/WebAppInterface/NftProvider/WalletSigning 协议
+  与实现全量改名（`getChainId`→`chainId`、`getBlockNumber`→`blockNumber`、`getAccountsForChain`→
+  `accountsForChain`、`getPublicKey`→`publicKey`、`getRpcUrl`→`rpcUrl`、`getTransactionCount`→
+  `transactionCount`、`getGasPrice`→`gasPrice`、`getEvmNfts`→`evmNfts`、`getSwtcNfts`→`swtcNfts`、
+  `getEncryptionPublicKey`→`encryptionPublicKey`、`getPrivateKeyOrFail`→`privateKeyOrFail`），
+  `VaultRepository.get()` 删除（用 `static let shared`）、`AccountStore` 三方法
+  （`currentAccountId`/`maxIndexByChain`/`sameAccountsCount`）同步协议+GRDB+门面+测试；JS 桥
+  方法名 `"getEncryptionPublicKey"` 等 RPC 字符串保留。`WebviewBridge*` 四类型 +
+  `WebviewBridgeResources` → `WebViewBridge*`（文件同步改名，模块名 `SwiftWebviewBridge` 保留）；
+  `callJsMethod(As)` → `callJSMethod(As)`。`EngineBridge` 统一 `call`/`callTyped`，`callAs` 的
+  `as:` 标签 → `callTyped(method:params:asType:timeoutMs:readyWaitMs:)`（SwiftWallet/SwiftDid 桥
+  调用、测试 Fake 与 WebviewBridgeEngine 实现同步）。`Hd`→`HD`（`importHDWallet`/
+  `HDChildAccountId`）；冗余标签删除（`hdWalletFromMnemonic(_:)`/`deriveFromMnemonic(_:)`/
+  `deriveFromPrivateKey(_:)`/`updateParentId(_:parentId:)`）；`ReadyWaitBox.resumeIfPending` →
+  `resume`。DemoProviders/TestFakes 协议实现同步。全模块构建 0 error，测试全绿。
+  #9（`handleEthSignTypedData` 风格）用户决定不修。
 - **日期批（2025-08-22）**：日期/时间戳处理全量归口 `SwiftCore/Date.swift`——新增
   `Date.nowMillis()`（epoch 毫秒）与 `Date.formatUtc(_:)`（Asia/Shanghai 展示格式，
   值类型 Calendar 免 DateFormatter 分配）；替换 `DidCoreService.nowMillis`、
