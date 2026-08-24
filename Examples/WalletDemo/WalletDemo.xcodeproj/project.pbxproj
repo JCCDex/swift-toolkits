@@ -15,15 +15,15 @@
 		3D24B6A87E8FBE157B3BF550 /* SwiftNft in Frameworks */ = {isa = PBXBuildFile; productRef = 576E20136FC0F5FF3ECFCAF8 /* SwiftNft */; };
 		49E0FFE7816608E4261E0B95 /* DappView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F229B27C5FA1304FE57775 /* DappView.swift */; };
 		4AF2A401EED91C1D5FA6D9CC /* DidAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789799DB43E5496C77FBAFF5 /* DidAvatarView.swift */; };
-		50841E3E0E3BF302DA15EA09 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 559F113F6F0AEE3A0B0AAC72 /* GRDB */; };
+		50841E3E0E3BF302DA15EA09 /* SwiftAccount in Frameworks */ = {isa = PBXBuildFile; productRef = 14F5FA1DB0FA7E8807ACC1C3 /* SwiftAccount */; };
 		66A225808B5E8C40A21E1CAF /* WalletService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CD2104B4254BE9E67B42E47 /* WalletService.swift */; };
 		6C4AB7C9255CD888D4D2392B /* dapp.html in Resources */ = {isa = PBXBuildFile; fileRef = C6003972DD8DD06E54F99A1F /* dapp.html */; };
 		8A67C84C6B3C87ADCF40AB50 /* SwiftVault in Frameworks */ = {isa = PBXBuildFile; productRef = 6A2CFE62973B5238598A67E6 /* SwiftVault */; };
 		8CA77E2F41E4C5F5A1723167 /* SwiftDappConnect in Frameworks */ = {isa = PBXBuildFile; productRef = 3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */; };
+		94F03C858C2360C2743AD6F0 /* SwiftCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5757D4763E15A5B77083498D /* SwiftCore */; };
+		B28AF421118AE323C333617F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 559F113F6F0AEE3A0B0AAC72 /* GRDB */; };
 		C0960BC9CCD6F67BB23283D5 /* SwiftWebviewBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */; };
 		D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */ = {isa = PBXBuildFile; productRef = 39ECC87252B0148CA959D8F8 /* SwiftWallet */; };
-		7A1E2B3C4D5E6F708192A3B4C /* SwiftAccount in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */; };
-		8B2F3C4D5E6F708192A3B4C5 /* SwiftCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D4E5F60718293A4B5C6D7E8F /* SwiftCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,9 +50,9 @@
 				D1ECB9BA0C0406958E09B30D /* SwiftWallet in Frameworks */,
 				3D24B6A87E8FBE157B3BF550 /* SwiftNft in Frameworks */,
 				187546B5C60D89B070EE9C2A /* SwiftDid in Frameworks */,
-				7A1E2B3C4D5E6F708192A3B4C /* SwiftAccount in Frameworks */,
-				8B2F3C4D5E6F708192A3B4C5 /* SwiftCore in Frameworks */,
-				50841E3E0E3BF302DA15EA09 /* GRDB in Frameworks */,
+				50841E3E0E3BF302DA15EA09 /* SwiftAccount in Frameworks */,
+				94F03C858C2360C2743AD6F0 /* SwiftCore in Frameworks */,
+				B28AF421118AE323C333617F /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,8 +130,8 @@
 				39ECC87252B0148CA959D8F8 /* SwiftWallet */,
 				576E20136FC0F5FF3ECFCAF8 /* SwiftNft */,
 				7BF316FFF25C6855D67EEF0A /* SwiftDid */,
-				9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */,
-				0D4E5F60718293A4B5C6D7E8F /* SwiftCore */,
+				14F5FA1DB0FA7E8807ACC1C3 /* SwiftAccount */,
+				5757D4763E15A5B77083498D /* SwiftCore */,
 				559F113F6F0AEE3A0B0AAC72 /* GRDB */,
 			);
 			productName = WalletDemo;
@@ -414,6 +414,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		14F5FA1DB0FA7E8807ACC1C3 /* SwiftAccount */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftAccount;
+		};
 		3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftDappConnect;
@@ -426,6 +430,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D6AC2503F988B731F212061A /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		5757D4763E15A5B77083498D /* SwiftCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftCore;
 		};
 		576E20136FC0F5FF3ECFCAF8 /* SwiftNft */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -442,14 +450,6 @@
 		8B0CA2CABB7237BD3B75E421 /* SwiftWebviewBridge */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftWebviewBridge;
-		};
-		9C3D4E5F60718293A4B5C6D7E /* SwiftAccount */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SwiftAccount;
-		};
-		0D4E5F60718293A4B5C6D7E8F /* SwiftCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SwiftCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
