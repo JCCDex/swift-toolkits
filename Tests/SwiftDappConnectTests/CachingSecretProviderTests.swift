@@ -48,10 +48,16 @@ import Testing
     let delegate = FakeSecretProvider(privateKey: "pk", delayNanos: 80_000_000) // 80ms 慢委托
     let provider = CachingSecretProvider(delegate: delegate, bridgeWindowMs: 500, maxAgeMs: 20000)
 
+    // 等待「委托已进入 in-flight」信号而非固定 sleep（固定 sleep 在并发负载下不可靠：
+    // fetchTask 可能尚未调度，clearCache 先执行会让 generation 未变、旧结果回填 → flaky）。
+    let entered = AsyncStream<Void>.makeStream()
+    delegate.onDelegateEnter = { entered.continuation.yield(()) }
+
     let fetchTask = Task { () -> String? in
         try? await provider.getPrivateKeyForAddress("0x1", origin: "https://dapp.com")
     }
-    try await Task.sleep(nanoseconds: 10_000_000) // 让委托进入 in-flight
+    var iterator = entered.stream.makeAsyncIterator()
+    await iterator.next() // 委托已进入（80ms sleep 中）
     await provider.clearCache()
 
     _ = await fetchTask.value

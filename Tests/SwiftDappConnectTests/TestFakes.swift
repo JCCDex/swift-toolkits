@@ -78,6 +78,9 @@ final class FakeSecretProvider: SecretProvider, @unchecked Sendable {
     let secret: String?
     /// P1#11 测试用：非 0 时委托前 sleep 该纳秒数（模拟慢委托，供 clearCache 取消 in-flight）。
     let delayNanos: UInt64
+    /// P1#11 测试用：进入委托即回调（sleep 前）——供测试等待「已进入 in-flight」而非固定 sleep
+    /// （固定 sleep 在并发负载下不可靠，见 review 六 P-1 补记）。仅测试内一次性设置，无并发改写。
+    var onDelegateEnter: (@Sendable () -> Void)?
 
     init(
         privateKey: String? = nil,
@@ -92,6 +95,7 @@ final class FakeSecretProvider: SecretProvider, @unchecked Sendable {
     }
 
     func getPrivateKeyForAddress(_ address: String, origin: String) async throws -> String? {
+        self.onDelegateEnter?()
         if self.delayNanos > 0 {
             try? await Task.sleep(nanoseconds: self.delayNanos)
         }
@@ -100,6 +104,7 @@ final class FakeSecretProvider: SecretProvider, @unchecked Sendable {
     }
 
     func getSecretForAddress(_ address: String, origin: String) async throws -> String? {
+        self.onDelegateEnter?()
         if self.delayNanos > 0 {
             try? await Task.sleep(nanoseconds: self.delayNanos)
         }
