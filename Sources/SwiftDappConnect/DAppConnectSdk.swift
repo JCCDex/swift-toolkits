@@ -71,7 +71,7 @@ public enum DAppConnectSdk {
 
     // MARK: - Provider JS
 
-    /// provider 模板（bundle 资源只读一次并缓存——每次导航都调用 loadProviderJs，
+    /// provider 模板（bundle 资源只读一次并缓存——每次导航都调用 loadProvider，
     /// 原实现每次重新读文件 + 全量解码，见性能专项 D-6）。
     private static let providerTemplate: String? = {
         guard
@@ -89,7 +89,7 @@ public enum DAppConnectSdk {
     ///   native → JS 回传（`_ccdaoSettle` / `_ccdaoNative`）的鉴权凭证（M1/M2）；
     ///   页面 JS 读不到该 token，无法伪造 native 响应或状态推送。token 为空时
     ///   provider 对回传 fail-closed。
-    public static func loadProviderJs(token: String) -> String {
+    public static func loadProvider(token: String) -> String {
         guard let template = self.providerTemplate else {
             return ""
         }
@@ -98,7 +98,7 @@ public enum DAppConnectSdk {
     }
 
     /// 初始化 JS：经 `_ccdaoNative('init', ...)` 设置 chainId / rpcUrl（带 token 鉴权）。
-    public static func loadInitJs(chainIdHex: String, rpcUrl: String, token: String) -> String {
+    public static func dappInit(chainIdHex: String, rpcUrl: String, token: String) -> String {
         let chain = self.jsQuote(chainIdHex)
         let rpc = self.jsQuote(rpcUrl)
         let auth = self.jsQuote(token)
@@ -116,14 +116,14 @@ public enum DAppConnectSdk {
     }
 
     /// 推送选中地址变更（经 `_ccdaoNative('setAddress', ...)`，带 token 鉴权）。
-    public static func loadAddressJs(address: String, isSwtc: Bool, token: String) -> String {
+    public static func setAddress(address: String, isSwtc: Bool, token: String) -> String {
         let addr = self.jsQuote(address)
         let auth = self.jsQuote(token)
         return "if (window._ccdaoNative) { window._ccdaoNative('setAddress', { address: \(addr), isSwtc: \(isSwtc) }, \(auth)); }"
     }
 
     /// 推送链切换并触发 chainChanged（经 `_ccdaoNative('setChainId', ...)`，带 token 鉴权）。
-    public static func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String, token: String) -> String {
+    public static func setChainId(chainIdHex: String, rpcUrl: String, token: String) -> String {
         let chain = self.jsQuote(chainIdHex)
         let rpc = self.jsQuote(rpcUrl)
         let auth = self.jsQuote(token)
@@ -131,7 +131,7 @@ public enum DAppConnectSdk {
     }
 
     /// 覆盖 EIP-6963 announce 的钱包图标。
-    public static func loadEip6963IconOverrideJs(iconDataUri: String) -> String {
+    public static func overrideEip6963IconJavaScript(iconDataUri: String) -> String {
         let escaped = iconDataUri
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "'", with: "\\'")
@@ -143,9 +143,20 @@ public enum DAppConnectSdk {
     // MARK: - URL 安全
 
     /// 校验 URL 使用 http/https 且 host 合法；拒绝 file://、javascript: 等。
+    /// `URLComponents` 结构化校验（review P1#12——原正则拒绝单标签 host、接受非法端口、
+    /// 拒绝 IPv6、端口区间未锚定）：scheme 必须 http/https、host 非空、端口在 1-65535。
     public static func isSafeUrl(_ url: String) -> Bool {
-        let pattern = #"^(https?)://[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\.?(:[0-9]{1,5})?(/.*)?$"#
-        return url.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        guard let components = URLComponents(string: url),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host, !host.isEmpty
+        else { return false }
+        // 端口：nil 合法；显式端口必须 1-65535（0/越界 → URLComponents 解析后此处拦截；
+        // 非数字端口 URLComponents 解析失败已在上面 return false）
+        if let port = components.port {
+            guard port > 0, port <= 65535 else { return false }
+        }
+        return true
     }
 
     /// 内置 SVG「D」盾兜底图标。

@@ -14,25 +14,35 @@ import Testing
     #expect(!DAppConnectSdk.isSafeUrl("file:///etc/passwd"))
     #expect(!DAppConnectSdk.isSafeUrl("javascript:alert(1)"))
     #expect(!DAppConnectSdk.isSafeUrl(""))
-    #expect(!DAppConnectSdk.isSafeUrl("https://localhost")) // 无点单标签主机：两边都拒
     #expect(!DAppConnectSdk.isSafeUrl("rtsp://example.com/stream")) // Swift 比 Kotlin WEB_URL 更严
+}
+
+@Test func `is safe url structured validation`() {
+    // review P1#12：URLComponents 结构化校验——IPv6、端口边界、单标签、非法 scheme
+    #expect(DAppConnectSdk.isSafeUrl("https://[::1]:8443/path"), "IPv6 host 放行")
+    #expect(DAppConnectSdk.isSafeUrl("https://localhost:8443"), "单标签 + 合法端口放行（原正则拒绝单标签）")
+    #expect(DAppConnectSdk.isSafeUrl("https://dapp.example.com:65535"), "端口上界放行")
+    #expect(!DAppConnectSdk.isSafeUrl("https://dapp.example.com:0"), "端口 0 拒绝")
+    #expect(!DAppConnectSdk.isSafeUrl("https://dapp.example.com:70000"), "端口越界拒绝")
+    #expect(!DAppConnectSdk.isSafeUrl("https://dapp.example.com:abc"), "非数字端口拒绝")
+    #expect(!DAppConnectSdk.isSafeUrl("ftp://dapp.example.com"), "非 http/https scheme 拒绝")
 }
 
 @Test func `load address js uses gated native dispatcher`() {
     let token = "tok-123"
-    let evm = DAppConnectSdk.loadAddressJs(address: "0xabc", isSwtc: false, token: token)
+    let evm = DAppConnectSdk.setAddress(address: "0xabc", isSwtc: false, token: token)
     #expect(evm.contains("_ccdaoNative"))
     #expect(evm.contains("'setAddress'"))
     #expect(evm.contains("\"0xabc\""))
     #expect(evm.contains("isSwtc: false"))
     #expect(evm.contains("\"tok-123\""))
 
-    let swtc = DAppConnectSdk.loadAddressJs(address: "abc", isSwtc: true, token: token)
+    let swtc = DAppConnectSdk.setAddress(address: "abc", isSwtc: true, token: token)
     #expect(swtc.contains("isSwtc: true"))
 }
 
 @Test func `load init js embeds chain id and rpc url`() {
-    let js = DAppConnectSdk.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://rpc.example.com", token: "tok-1")
+    let js = DAppConnectSdk.dappInit(chainIdHex: "0x38", rpcUrl: "https://rpc.example.com", token: "tok-1")
     #expect(js.contains("_ccdaoNative"))
     #expect(js.contains("'init'"))
     #expect(js.contains("0x38"))
@@ -42,21 +52,21 @@ import Testing
 }
 
 @Test func `load update chain id js uses gated native dispatcher`() {
-    let js = DAppConnectSdk.loadUpdateChainIdJs(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com", token: "tok-1")
+    let js = DAppConnectSdk.setChainId(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com", token: "tok-1")
     #expect(js.contains("_ccdaoNative"))
     #expect(js.contains("'setChainId'"))
     #expect(js.contains("\"tok-1\""))
 }
 
 @Test func `load eip6963 icon override embeds data uri`() {
-    let js = DAppConnectSdk.loadEip6963IconOverrideJs(iconDataUri: "data:image/png;base64,AAAA")
+    let js = DAppConnectSdk.overrideEip6963IconJavaScript(iconDataUri: "data:image/png;base64,AAAA")
     #expect(js.contains("data:image/png;base64,AAAA"))
     #expect(js.contains("eip6963:announceProvider"))
 }
 
 @Test func `provider js resource is bundled and embeds token`() {
     let token = "deadbeefcafe0123456789abcdef0123"
-    let js = DAppConnectSdk.loadProviderJs(token: token)
+    let js = DAppConnectSdk.loadProvider(token: token)
     #expect(!js.isEmpty)
     #expect(js.contains("window.ethereum"))
     // token 注入闭包（替换占位符），且原始占位符不再残留

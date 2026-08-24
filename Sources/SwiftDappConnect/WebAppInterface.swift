@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftCore
 import WebKit
 
@@ -6,6 +7,8 @@ import WebKit
 @MainActor
 public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     public static let handlerName = "_tw_"
+    /// P1#13：非 DAppConnectError 的内部错误记日志（只打 domain#code，不落 payload）。
+    private static let logger = Logger(subsystem: "com.jccdex.toolkits.swiftdappconnect", category: "WebAppInterface")
 
     private let ethMiddleware: any EthMiddlewareProtocol
     private let swtcMiddleware: any SwtcMiddlewareProtocol
@@ -21,7 +24,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     /// Native → JS 回传鉴权 token（M1/M2）：注入 provider 闭包后，`_ccdaoSettle` /
     /// `_ccdaoNative` 校验它才执行。页面 JS 读不到该值，无法伪造响应或状态推送。
-    /// 宿主注入 provider 时必须用 `DAppConnectSdk.loadProviderJs(token: self.responseToken)`。
+    /// 宿主注入 provider 时必须用 `DAppConnectSdk.loadProvider(token: self.responseToken)`。
     public let responseToken: String
 
     public init(
@@ -46,19 +49,19 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     // MARK: - Native → JS 推送（带 token 鉴权，避免宿主漏传导致静默失效）
 
-    /// 等价 `DAppConnectSdk.loadInitJs(chainIdHex:rpcUrl:token:)`，token 自动带上。
-    public func loadInitJs(chainIdHex: String, rpcUrl: String) -> String {
-        DAppConnectSdk.loadInitJs(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
+    /// 等价 `DAppConnectSdk.dappInit(chainIdHex:rpcUrl:token:)`，token 自动带上。
+    public func dappInit(chainIdHex: String, rpcUrl: String) -> String {
+        DAppConnectSdk.dappInit(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
     }
 
-    /// 等价 `DAppConnectSdk.loadAddressJs(address:isSwtc:token:)`，token 自动带上。
-    public func loadAddressJs(address: String, isSwtc: Bool) -> String {
-        DAppConnectSdk.loadAddressJs(address: address, isSwtc: isSwtc, token: self.responseToken)
+    /// 等价 `DAppConnectSdk.setAddress(address:isSwtc:token:)`，token 自动带上。
+    public func setAddress(address: String, isSwtc: Bool) -> String {
+        DAppConnectSdk.setAddress(address: address, isSwtc: isSwtc, token: self.responseToken)
     }
 
-    /// 等价 `DAppConnectSdk.loadUpdateChainIdJs(chainIdHex:rpcUrl:token:)`，token 自动带上。
-    public func loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String) -> String {
-        DAppConnectSdk.loadUpdateChainIdJs(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
+    /// 等价 `DAppConnectSdk.setChainId(chainIdHex:rpcUrl:token:)`，token 自动带上。
+    public func setChainId(chainIdHex: String, rpcUrl: String) -> String {
+        DAppConnectSdk.setChainId(chainIdHex: chainIdHex, rpcUrl: rpcUrl, token: self.responseToken)
     }
 
     private static func makeResponseToken() -> String {
@@ -262,12 +265,12 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             return await self.handleSwtcRequestAccounts(nonce: nonce, origin: origin)
         case .swtcSendTransaction:
             guard let txParams = paramsObject(request.params, index: 0) else {
-                return self.error(nonce, "Missing transaction parameters")
+                return self.missingParams(nonce, "Missing transaction parameters")
             }
             return await self.handleSwtcSendTransaction(nonce: nonce, origin: origin, txParams: txParams)
         case .swtcMultiSign:
             guard let msParams = paramsObject(request.params, index: 0) else {
-                return self.error(nonce, "Missing multi-sign parameters")
+                return self.missingParams(nonce, "Missing multi-sign parameters")
             }
             return await self.handleSwtcMultiSign(nonce: nonce, origin: origin, msParams: msParams)
         case .swtcSignMessage:
@@ -275,12 +278,12 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 let from = paramsString(request.params, index: 0),
                 let data = paramsString(request.params, index: 1)
             else {
-                return self.error(nonce, "Missing sign message parameters")
+                return self.missingParams(nonce, "Missing sign message parameters")
             }
             return await self.handleSwtcSignMessage(nonce: nonce, origin: origin, from: from, data: data)
         case .swtcGetPublicKey:
             guard let address = paramsString(request.params, index: 0) else {
-                return self.error(nonce, "Missing address parameter")
+                return self.missingParams(nonce, "Missing address parameter")
             }
             return await self.handleSwtcGetPublicKey(nonce: nonce, origin: origin, address: address)
         case .swtcRequestNfts:
@@ -295,8 +298,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private func routeEth(_ request: DAppRequest, origin: String) async -> [String: Any] {
         let nonce = request.nonce ?? request.id
         switch DAppMethod.fromValue(request.name) {
-        case .ethRequestAccounts, .ethAccounts:
+        case .ethRequestAccounts:
             return await self.handleEthRequestAccounts(nonce: nonce, origin: origin)
+        case .ethAccounts:
+            // EIP-1193：eth_accounts 静默返回已授权账户，不弹授权框（review P1#2）
+            return await self.handleEthAccounts(nonce: nonce)
         case .ethChainId:
             return self.success(nonce, .string(self.ethMiddleware.getChainId()))
         case .ethBlockNumber:
@@ -306,7 +312,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 let message = paramsString(request.params, index: 0),
                 let address = paramsString(request.params, index: 1)
             else {
-                return self.error(nonce, "Missing personal_sign parameters")
+                return self.missingParams(nonce, "Missing personal_sign parameters")
             }
             return await self.handleEthPersonalSign(nonce: nonce, origin: origin, address: address, message: message)
         case .ethPersonalEcRecover:
@@ -314,7 +320,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 let message = paramsString(request.params, index: 0),
                 let signature = paramsString(request.params, index: 1)
             else {
-                return self.error(nonce, "Missing personal_ecRecover parameters")
+                return self.missingParams(nonce, "Missing personal_ecRecover parameters")
             }
             return await self.handleEthRecoverPersonalSignature(nonce: nonce, message: message, signature: signature)
         case .ethSignTypedData:
@@ -325,7 +331,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             return await self.handleEthSignTypedData(nonce: nonce, origin: origin, request: request, version: "V4")
         case .ethGetEncryptionPublicKey:
             guard let address = paramsString(request.params, index: 0) else {
-                return self.error(nonce, "Missing eth_getEncryptionPublicKey parameters")
+                return self.missingParams(nonce, "Missing eth_getEncryptionPublicKey parameters")
             }
             return await self.handleEthGetEncryptionPublicKey(nonce: nonce, origin: origin, address: address)
         case .ethDecrypt:
@@ -333,17 +339,17 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 let message = paramsString(request.params, index: 0),
                 let address = paramsString(request.params, index: 1)
             else {
-                return self.error(nonce, "Missing eth_decrypt parameters")
+                return self.missingParams(nonce, "Missing eth_decrypt parameters")
             }
             return await self.handleEthDecrypt(nonce: nonce, origin: origin, address: address, message: message)
         case .ethSignTransaction:
             guard let txParams = paramsObject(request.params, index: 0) else {
-                return self.error(nonce, "Missing transaction parameters")
+                return self.missingParams(nonce, "Missing transaction parameters")
             }
             return await self.handleEthSignTransaction(nonce: nonce, origin: origin, txParams: txParams)
         case .ethSendTransaction:
             guard let txParams = paramsObject(request.params, index: 0) else {
-                return self.error(nonce, "Missing transaction parameters")
+                return self.missingParams(nonce, "Missing transaction parameters")
             }
             return await self.handleEthSendTransaction(nonce: nonce, origin: origin, txParams: txParams)
         case .ethRequestNfts:
@@ -359,7 +365,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private func routeWallet(_ request: DAppRequest, origin: String) async -> [String: Any] {
         let nonce = request.nonce ?? request.id
         guard let chainId = paramsObject(request.params, index: 0)?["chainId"] as? String else {
-            return self.error(nonce, "Missing chainId parameter")
+            return self.missingParams(nonce, "Missing chainId parameter")
         }
         return await self.handleWalletSwitchEthereumChain(nonce: nonce, origin: origin, chainId: chainId)
     }
@@ -380,7 +386,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         case .ipfsPersonalSign:
             let dataArray = self.paramsArray(request.params, index: 0)
             guard let address = paramsString(request.params, index: 1), dataArray != nil else {
-                return self.error(nonce, "Missing ipfs_personalSign parameters")
+                return self.missingParams(nonce, "Missing ipfs_personalSign parameters")
             }
             return await self.handleIpfsPersonalSign(nonce: nonce, origin: origin, address: address, data: dataArray ?? [])
         case .ipfsGetPublicKey:
@@ -452,6 +458,15 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         }
     }
 
+    private func handleEthAccounts(nonce: String) async -> [String: Any] {
+        do {
+            let accounts = try await ethMiddleware.accounts()
+            return self.success(nonce, .array(accounts))
+        } catch {
+            return self.failure(nonce, error)
+        }
+    }
+
     private func handleEthBlockNumber(nonce: String) async -> [String: Any] {
         do {
             let blockNumber = try await ethMiddleware.getBlockNumber()
@@ -484,7 +499,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             let address = paramsString(request.params, index: 0),
             let typedData = paramsString(request.params, index: 1)
         else {
-            return self.error(nonce, "Missing signTypedData parameters")
+            return self.missingParams(nonce, "Missing signTypedData parameters")
         }
         do {
             let result = try await ethMiddleware.signTypedData(
@@ -567,7 +582,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private func handleDidIssueCredential(nonce: String, origin: String, vcJson: [String: Any]?) async -> [String: Any] {
         guard let vcJson else {
-            return self.error(nonce, "Missing VC JSON parameter")
+            return self.missingParams(nonce, "Missing VC JSON parameter")
         }
         do {
             let didSDK = try requireDidSDK()
@@ -685,11 +700,22 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: message)
     }
 
+    /// 缺参/参数格式错误：EIP-1193 JSON-RPC 标准码 -32602（review P1#13——
+    /// 原用 -1 与内部错误混淆）。
+    private func missingParams(_ nonce: String, _ message: String) -> [String: Any] {
+        NativeResponseChannel.errorPayload(nonce: nonce, code: DAppConnectError.invalidParams(message).jsonRpcCode, message: message)
+    }
+
+    /// 错误回传：`DAppConnectError` 按 EIP-1193 码 + 消息回传；其他错误**不透传
+    /// `localizedDescription` 给页面**（可能泄漏内部路径/SQL/密钥上下文，review P1#13）——
+    /// 页面拿到通用「内部错误」，细节记日志。
     private func failure(_ nonce: String, _ error: Error) -> [String: Any] {
         if let dappError = error as? DAppConnectError {
             return NativeResponseChannel.errorPayload(nonce: nonce, code: dappError.jsonRpcCode, message: dappError.message)
         }
-        return NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: error.localizedDescription)
+        let nsError = error as NSError
+        Self.logger.error("native error: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)")
+        return NativeResponseChannel.errorPayload(nonce: nonce, code: -1, message: "Internal error")
     }
 
     private func emptyNftResult(address: String) -> [String: Any] {

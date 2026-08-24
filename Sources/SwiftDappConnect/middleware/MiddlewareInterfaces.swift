@@ -15,6 +15,9 @@ public protocol EthMiddlewareProtocol {
     func setRequestAccountsCallback(_ callback: RequestAccountsCallback?)
 
     func requestAccounts(origin: String) async throws -> [String]
+    /// `eth_accounts`：静默返回已授权账户（当前链、非 HD 根），**不弹授权框**——EIP-1193
+    /// 规定 `eth_accounts` 只返回已授权账户，DApp 加载时探测不应打扰用户（见 review P1#2）。
+    func accounts() async throws -> [String]
     func getChainId() -> String
     func getBlockNumber() async throws -> String
     func personalSign(address: String, message: String, origin: String) async throws -> String

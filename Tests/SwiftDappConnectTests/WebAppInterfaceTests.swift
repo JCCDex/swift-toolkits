@@ -140,7 +140,7 @@ private func request(
     let interface = makeInterface()
     let token = interface.responseToken
 
-    #expect(interface.loadInitJs(chainIdHex: "0x38", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
-    #expect(interface.loadAddressJs(address: "0xabc", isSwtc: false).contains("\"\(token)\""))
-    #expect(interface.loadUpdateChainIdJs(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
+    #expect(interface.dappInit(chainIdHex: "0x38", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
+    #expect(interface.setAddress(address: "0xabc", isSwtc: false).contains("\"\(token)\""))
+    #expect(interface.setChainId(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com").contains("\"\(token)\""))
 }

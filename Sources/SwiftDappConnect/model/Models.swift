@@ -20,7 +20,7 @@ public enum DAppConnectError: Error, Equatable, Sendable {
     case transaction(message: String, code: Int = -1) // 通用/交易错误：Kotlin 路由层统一 -1
     case methodNotSupported
     case bridgeUnavailable
-    case missingParameters(String)
+    case invalidParams(String) // 缺参/参数格式错误：-32602（EIP-1193 JSON-RPC 标准码，见 review P1#13）
     case internalError(String)
 
     public var jsonRpcCode: Int {
@@ -29,7 +29,8 @@ public enum DAppConnectError: Error, Equatable, Sendable {
         case .unauthorized: 4100
         case .chainNotSupported: 4902
         case let .transaction(_, code): code
-        case .methodNotSupported, .bridgeUnavailable, .missingParameters, .internalError: -1
+        case .methodNotSupported, .bridgeUnavailable, .internalError: -1
+        case .invalidParams: -32602
         }
     }
 
@@ -41,7 +42,7 @@ public enum DAppConnectError: Error, Equatable, Sendable {
         case let .transaction(m, _): m
         case .methodNotSupported: "Method not supported"
         case .bridgeUnavailable: "Bridge not available"
-        case let .missingParameters(m): m
+        case let .invalidParams(m): m
         case let .internalError(m): m
         }
     }

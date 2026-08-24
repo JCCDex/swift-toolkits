@@ -60,10 +60,6 @@ public protocol ChainProvider: Sendable {
     var currentChain: ChainType { get async }
 }
 
-public protocol ChainConfigProvider: Sendable {
-    func getChainId(chain: ChainType) -> Int64?
-}
-
 // ── NFT（可选） ──
 
 /// NftProvider 交换 `JsonArrayParams`（whiteList），**非 @MainActor**（网络 I/O 移出主线程，

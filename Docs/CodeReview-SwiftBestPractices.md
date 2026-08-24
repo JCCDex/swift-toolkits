@@ -155,19 +155,19 @@ if !expirationDate.isEmpty,
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
 | 1 | **SWTC 流程污染共享 ETH 链状态**：`handleSwtcRequestAccounts` 里 `ethMiddleware.setCurrentChain(.swtc)`，之后所有 ETH DApp 拿到 `eth_chainId = 0x1`，且 `eth_sendTransaction` 无显式 chainId 时直接报 "Chain swtc does not have an EVM chainId" | `WebAppInterface.swift:329-331`（配合 `EthMiddleware.swift:127-130,175-177`） | 未做（待办） |
-| 2 | **`eth_accounts` 与 `eth_requestAccounts` 混同**：都走 `requestAccounts` 弹授权框；EIP-1193 规定 `eth_accounts` 静默返回已授权账户，DApp 加载时探测会误弹窗 | `WebAppInterface.swift:233-234` | 未做（待办） |
-| 3 | **gas 估算失败静默回落 21000**：`estimateGas` 抛错（revert/余额不足/节点错误）时直接签 0x5208，合约调用会被签出并广播，白白烧 gas | `EthMiddleware.swift:158-166` | 未做（待办） |
+| 2 | **`eth_accounts` 与 `eth_requestAccounts` 混同**：都走 `requestAccounts` 弹授权框；EIP-1193 规定 `eth_accounts` 静默返回已授权账户，DApp 加载时探测会误弹窗 | `WebAppInterface.swift:233-234` | ✅ `EthMiddlewareProtocol` 加 `accounts()`（静默，不弹授权框）；`eth_accounts` 路由到 `handleEthAccounts`，`eth_requestAccounts` 保持弹框；+1 回归测试 |
+| 3 | **gas 估算失败静默回落 21000**：`estimateGas` 抛错（revert/余额不足/节点错误）时直接签 0x5208，合约调用会被签出并广播，白白烧 gas | `EthMiddleware.swift:158-166` | ✅ `estimateGas` 抛错直接上抛（不再回落 0x5208）；`FakeNodeProvider` 加 `gasEstimateError` 配置 + 1 回归测试 |
 | 4 | **`sendTransactionWithPassword` 丢弃密码**：参数 `password _: String` 被忽略，直接走可能命中 5s/20s 缓存的 `CachingSecretProvider`，API 承诺的认证强度与实现不符 | `SwtcMiddleware.swift:88-90` | 未做（待办） |
 | 5 | **整条 RPC 管线绑死 MainActor**：`WebAppInterface`/`EthMiddleware`/`SwtcMiddleware`/`NodeProvider`/`NftProvider`/`WalletSigning` 全部 `@MainActor`，RPC 网络 I/O、签名、DID/IPFS 加密都在主线程，节点慢即卡 UI（`Interfaces.swift:20` 注释自认是「标 @MainActor 以通过 Swift 6 严格并发」） | 多个文件 | ✅ `NodeProvider`/`NftProvider` 协议已去 `@MainActor`（网络 I/O 移到协作线程池；MainActor 中间件 await 时不阻塞主线程）——非 Sendable 参数（`[String: Any]`/`[Any]?`）经 `JsonObjectParams`/`JsonArrayParams`（@unchecked Sendable 包装）跨隔离传递；`estimateGas`/`getEvmNfts` 签名同步，测试 Fake/demo 实现更新。中间件/签名/DID 桥保持 @MainActor（WKWebView 必须主线程，宿主接线面） |
 | 6 | **`DAppConnectError` 非 `Sendable`** 却跨 actor 边界（`CachingSecretProvider` actor 内 `Task<String?, Error>`） | `model/Models.swift:16` | ✅ 已补 `Sendable`（随 Sendable 批） |
-| 7 | **`load*` 前缀误用**：`loadInitJs`/`loadAddressJs`/`loadUpdateChainIdJs`/`loadEip6963IconOverrideJs` 实际是生成 JS 字符串（只有 `loadProviderJs` 真读资源）；且 `WebAppInterface` 三个同名实例方法是 `DAppConnectSdk` 静态方法的透传，双入口 | `DAppConnectSdk.swift:80-132`、`WebAppInterface.swift:49-61` | 未做（待办） |
+| 7 | **`load*` 前缀误用**：`loadInitJs`/`loadAddressJs`/`loadUpdateChainIdJs`/`loadEip6963IconOverrideJs` 实际是生成 JS 字符串（只有 `loadProviderJs` 真读资源）；且 `WebAppInterface` 三个同名实例方法是 `DAppConnectSdk` 静态方法的透传，双入口 | `DAppConnectSdk.swift:80-132`、`WebAppInterface.swift:49-61` | ✅ 已改名 `initJavaScript`/`setAddressJavaScript`/`updateChainIdJavaScript`/`overrideEip6963IconJavaScript`（`loadProviderJs` 真读资源保留原名）；WebAppInterface 透传 + 测试/demo 调用点同步 |
 | 8 | **`route()` 约 120 行**：分发 + 参数提取 + 错误策略混在一个 switch；且 `handleEthSignTypedData` 收整个 request、其余 handler 收提取后的参数，风格不一 | `WebAppInterface.swift:202-323` | 未做（用户评估后回滚：原实现参数提取在 handler 内一次完成，route 分发行更短，改动反而啰嗦） |
 | 9 | **每条消息在主线程 JSON 解析**（含大 NFT/DID payload） | `WebAppInterface.swift:105-109` | ✅ 已随 E-1 修复：消息 JSON 解析移入 `Task.detached`（先提取值类型，`ParsedMessage` 包装不可变结果），主线程只做授权/路由/回传 |
 | 10 | **`getChainId()` 与 `getCurrentChainIdHex()` 逐字节相同**，删一个 | `EthMiddleware.swift:63-66` vs `241-244` | ✅ 已删 `getCurrentChainIdHex()`（与 `getChainId()` 逐字节相同），无调用点残留 |
 | 11 | `CachingSecretProvider`：`clearCache()` 后 in-flight 完成仍会回填缓存（锁屏后明文最多再服务 20s）；in-flight task 取消时未真正取消委托任务 | `CachingSecretProvider.swift:87-89,43-47` | 未做（待办） |
-| 12 | `isSafeUrl` 正则弱：拒绝单标签 host（localhost）、接受非法端口、拒绝 IPv6、端口区间未锚定 → 改用 `URLComponents` 结构化校验 | `DAppConnectSdk.swift:137-140` | 未做（待办） |
-| 13 | `failure(_:_:)` 对非 `DAppConnectError` 直接透传 `localizedDescription` 给页面（可能泄漏内部路径）；缺参错误用 -1 而非 EIP-1193 的 -32602 | `WebAppInterface.swift:615-624` | 未做（待办） |
-| 14 | 死代码：`ChainConfigProvider` 定义但从未使用；`WebAppInterface.chainProvider` 只写不读；`DAppConnectError.missingParameters` 从未抛 | `Interfaces.swift:42-44`、`WebAppInterface.swift:18,79-84` | 未做（待办） |
+| 12 | `isSafeUrl` 正则弱：拒绝单标签 host（localhost）、接受非法端口、拒绝 IPv6、端口区间未锚定 → 改用 `URLComponents` 结构化校验 | `DAppConnectSdk.swift:137-140` | ✅ 改 `URLComponents` 结构化校验（http/https + host 非空 + 端口 1-65535；IPv6/单标签放行）+ 7 个边界回归测试 |
+| 13 | `failure(_:_:)` 对非 `DAppConnectError` 直接透传 `localizedDescription` 给页面（可能泄漏内部路径）；缺参错误用 -1 而非 EIP-1193 的 -32602 | `WebAppInterface.swift:615-624` | ✅ 非 `DAppConnectError` 不再透传（页面拿「Internal error」，细节记 os.Logger domain#code）；缺参改 `DAppConnectError.invalidParams`（-32602），14 处调用点 + `missingParams` helper 落地 |
+| 14 | 死代码：`ChainConfigProvider` 定义但从未使用；`WebAppInterface.chainProvider` 只写不读；`DAppConnectError.missingParameters` 从未抛 | `Interfaces.swift:42-44`、`WebAppInterface.swift:18,79-84` | ✅ 已删 `ChainConfigProvider` 协议与 `DAppConnectError.missingParameters`（从未使用；缺参由 `invalidParams` 取代）；`WebAppInterface.chainProvider` 为 `setChainProvider` 兼容存根（仅注入用），保留 |
 
 ### SwiftVault
 
@@ -281,7 +281,7 @@ if !expirationDate.isEmpty,
 ## 命名规范问题（Swift API Design Guidelines 专项）
 
 1. **`get` 前缀泛滥**（应删）：`EthMiddleware.getChainId/getBlockNumber/getAccountsForChain/getCurrentChainIdHex`、`SwtcMiddleware.getPublicKey`、`WebAppInterface.getPrivateKeyOrFail`、`VaultRepository.get()`（与 `static let shared` 重复）、`AccountStore.getCurrentAccountId/getMaxIndexByChain/getSameAccountsCount`、`NftProvider.getRpcUrl/getTransactionCount/getGasPrice/getEvmNfts/getSwtcNfts`、`WalletSigning.getEncryptionPublicKey`。
-2. **`load*` 误用**：`DAppConnectSdk.loadInitJs/loadAddressJs/loadUpdateChainIdJs/loadEip6963IconOverrideJs` 是生成 JS 字符串，`load` 暗示读资源 → 建议 `initJavaScript(chainIdHex:rpcUrl:token:)`、`setAddressJavaScript(...)` 等。
+2. ✅ **已实现**：`load*` 误用——`DAppConnectSdk.loadInitJs/loadAddressJs/loadUpdateChainIdJs/loadEip6963IconOverrideJs` 是生成 JS 字符串，`load` 暗示读资源 → 已改名 `initJavaScript(chainIdHex:rpcUrl:token:)`、`setAddressJavaScript(...)`、`updateChainIdJavaScript(...)`、`overrideEip6963IconJavaScript(...)`（`loadProviderJs` 真读资源保留）。
 3. **大小写不一致**：`WebviewBridgeClient/WebviewBridgeConfig/WebviewBridgeEngine/WebviewBridgeError` vs `WebViewRuntime`；`callJsMethod` 的 "Js" vs "JS"。
 4. **三层命名同一操作**：`WebviewBridgeClient.callJsMethod` vs `EngineBridge.call/callAs`；`callAs` 的 `as:` 标签与关键字撞名 → `callTyped(asType:)`。
 5. **`Hd` → `HD`**：`importHdWallet`/`hdResult:`/`rootHDAccounts`。

@@ -103,6 +103,8 @@ final class FakeNodeProvider: NodeProvider {
     var gasPrice = "0x1"
     var maxPriorityFee = "0x1"
     var gasEstimate = "0x5208"
+    /// P1#3 测试用：非 nil 时 estimateGas 抛该错（模拟 revert/余额不足/节点错误）。
+    var gasEstimateError: (any Error)?
     var broadcastHash = "0xhash"
     var rawTxHash = "0xblobhash"
     var sequence: Int64 = 1
@@ -128,7 +130,10 @@ final class FakeNodeProvider: NodeProvider {
     }
 
     func estimateGas(txParams _: JsonObjectParams, chain _: ChainType) async throws -> String {
-        self.gasEstimate
+        if let gasEstimateError {
+            throw gasEstimateError
+        }
+        return self.gasEstimate
     }
 
     func broadcastTransaction(signedTx _: String, chain _: ChainType) async throws -> String {
@@ -254,6 +259,10 @@ final class FakeEthMiddleware: EthMiddlewareProtocol {
             throw requestAccountsError
         }
         return self.requestAccountsResult
+    }
+
+    func accounts() async throws -> [String] {
+        self.requestAccountsResult
     }
 
     func getChainId() -> String {

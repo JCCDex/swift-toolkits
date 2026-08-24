@@ -21,11 +21,11 @@ struct DappView: UIViewRepresentable {
             guard let interface else { return }
             // 注入 EIP-1193 provider（带 responseToken，native 回传才被信任，M1/M2）
             webView.evaluateJavaScript(
-                DAppConnectSdk.loadProviderJs(token: interface.responseToken)
+                DAppConnectSdk.loadProvider(token: interface.responseToken)
             ) { _, _ in }
             // 初始化链状态（Ethereum：chainId 0x1，与 DemoAccountProvider 的 .eth 一致）
             webView.evaluateJavaScript(
-                interface.loadInitJs(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com")
+                interface.dappInit(chainIdHex: "0x1", rpcUrl: "https://rpc.example.com")
             ) { _, _ in }
         }
     }

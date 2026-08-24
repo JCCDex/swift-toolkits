@@ -113,14 +113,14 @@ import WebKit
         interface.detach()
     }
 
-    /// 真实 WKWebView：EIP-6963 图标覆盖（loadEip6963IconOverrideJs 注入后 announce 携带自定义 icon）。
+    /// 真实 WKWebView：EIP-6963 图标覆盖（overrideEip6963IconJavaScript 注入后 announce 携带自定义 icon）。
     @Test(.serialized) @MainActor func `real webview eip6963 icon override replaces announcement icon`() async throws {
         let (webView, resultWaiter, interface) = try await makeLoadedWebView()
         let customIcon = "data:image/png;base64,AAAA"
 
         // 覆盖脚本必须早于 provider 注入（它 patch 了 window.dispatchEvent）
         _ = try await webView.evaluateJavaScript(
-            DAppConnectSdk.loadEip6963IconOverrideJs(iconDataUri: customIcon) + "; true;"
+            DAppConnectSdk.overrideEip6963IconJavaScript(iconDataUri: customIcon) + "; true;"
         )
         #expect(await injectProviderJS(into: webView, token: interface.responseToken), "provider JS 未能在页面中生效")
 
@@ -147,7 +147,7 @@ import WebKit
     /// 注入后校验状态标记，确认页面内已生效。
     @MainActor
     private func injectProviderJS(into webView: WKWebView, token: String) async -> Bool {
-        _ = try? await webView.evaluateJavaScript(DAppConnectSdk.loadProviderJs(token: token) + "; true;")
+        _ = try? await webView.evaluateJavaScript(DAppConnectSdk.loadProvider(token: token) + "; true;")
         let state = try? await webView.evaluateJavaScript("typeof window.ethereum") as? String
         return state == "object"
     }

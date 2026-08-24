@@ -137,3 +137,36 @@ private func makeEthMiddleware(
     #expect(middleware.currentChain == .eth)
     #expect(switchedAddress == "0xSAME")
 }
+
+@Test @MainActor func `eth accounts returns filtered accounts without prompting`() async throws {
+    // review P1#2：eth_accounts 静默返回已授权账户，不弹授权框（未设 callback 也应成功）
+    let accounts = [
+        makeAccount(address: "0xa", chain: .bsc),
+        makeAccount(address: "0xb", chain: .bsc, isHD: true, parentId: nil), // HD 根，排除
+        makeAccount(address: "0xc", chain: .bsc, isHD: true, parentId: "root"), // HD 子账户，保留
+        makeAccount(address: "0xd", chain: .eth) // 其它链，排除
+    ]
+    let middleware = makeEthMiddleware(accounts: accounts)
+    // 未 setRequestAccountsCallback：requestAccounts 会抛 userRejected，但 accounts() 不应
+    let silent = try await middleware.accounts()
+    #expect(silent == ["0xa", "0xc"], "静默返回已授权账户（当前链、非 HD 根），不弹框")
+}
+
+@Test @MainActor func `eth sign transaction propagates estimate gas error`() async throws {
+    // review P1#3：estimateGas 抛错直接上抛，不再静默回落 0x5208
+    let nodeProvider = FakeNodeProvider()
+    nodeProvider.gasEstimateError = DAppConnectError.internalError("estimate gas failed")
+    let middleware = EthMiddleware(
+        accountProvider: FakeAccountProvider(accounts: [makeAccount(address: "0xabc")]),
+        secretProvider: FakeSecretProvider(privateKey: "pk"),
+        nodeProvider: nodeProvider,
+        initialChain: .bsc,
+        signing: FakeWalletSigning()
+    )
+    await #expect(throws: DAppConnectError.internalError("estimate gas failed")) {
+        _ = try await middleware.signTransaction(
+            txParams: ["from": "0xabc"],
+            origin: "https://dapp.com"
+        )
+    }
+}

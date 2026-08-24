@@ -45,6 +45,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
     // MARK: - RPC
 
+    /// `eth_requestAccounts`：弹授权框（用户批准才返回账户，见 review P1#2）。
     public func requestAccounts(origin: String) async throws -> [String] {
         guard let callback = requestAccountsCallback else {
             throw DAppConnectError.userRejected("RequestAccountsCallback is not set")
@@ -52,7 +53,11 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         guard await callback(origin) else {
             throw DAppConnectError.userRejected("User rejected the requestAccounts request")
         }
+        return try await self.accounts()
+    }
 
+    /// `eth_accounts`：静默返回已授权账户（当前链、非 HD 根），**不弹授权框**（review P1#2）。
+    public func accounts() async throws -> [String] {
         let accounts = await accountProvider.accounts.firstValue() ?? []
         return accounts
             .filter { $0.chain == self.currentChain && !$0.isHDRoot }
@@ -155,14 +160,11 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
         // gas / gasLimit
         if tx["gas"] == nil, tx["gasLimit"] == nil {
-            do {
-                let estimate = try await nodeProvider.estimateGas(txParams: JsonObjectParams(tx), chain: chainType)
-                tx["gas"] = estimate
-                tx["gasLimit"] = estimate
-            } catch {
-                tx["gas"] = "0x5208"
-                tx["gasLimit"] = "0x5208"
-            }
+            // review P1#3：estimateGas 抛错直接上抛（revert/余额不足/节点错误）——不再静默
+            // 回落 0x5208（合约调用会被签出并广播，白白烧 gas）。
+            let estimate = try await nodeProvider.estimateGas(txParams: JsonObjectParams(tx), chain: chainType)
+            tx["gas"] = estimate
+            tx["gasLimit"] = estimate
         } else {
             let gasValue = (tx["gas"] as? String) ?? (tx["gasLimit"] as? String) ?? ""
             tx["gas"] = gasValue
