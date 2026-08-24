@@ -451,6 +451,16 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **第三轮复查 V-3/V-4/P-1 批（2025-08-24）**：
+  **V-3**：`VaultRepository.randomData` 的 `precondition` → `throw VaultError.cryptoRandomFailed(OSStatus)`
+  （新 case 保留 status；KDF salt 两处调用点加 `try`），消除全库最后一条 `precondition`。
+  **V-4**：`DidCoreService` 新增 `os.Logger`（对齐 `SwiftDid.logWriteError` 隐私纪律：NSError 只打
+  domain#code）+ `loadPendingLogging`/`deletePendingLogging`/`deleteDidLogging` 三个带日志助手，
+  `resolveAndSaveDid` 与 `handleMissingChainDocument` 共 8 处写路径 `try?` 改记日志降级；
+  `SwiftDid.start` 的 `deleteExpiredPending` 启动清理与 `publishDidDelete` 的本地文档读取失败
+  同样记日志（读路径 guard 降级 nil 保留契约）。**P-1**：`WebViewBridgeClient.sharedJSONEncoder`
+  与 `Json.sharedSlashPreservingEncoder`（`.withoutEscapingSlashes`）缓存复用，消除桥热路径
+  `JSONEncoder()` 每次新建。全模块构建 0 error、352/352 测试通过。
 - **SwiftCore 收敛批（2025-08-24，第三轮复查 6.2 C-1~C-4 + 顺带 V-2）**：
   `Json` 新增 `parseObject(_ data: Data)` / `parseArray(_ data: Data)`（String 版委托 Data 版）、
   `stringifyOrNil(_:fragmentsAllowed:)`、`jsStringLiteral(_:escapingSlashes:)`（JS 字符串字面量，
@@ -697,9 +707,9 @@ if !expirationDate.isEmpty,
 | 项 | 位置 | 说明 | 建议 |
 |---|---|---|---|
 | V-1 | `VaultRepository.swift:352 / 362 / 372` | `getPrivateKeyInternal` / `getMnemonicInternal` / `getSecretInternal` 仍为 `public`（P0-1 复验，未落地），暴露绕过密码鉴权的取密面；仅模块内 3 个安全包装方法 + `@testable` 测试调用 | 改 `internal`（`@testable import` 仍可测） |
-| V-2 | `DAppConnectSdk.swift:196-197`、`WebViewBridgeClient.swift:292-293` | `try!` ×3 + `String(data: .utf8)!` ×2 —— `jsQuote`/`jsString` 重构引入，违背「零 try!」承诺。`encode(String)`/UTF-8 解码对合法 String 不会失败，实际风险低但风格回归 | 改 `?? fallback` 或收敛到统一安全工具（见 6.2-3，一并消除） |
-| V-3 | `VaultRepository.swift:480` | `precondition(status == errSecSuccess)` SecRandomCopyBytes 失败即崩溃；与库「零 fatalError/precondition」风格不一致 | 改 `throw`（KDF salt 路径已是 `throws`） |
-| V-4 | `DidCoreService.swift`（11 处）、`SwiftDid.swift:88 / 409` | 写路径 `try? await store.deletePending/delete`、启动清理 `deleteExpiredPending` 静默吞错（四#1 复验，未落地）；pending 清理失败导致对账状态泄漏 | 写路径 `throws`，读路径带 `os.Logger` 降级 |
+| V-2 | `DAppConnectSdk.swift:196-197`、`WebViewBridgeClient.swift:292-293` | `try!` ×3 + `String(data: .utf8)!` ×2 —— `jsQuote`/`jsString` 重构引入，违背「零 try!」承诺。`encode(String)`/UTF-8 解码对合法 String 不会失败，实际风险低但风格回归 | ✅ **已实现**（随 C-3 一并消除）：`Json.jsStringLiteral` 用 `try?` + `?? "\"\""` 兜底，`jsQuote`/`jsString` 删除，全库恢复零 `try!` |
+| V-3 | `VaultRepository.swift:480` | `precondition(status == errSecSuccess)` SecRandomCopyBytes 失败即崩溃；与库「零 fatalError/precondition」风格不一致 | ✅ **已实现**：`VaultError.cryptoRandomFailed(OSStatus)` 新 case，`randomData` 改 `throws`（KDF salt 两处调用点加 `try`），保留 status 便于诊断 |
+| V-4 | `DidCoreService.swift`（11 处）、`SwiftDid.swift:88 / 409` | 写路径 `try? await store.deletePending/delete`、启动清理 `deleteExpiredPending` 静默吞错（四#1 复验，未落地）；pending 清理失败导致对账状态泄漏 | ✅ **已实现**：DidCoreService 加 `os.Logger`（同 `SwiftDid.logWriteError` 隐私纪律：NSError 只打 domain#code）+ `loadPendingLogging`/`deletePendingLogging`/`deleteDidLogging` 助手，8 处写路径降级改为记日志；`SwiftDid.start` 的 `deleteExpiredPending`、`publishDidDelete` 的本地文档读取失败均记日志 |
 
 ### 6.2 可收敛 SwiftCore
 
@@ -725,9 +735,9 @@ if !expirationDate.isEmpty,
 |---|---|---|
 | P0 | V-1 Vault `get*Internal` 改 internal | 漏洞 |
 | P1 | ~~C-1 `Json.parseObject(Data)` 重载收敛 11 处~~（✅ 已实现，见 6.2） | 收敛 |
-| P1 | P-1 `JSONEncoder` 复用（桥热路径） | 性能 |
-| P1 | V-4 DidCoreService 写路径吞错 | 漏洞 |
+| P1 | ~~P-1 `JSONEncoder` 复用（桥热路径）~~（✅ 已实现：`WebViewBridgeClient.sharedJSONEncoder` + `Json.sharedSlashPreservingEncoder`） | 性能 |
+| P1 | ~~V-4 DidCoreService 写路径吞错~~（✅ 已实现，见 6.1） | 漏洞 |
 | P2 | ~~V-2 `try!` 消除 + C-3 JS 转义收敛~~（✅ 已实现，见 6.2 C-3） | 漏洞+收敛 |
-| P2 | V-3 `precondition` → throw | 漏洞 |
+| P2 | ~~V-3 `precondition` → throw~~（✅ 已实现，见 6.1） | 漏洞 |
 | P2 | ~~C-2 / C-4 序列化 / 去空白收敛~~（✅ 已实现，见 6.2） | 收敛 |
 | 记录 | P-2 / P-3 / P-4 主线程 JSON、正则、O(n²) | 性能 |
