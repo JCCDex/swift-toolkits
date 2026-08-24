@@ -10,7 +10,7 @@ final class PromiseGatewayTests: XCTestCase {
         let gateway = PromiseGateway()
         var called = false
 
-        _ = gateway.addReadyListener { called = true }
+        _ = gateway.addReadyListener { _ in called = true }
 
         XCTAssertFalse(called)
         gateway.onBridgeReady()
@@ -24,7 +24,7 @@ final class PromiseGatewayTests: XCTestCase {
         gateway.onBridgeReady()
 
         var called = false
-        _ = gateway.addReadyListener { called = true }
+        _ = gateway.addReadyListener { _ in called = true }
 
         XCTAssertTrue(called)
     }
@@ -33,7 +33,7 @@ final class PromiseGatewayTests: XCTestCase {
         let gateway = PromiseGateway()
         var called = false
 
-        let remover = gateway.addReadyListener { called = true }
+        let remover = gateway.addReadyListener { _ in called = true }
         remover()
         gateway.onBridgeReady()
 
@@ -48,6 +48,55 @@ final class PromiseGatewayTests: XCTestCase {
 
         XCTAssertFalse(gateway.isReady)
         XCTAssertEqual(gateway.pendingCount, 0)
+    }
+
+    func test_resetReady_failsPendingWaitersImmediately() async throws {
+        // review P1#2：resetReady 不静默丢弃 ready-waiters——等待方立即收到错误而非挂到超时
+        let gateway = PromiseGateway()
+        let started = expectation(description: "wait started")
+
+        let waiter = Task { () -> Error? in
+            started.fulfill()
+            do {
+                try await gateway.waitForReady(timeoutMs: 60000)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        await fulfillment(of: [started], timeout: 2)
+        // 让 waiter 挂起后 resetReady
+        gateway.resetReady()
+
+        let error = await waiter.value
+        let bridgeError = try XCTUnwrap(error as? WebviewBridgeError)
+        XCTAssertEqual(bridgeError, .webViewUnavailable, "resetReady 以 webViewUnavailable 恢复等待方")
+    }
+
+    func test_remove_cancelsAttachedJsTask() async {
+        // review P1#1：remove 时取消补挂的 in-flight JS 任务
+        let gateway = PromiseGateway()
+        let id = "id-js"
+        gateway.register(id: id, timeoutMs: 60000) { _ in }
+
+        let jsTask = Task<Void, Never> { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000_000) // 模拟 JS 卡死
+        }
+        gateway.attachJsTask(id: id, jsTask)
+        gateway.remove(id: id)
+
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(jsTask.isCancelled, "remove 应取消 in-flight JS 任务")
+    }
+
+    func test_sleepNanoseconds_clampsInvalidInputs() {
+        // review P1#3：负值/NaN/Infinity 不 trap；正数至少 1ns（避免 <1ns 截断为 0 立即超时）
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(-1), 0)
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(0), 0)
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(.nan), 0)
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(.infinity), 0)
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(0.0000001), 1, "0.1ns 向上取整为 1ns，避免截断为 0")
+        XCTAssertEqual(PromiseGateway.sleepNanoseconds(1.5), 1_500_000)
     }
 
     // MARK: - 回调表

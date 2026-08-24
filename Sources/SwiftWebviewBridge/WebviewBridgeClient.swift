@@ -106,7 +106,7 @@ public final class WebviewBridgeClient: NSObject {
                 // 返回，evaluateJavaScript 的返回值弃用，故用尾随 null 使其可序列化。
                 let script = "PromiseBridge.call(\(Self.jsString(method)), \(paramsJs), \(Self.jsString(id)));null"
 
-                Task { @MainActor in
+                let jsTask = Task { @MainActor in
                     do {
                         _ = try await runtime.runJavaScript(script)
                     } catch {
@@ -114,6 +114,9 @@ public final class WebviewBridgeClient: NSObject {
                         box.resume(throwing: error)
                     }
                 }
+                // P1#1：补挂 in-flight JS 任务——超时/取消/destroy 时随 pending 一起取消，
+                // 防止 JS 卡死时任务强持 client+runtime 直到进程结束。
+                self.gateway.attachJsTask(id: id, jsTask)
 
                 // 关闭「取消先于 setup」的竞态窗口：注册完成后若任务已被取消，
                 // 立即移除 pending 并恢复续体；onCancel 之后触发时为幂等 no-op。

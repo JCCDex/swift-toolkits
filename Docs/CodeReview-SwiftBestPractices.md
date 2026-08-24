@@ -270,11 +270,11 @@ if !expirationDate.isEmpty,
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| 1 | in-flight `evaluateJavaScript` Task 无追踪、不随超时/`destroy()` 取消：JS 卡死则任务强持 client+runtime 直到进程结束 | `WebviewBridgeClient.swift:109-116` | 未做（待办） |
-| 2 | `resetReady()` 静默丢弃 ready-waiters → 等待方挂到超时 | `PromiseGateway.swift:102-105` | 未做（待办） |
-| 3 | `UInt64(timeoutMs * 1_000_000)`：负值/NaN/Infinity → 运行时 trap；亚毫秒截断 | `PromiseGateway.swift:42,75` | 未做（待办） |
-| 4 | `WebviewBridgeConfig.resourceBundle` 死配置（实际只用 `bundle:` 参数） | `WebviewBridgeConfig.swift:13,20` | 未做（待办） |
-| 5 | `parseResult` 中 `guard object["result"] != nil` 之后的 `guard let result = object["result"]` 是不可达代码（`{result: null}` 产出 NSNull 非 nil） | `PromiseGateway.swift:145-147` | 未做（待办） |
+| 1 | in-flight `evaluateJavaScript` Task 无追踪、不随超时/`destroy()` 取消：JS 卡死则任务强持 client+runtime 直到进程结束 | `WebviewBridgeClient.swift:109-116` | ✅ `PromiseGateway` 新增 `attachJsTask`，`PendingCall.jsTask` 随 `remove`/`clearAll`/`finish` 取消（`callJsMethod` 创建 JS 任务后补挂）+ 回归测试 |
+| 2 | `resetReady()` 静默丢弃 ready-waiters → 等待方挂到超时 | `PromiseGateway.swift:102-105` | ✅ `readyListeners` 改 `(Error?) -> Void`：`onBridgeReady` 传 nil（成功）、`resetReady` 传 `.webViewUnavailable`（立即失败恢复，不再挂超时）+ 回归测试 |
+| 3 | `UInt64(timeoutMs * 1_000_000)`：负值/NaN/Infinity → 运行时 trap；亚毫秒截断 | `PromiseGateway.swift:42,75` | ✅ 新增 `sleepNanoseconds`：非有限/≤0 clamp 为 0（不 trap），亚毫秒向上取整为 1ms（避免截断成 0 立即超时）；两处超时共用 + 回归测试 |
+| 4 | `WebviewBridgeConfig.resourceBundle` 死配置（实际只用 `bundle:` 参数） | `WebviewBridgeConfig.swift:13,20` | ✅ 已删 `resourceBundle` 属性/init 参数与 `bridge(named:in:)` 的 `bundle` 参数（client 的 `init(bundle:)` 是唯一入口） |
+| 5 | `parseResult` 中 `guard object["result"] != nil` 之后的 `guard let result = object["result"]` 是不可达代码（`{result: null}` 产出 NSNull 非 nil） | `PromiseGateway.swift:145-147` | ✅ 合并为单个 `guard let result = object["result"]`（NSNull 也能解出 → 序列化 "null"，语义不变），删不可达分支 |
 
 ---
 

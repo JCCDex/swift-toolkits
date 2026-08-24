@@ -5,10 +5,13 @@ final class PromiseGateway {
     struct PendingCall {
         let onResult: (Result<String, Error>) -> Void
         let timeoutTask: Task<Void, Never>
+        /// P1#1：in-flight 的 `evaluateJavaScript` 任务——随 `remove`/`clearAll` 取消，
+        /// 避免 JS 卡死时任务强持 client+runtime 直到进程结束。
+        var jsTask: Task<Void, Never>?
     }
 
     private var pending: [String: PendingCall] = [:]
-    private var readyListeners: [UUID: () -> Void] = [:]
+    private var readyListeners: [UUID: (Error?) -> Void] = [:]
     private(set) var isReady = false
 
     var pendingCount: Int {
@@ -26,29 +29,36 @@ final class PromiseGateway {
         let listeners = self.readyListeners.values
         self.readyListeners.removeAll()
         for listener in listeners {
-            listener()
+            listener(nil) // 就绪成功
         }
     }
 
     // MARK: - Native -> JS
 
     /// 注册一次调用：超时任务先到则回 timeout，JS 结果先到则取消超时任务。
+    /// `jsTask` 由调用方在创建后补挂（见 `WebviewBridgeClient.callJsMethod`）。
     func register(
         id: String,
         timeoutMs: TimeInterval,
         onResult: @escaping (Result<String, Error>) -> Void
     ) {
         let timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeoutMs * 1_000_000))
+            try? await Task.sleep(nanoseconds: Self.sleepNanoseconds(timeoutMs))
             self?.finish(id: id, result: .failure(WebviewBridgeError.timeout))
         }
         self.pending[id] = PendingCall(onResult: onResult, timeoutTask: timeoutTask)
     }
 
-    /// 移除 pending 并取消超时任务。调用方取消 / JS 迟到回调 / destroy 时使用。
+    /// 补挂 in-flight JS 任务（P1#1：`remove`/`clearAll`/`destroy` 时取消，防 JS 卡死泄漏）。
+    func attachJsTask(id: String, _ task: Task<Void, Never>) {
+        self.pending[id]?.jsTask = task
+    }
+
+    /// 移除 pending 并取消超时任务与 in-flight JS 任务。调用方取消 / JS 迟到回调 / destroy 时使用。
     func remove(id: String) {
         guard let call = pending.removeValue(forKey: id) else { return }
         call.timeoutTask.cancel()
+        call.jsTask?.cancel()
     }
 
     // MARK: - 就绪等待
@@ -66,13 +76,17 @@ final class PromiseGateway {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 box.continuation = continuation
 
-                box.remover = self.addReadyListener { [weak box] in
+                box.remover = self.addReadyListener { [weak box] error in
                     box?.timeoutTask?.cancel()
-                    box?.resumeIfPending()
+                    if let error {
+                        box?.resumeIfPending(throwing: error)
+                    } else {
+                        box?.resumeIfPending()
+                    }
                 }
 
                 box.timeoutTask = Task { @MainActor [weak box] in
-                    try? await Task.sleep(nanoseconds: UInt64(timeoutMs * 1_000_000))
+                    try? await Task.sleep(nanoseconds: Self.sleepNanoseconds(timeoutMs))
                     box?.remover?()
                     box?.resumeIfPending(throwing: WebviewBridgeError.timeout)
                 }
@@ -92,9 +106,9 @@ final class PromiseGateway {
         }
     }
 
-    func addReadyListener(_ listener: @escaping () -> Void) -> () -> Void {
+    func addReadyListener(_ listener: @escaping (Error?) -> Void) -> () -> Void {
         if self.isReady {
-            listener()
+            listener(nil)
             return {}
         }
         let token = UUID()
@@ -104,9 +118,23 @@ final class PromiseGateway {
         }
     }
 
+    /// 毫秒 → 纳秒安全转换：负值/NaN/Infinity clamp 为 0（不 trap，`UInt64()` 直接转换会
+    /// 运行时崩溃）；正数至少 1ns（避免 `<1ns` 截断成 0 导致「立即超时」，见 review P1#3）。
+    static func sleepNanoseconds(_ timeoutMs: TimeInterval) -> UInt64 {
+        guard timeoutMs.isFinite, timeoutMs > 0 else { return 0 }
+        return max(UInt64(timeoutMs * 1_000_000), 1)
+    }
+
     func resetReady() {
-        self.isReady = false
+        // P1#2：不静默丢弃 ready-waiters——`start()` 重建 WebView 前调用，旧等待方
+        // 若继续挂到超时会等满 timeoutMs；改为立即以 `.webViewUnavailable` 恢复
+        // （语义贴合「WebView 正在重新初始化」）。
+        let listeners = self.readyListeners.values
         self.readyListeners.removeAll()
+        for listener in listeners {
+            listener(WebviewBridgeError.webViewUnavailable)
+        }
+        self.isReady = false
     }
 
     func clearAll() {
@@ -114,10 +142,12 @@ final class PromiseGateway {
         // resume（destroy 中途调用时超时任务被取消、迟到 JS 结果也因 pending 已清而
         // no-op），调用者永久悬挂并强持有 client/box/闭包。与 finish 同款
         // 「先取走再回调」，重入安全；超时任务先取消（后到者全部 no-op）。
+        // P1#1：in-flight JS 任务一并取消。
         let calls = Array(self.pending.values)
         self.pending.removeAll()
         for call in calls {
             call.timeoutTask.cancel()
+            call.jsTask?.cancel()
             call.onResult(.failure(WebviewBridgeError.webViewUnavailable))
         }
         self.readyListeners.removeAll()
@@ -130,6 +160,7 @@ final class PromiseGateway {
     private func finish(id: String, result: Result<String, Error>) {
         guard let call = pending.removeValue(forKey: id) else { return }
         call.timeoutTask.cancel()
+        call.jsTask?.cancel()
         call.onResult(result)
     }
 
@@ -149,13 +180,10 @@ final class PromiseGateway {
         if let error = object["error"] as? String {
             return .failure(WebviewBridgeError.jsError(error))
         }
-        guard object["result"] != nil else {
+        guard let result = object["result"] else {
             return .failure(WebviewBridgeError.invalidResponseFormat)
         }
-
-        guard let result = object["result"] else {
-            return .success("null")
-        }
+        // {result: null} 时 result 是 NSNull（非 nil）→ 序列化为 "null"，与 Kotlin 一致。
         if let string = result as? String {
             return .success(string)
         }

@@ -48,10 +48,9 @@ public final class WebviewBridgeEngine: EngineBridge {
     /// 初始化配置（幂等覆盖）并启动隐藏 WebView（加载 bridge 文件）。
     /// 未调用前其它方法抛 `notInitialized`。
     public func start() throws {
-        let bundle = WebviewBridgeResources.bundle
         self.client.initialize(
-            bundle: bundle,
-            config: WebviewBridgeConfig(bridgeFileName: self.bridgeFileName, resourceBundle: bundle)
+            bundle: WebviewBridgeResources.bundle,
+            config: WebviewBridgeConfig(bridgeFileName: self.bridgeFileName)
         )
         try self.client.start()
     }
