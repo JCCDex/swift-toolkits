@@ -114,18 +114,23 @@ public enum Json {
     /// - `escapingSlashes: true`：`/` → `\/`（JSONSerialization 默认行为，对齐桥内 method/id 注入）；
     /// - `escapingSlashes: false`：保留 `/` 原文（URL 场景，对齐 `JSONEncoder .withoutEscapingSlashes`）。
     public static func jsStringLiteral(_ value: String, escapingSlashes: Bool = false) -> String {
-        let text: String?
-        if escapingSlashes {
+        let text: String? = if escapingSlashes {
             // 顶层字符串必须加 .fragmentsAllowed，否则 NSJSONSerialization 抛 ObjC 异常
             // （原 jsString 注释：Swift 桥接下表现为内存损坏）。
-            text = self.stringifyOrNil(value, fragmentsAllowed: true)
+            self.stringifyOrNil(value, fragmentsAllowed: true)
         } else {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.withoutEscapingSlashes]
-            text = (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
+            // 复用 encoder（线程安全；每次新建有分配开销，见 review 六 P-1）。
+            (try? Self.sharedSlashPreservingEncoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
         }
         return text ?? "\"\""
     }
+
+    /// 复用 JSONEncoder（线程安全；`withoutEscapingSlashes` 供 `jsStringLiteral` 使用）。
+    private static let sharedSlashPreservingEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        return encoder
+    }()
 
     /// 缺失 JSON 文档哨兵（对齐 Kotlin `DidResolveUtils.isMissingDidDocument` + 空串防御，
     /// 见 Did-Swift 03 §2）：`"{}"`（旧 IPFS tombstone）、`"null"`（JS null 序列化）、

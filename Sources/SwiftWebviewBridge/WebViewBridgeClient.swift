@@ -265,13 +265,14 @@ public final class WebViewBridgeClient: NSObject {
 
     // MARK: - JSON / JS 字面量工具
 
-    /// 复用 JSONDecoder（线程安全；每调用新建有分配开销，见 review E-2）。
+    /// 复用 JSONDecoder/JSONEncoder（线程安全；每调用新建有分配开销，见 review E-2 / P-1）。
     private static let sharedJSONDecoder = JSONDecoder()
+    private static let sharedJSONEncoder = JSONEncoder()
 
     /// Encodable -> JSON 字典。非对象顶层（数组/标量）抛 `.invalidParams`，
     /// 与 Kotlin 只接受 JSONObject 参数的契约保持一致，避免静默变成 nil。
     private static func jsonDictionary(_ params: some Encodable) throws -> [String: Any] {
-        let data = try JSONEncoder().encode(params)
+        let data = try Self.sharedJSONEncoder.encode(params)
         guard let object = Json.parseObject(data) else {
             throw WebViewBridgeError.invalidParams
         }
