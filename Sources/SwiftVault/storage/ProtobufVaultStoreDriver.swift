@@ -92,13 +92,19 @@ final class ProtobufVaultStoreDriver: VaultStoreDriver {
 
         return PasswordEnvelope(
             salt: entry.salt,
-            iterations: Int(entry.iterations),
-            memoryKiB: Int(entry.memoryKib),
-            parallelism: Int(entry.parallelism),
+            iterations: Self.clamped(Int(entry.iterations), min: 1, max: 10000),
+            memoryKiB: Self.clamped(Int(entry.memoryKib), min: 1, max: 1_048_576), // ≤1 GiB（原信任文件值可令 unlock 分配数百 MiB × 多次，见 review SwiftVault 补充细节）
+            parallelism: Self.clamped(Int(entry.parallelism), min: 1, max: 64),
             keyByteCount: Int(entry.keyByteCount == 0 ? 32 : entry.keyByteCount),
             aad: entry.aad,
             proof: entry.proofCt
         )
+    }
+
+    /// 篡改 store 文件的 KDF 参数 DoS 防御：非法/超界值 clamp 到安全区间
+    /// （文件被篡改后 unlock 不再无界分配内存；合法参数不受影响）。
+    private static func clamped(_ value: Int, min lower: Int, max upper: Int) -> Int {
+        min(max(value, lower), upper)
     }
 
     private func mapPassword(_ envelope: PasswordEnvelope) -> PasswordEntry {

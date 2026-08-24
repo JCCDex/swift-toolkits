@@ -35,7 +35,10 @@ public actor VaultRepository {
         self.sessionKey != nil
     }
 
+    /// 锁定并**主动擦除** sessionKey 内存（先 wipe 再置 nil——避免仅置 nil 让派生 key 残留在
+    /// 堆内存中，见 review SwiftVault P1#6；`Data.wipe()` 见 `util/Wipe.swift`）。
     public func lock() {
+        self.sessionKey?.wipe()
         self.sessionKey = nil
     }
 
@@ -47,14 +50,16 @@ public actor VaultRepository {
     public func initializePassword(
         _ password: Data,
         parameters: PasswordKDFParameters = PasswordKDFParameters()
-    ) throws -> Bool {
+    ) async throws -> Bool {
         var store = try loadStore()
         guard store.password == nil else {
             return false
         }
 
         let salt = self.randomData(count: 16)
-        let key = try keyDeriver.deriveKey(password: password, salt: salt, parameters: parameters)
+        let key = try await keyDeriver.deriveKeyAsync(
+            password: password, salt: salt, parameters: parameters
+        )
         store.password = PasswordEnvelope(
             salt: salt,
             iterations: parameters.iterations,
@@ -69,12 +74,12 @@ public actor VaultRepository {
         return true
     }
 
-    public func verifyPassword(_ password: Data) throws -> Bool {
-        try self.deriveAndVerifyKey(password) != nil
+    public func verifyPassword(_ password: Data) async throws -> Bool {
+        try await self.deriveAndVerifyKey(password) != nil
     }
 
-    public func unlock(_ password: Data) throws -> Bool {
-        guard let key = try self.deriveAndVerifyKey(password) else {
+    public func unlock(_ password: Data) async throws -> Bool {
+        guard let key = try await self.deriveAndVerifyKey(password) else {
             return false
         }
         self.sessionKey = key
@@ -87,7 +92,9 @@ public actor VaultRepository {
         try store.keys.append(
             VaultEncryptedRecord(
                 address: address,
-                payload: self.cipher.encrypt(privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address))
+                payload: self.cipher.encrypt(
+                    privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address)
+                )
             )
         )
         try self.saveStore(store)
@@ -106,7 +113,9 @@ public actor VaultRepository {
             try store.keys.append(
                 VaultEncryptedRecord(
                     address: address,
-                    payload: self.cipher.encrypt(privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address))
+                    payload: self.cipher.encrypt(
+                        privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address)
+                    )
                 )
             )
         }
@@ -117,7 +126,9 @@ public actor VaultRepository {
         try store.mnemonics.append(
             VaultMnemonicRecord(
                 address: address,
-                payload: self.cipher.encrypt(mnemonic, key: self.requireSessionKey(), aad: self.mnemonicAAD(address)),
+                payload: self.cipher.encrypt(
+                    mnemonic, key: self.requireSessionKey(), aad: self.mnemonicAAD(address)
+                ),
                 derivationPath: pathPrefix,
                 language: language
             )
@@ -132,7 +143,9 @@ public actor VaultRepository {
             try store.keys.append(
                 VaultEncryptedRecord(
                     address: address,
-                    payload: self.cipher.encrypt(privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address))
+                    payload: self.cipher.encrypt(
+                        privateKey, key: self.requireSessionKey(), aad: self.addressAAD(address)
+                    )
                 )
             )
         }
@@ -143,12 +156,16 @@ public actor VaultRepository {
         try store.secrets.append(
             VaultEncryptedRecord(
                 address: address,
-                payload: self.cipher.encrypt(secret, key: self.requireSessionKey(), aad: self.secretAAD(address))
+                payload: self.cipher.encrypt(
+                    secret, key: self.requireSessionKey(), aad: self.secretAAD(address)
+                )
             )
         )
         try self.saveStore(store)
     }
 
+    /// 批量导入私钥（幂等：已存在的地址静默跳过，与 `importPrivateKey` 判重短路一致——
+    /// 批量导入是编排路径，单条已存在不应让整批失败，见 review P1#5）。
     public func importPrivateKeys(_ privateKeys: [VaultPrivateKeyImport]) throws {
         guard !privateKeys.isEmpty else {
             return
@@ -157,13 +174,16 @@ public actor VaultRepository {
         var store = try loadStore()
         for item in privateKeys {
             guard !self.containsAddress(item.address, in: store.keys) else {
-                continue
+                continue // 幂等：跳过已存在
             }
 
             try store.keys.append(
                 VaultEncryptedRecord(
                     address: item.address,
-                    payload: self.cipher.encrypt(item.privateKey, key: self.requireSessionKey(), aad: self.addressAAD(item.address))
+                    payload: self.cipher.encrypt(
+                        item.privateKey, key: self.requireSessionKey(),
+                        aad: self.addressAAD(item.address)
+                    )
                 )
             )
         }
@@ -209,18 +229,18 @@ public actor VaultRepository {
         try self.saveStore(store)
     }
 
-    public func getPrivateKey(address: String, password: Data) throws -> Data {
-        try self.ensureUnlocked(with: password)
+    public func getPrivateKey(address: String, password: Data) async throws -> Data {
+        try await self.ensureUnlocked(with: password)
         return try self.getPrivateKeyInternal(address: address)
     }
 
-    public func getMnemonic(address: String, password: Data) throws -> Data {
-        try self.ensureUnlocked(with: password)
+    public func getMnemonic(address: String, password: Data) async throws -> Data {
+        try await self.ensureUnlocked(with: password)
         return try self.getMnemonicInternal(address: address)
     }
 
-    public func getSecret(address: String, password: Data) throws -> Data {
-        try self.ensureUnlocked(with: password)
+    public func getSecret(address: String, password: Data) async throws -> Data {
+        try await self.ensureUnlocked(with: password)
         return try self.getSecretInternal(address: address)
     }
 
@@ -232,8 +252,8 @@ public actor VaultRepository {
         return entry.language
     }
 
-    public func removeAddress(address: String, password: Data) throws {
-        try self.ensureUnlocked(with: password)
+    public func removeAddress(address: String, password: Data) async throws {
+        try await self.ensureUnlocked(with: password)
         try self.removeAddressUnlocked(address: address)
     }
 
@@ -251,13 +271,15 @@ public actor VaultRepository {
         oldPassword: Data,
         newPassword: Data,
         parameters: PasswordKDFParameters = PasswordKDFParameters()
-    ) throws {
-        try self.ensureUnlocked(with: oldPassword)
+    ) async throws {
+        try await self.ensureUnlocked(with: oldPassword)
 
         let store = try loadStore()
         let currentKey = try requireSessionKey()
         let newSalt = self.randomData(count: 16)
-        let newKey = try keyDeriver.deriveKey(password: newPassword, salt: newSalt, parameters: parameters)
+        let newKey = try await keyDeriver.deriveKeyAsync(
+            password: newPassword, salt: newSalt, parameters: parameters
+        )
 
         var newStore = VaultStoreSnapshot(
             password: PasswordEnvelope(
@@ -271,25 +293,34 @@ public actor VaultRepository {
             ),
             keys: [],
             mnemonics: [],
-            secrets: []
+            secrets: [],
+            biometric: store.biometric // P1#1：改密重建 store 时迁移 biometric（原丢弃）
         )
 
         for entry in store.keys {
-            let plaintext = try cipher.decrypt(entry.payload, key: currentKey, aad: self.addressAAD(entry.address))
+            let plaintext = try cipher.decrypt(
+                entry.payload, key: currentKey, aad: self.addressAAD(entry.address)
+            )
             try newStore.keys.append(
                 VaultEncryptedRecord(
                     address: entry.address,
-                    payload: self.cipher.encrypt(plaintext, key: newKey, aad: self.addressAAD(entry.address))
+                    payload: self.cipher.encrypt(
+                        plaintext, key: newKey, aad: self.addressAAD(entry.address)
+                    )
                 )
             )
         }
 
         for entry in store.mnemonics {
-            let plaintext = try cipher.decrypt(entry.payload, key: currentKey, aad: self.mnemonicAAD(entry.address))
+            let plaintext = try cipher.decrypt(
+                entry.payload, key: currentKey, aad: self.mnemonicAAD(entry.address)
+            )
             try newStore.mnemonics.append(
                 VaultMnemonicRecord(
                     address: entry.address,
-                    payload: self.cipher.encrypt(plaintext, key: newKey, aad: self.mnemonicAAD(entry.address)),
+                    payload: self.cipher.encrypt(
+                        plaintext, key: newKey, aad: self.mnemonicAAD(entry.address)
+                    ),
                     derivationPath: entry.derivationPath,
                     language: entry.language
                 )
@@ -297,11 +328,15 @@ public actor VaultRepository {
         }
 
         for entry in store.secrets {
-            let plaintext = try cipher.decrypt(entry.payload, key: currentKey, aad: self.secretAAD(entry.address))
+            let plaintext = try cipher.decrypt(
+                entry.payload, key: currentKey, aad: self.secretAAD(entry.address)
+            )
             try newStore.secrets.append(
                 VaultEncryptedRecord(
                     address: entry.address,
-                    payload: self.cipher.encrypt(plaintext, key: newKey, aad: self.secretAAD(entry.address))
+                    payload: self.cipher.encrypt(
+                        plaintext, key: newKey, aad: self.secretAAD(entry.address)
+                    )
                 )
             )
         }
@@ -310,8 +345,8 @@ public actor VaultRepository {
         self.sessionKey = newKey
     }
 
-    public func clearAllData(password: Data? = nil) throws {
-        if let password, try !verifyPassword(password) {
+    public func clearAllData(password: Data) async throws {
+        guard try await self.verifyPassword(password) else {
             throw VaultError.wrongPassword
         }
         self.lock()
@@ -323,7 +358,9 @@ public actor VaultRepository {
         guard let entry = store.keys.first(where: { $0.matches(address: address) }) else {
             throw VaultError.privateKeyNotFound
         }
-        return try self.cipher.decrypt(entry.payload, key: self.requireSessionKey(), aad: self.addressAAD(address))
+        return try self.cipher.decrypt(
+            entry.payload, key: self.requireSessionKey(), aad: self.addressAAD(address)
+        )
     }
 
     public func getMnemonicInternal(address: String) throws -> Data {
@@ -331,7 +368,9 @@ public actor VaultRepository {
         guard let entry = store.mnemonics.first(where: { $0.matches(address: address) }) else {
             throw VaultError.mnemonicNotFound
         }
-        return try self.cipher.decrypt(entry.payload, key: self.requireSessionKey(), aad: self.mnemonicAAD(address))
+        return try self.cipher.decrypt(
+            entry.payload, key: self.requireSessionKey(), aad: self.mnemonicAAD(address)
+        )
     }
 
     public func getSecretInternal(address: String) throws -> Data {
@@ -339,16 +378,19 @@ public actor VaultRepository {
         guard let entry = store.secrets.first(where: { $0.matches(address: address) }) else {
             throw VaultError.secretNotFound
         }
-        return try self.cipher.decrypt(entry.payload, key: self.requireSessionKey(), aad: self.secretAAD(address))
+        return try self.cipher.decrypt(
+            entry.payload, key: self.requireSessionKey(), aad: self.secretAAD(address)
+        )
     }
 
     static func defaultStorageURL() -> URL {
         let baseURL =
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
-        return baseURL
-            .appendingPathComponent("SwiftVault", isDirectory: true)
-            .appendingPathComponent("vault.pb", isDirectory: false)
+        return
+            baseURL
+                .appendingPathComponent("SwiftVault", isDirectory: true)
+                .appendingPathComponent("vault.pb", isDirectory: false)
     }
 
     private static func defaultCipher() -> any VaultCipher {
@@ -380,10 +422,11 @@ public actor VaultRepository {
 
     /// 单次 KDF 派生 + proof 校验（verifyPassword/unlock/ensureUnlocked 共用，见 review B-3）：
     /// 密码正确 → 返回派生 key；错误/未设密码 → nil。
-    private func deriveAndVerifyKey(_ password: Data) throws -> Data? {
+    /// async：KDF（64–256 MiB）走 `deriveKeyAsync`（detached），不阻塞 actor（review P1#3）。
+    private func deriveAndVerifyKey(_ password: Data) async throws -> Data? {
         let store = try loadStore()
         guard let envelope = store.password else { return nil }
-        let key = try keyDeriver.deriveKey(
+        let key = try await keyDeriver.deriveKeyAsync(
             password: password,
             salt: envelope.salt,
             parameters: PasswordKDFParameters(
@@ -393,20 +436,22 @@ public actor VaultRepository {
                 keyByteCount: envelope.keyByteCount
             )
         )
-        guard Self.constantTimeEquals(Self.computeProof(for: key), envelope.proof) else { return nil }
+        guard Self.constantTimeEquals(Self.computeProof(for: key), envelope.proof) else {
+            return nil
+        }
         return key
     }
 
-    private func ensureUnlocked(with password: Data) throws {
+    private func ensureUnlocked(with password: Data) async throws {
         if self.isUnlocked {
             // 已解锁分支仍校验传入密码（安全契约：密码错误必须报错，见 VaultTests wrongPassword 断言）
-            guard try self.verifyPassword(password) else {
+            guard try await self.verifyPassword(password) else {
                 throw VaultError.wrongPassword
             }
             return
         }
 
-        guard try self.unlock(password) else {
+        guard try await self.unlock(password) else {
             throw VaultError.wrongPassword
         }
     }
@@ -441,7 +486,9 @@ public actor VaultRepository {
     }
 
     private static func computeProof(for key: Data) -> Data {
-        let mac = HMAC<SHA256>.authenticationCode(for: self.proofDomainSeparator, using: SymmetricKey(data: key))
+        let mac = HMAC<SHA256>.authenticationCode(
+            for: self.proofDomainSeparator, using: SymmetricKey(data: key)
+        )
         return Data(mac)
     }
 

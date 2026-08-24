@@ -322,7 +322,6 @@ import Testing
     let repo = makeRepository()
     let password = Data("123456789ab@][".utf8)
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     #expect(await repo.isUnlocked)
     await repo.lock()
@@ -340,7 +339,6 @@ import Testing
     let key = Data("48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".utf8)
     let address = "0X6DB849ED4CE8FE95044BFFBFE4D291AF34B4445D"
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     try await repo.importPrivateKey(address: address, privateKey: key)
     await repo.lock()
@@ -355,7 +353,6 @@ import Testing
     let oldPassword = Data("oldPassword123".utf8)
     let newPassword = Data("newPassword456".utf8)
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(oldPassword)
     #expect(try await repo.verifyPassword(oldPassword))
     #expect(try await !(repo.verifyPassword(Data("wrong".utf8))))
@@ -371,14 +368,14 @@ import Testing
     let repo = makeRepository()
     let password = Data("testPassword".utf8)
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     try await repo.clearAllData(password: password)
     #expect(try await !(repo.hasPassword()))
 
     _ = try await repo.initializePassword(password)
     await #expect(throws: VaultError.wrongPassword) { try await repo.clearAllData(password: Data("wrong".utf8)) }
-    try await repo.clearAllData()
+    // P1#5：clearAllData 必传密码且必须正确（错误密码抛错，不得清库）
+    try await repo.clearAllData(password: password)
     #expect(try await !(repo.hasPassword()))
 }
 
@@ -388,7 +385,6 @@ import Testing
     let privateKey = Data("48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".utf8)
     let address = "0X6DB849ED4CE8FE95044BFFBFE4D291AF34B4445D"
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     try await repo.importPrivateKey(address: address, privateKey: privateKey)
     await repo.lock()
@@ -402,7 +398,6 @@ import Testing
     let repo = makeRepository()
     let password = Data("testPassword123".utf8)
 
-    try await repo.clearAllData()
     _ = try await repo.initializePassword(password)
     await repo.lock()
     #expect(await !(repo.isUnlocked))

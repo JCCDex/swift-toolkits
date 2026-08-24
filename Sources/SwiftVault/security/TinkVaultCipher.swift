@@ -33,14 +33,26 @@ import Foundation
         }
 
         private func loadOrCreatePrimitive() throws -> TINKAead {
-            try self.registerAead()
+            try Self.ensureAeadRegistered() // 单次注册（原每次 encrypt/decrypt 都 register，见 review 补充细节）
             let handle = try loadOrCreateHandle()
             return try TINKAeadFactory.primitive(with: handle)
         }
 
-        private func registerAead() throws {
+        /// Tink 算法注册只需一次（重复 register 同类会抛错/浪费）；static 惰性 + 锁保证幂等。
+        private static func ensureAeadRegistered() throws {
+            guard !self.aeadRegistered else { return }
             let config = try TINKAeadConfig()
             try TINKConfig.register(config)
+            Self.aeadRegistered = true
+        }
+
+        /// nonisolated(unsafe)：注册标记是进程级一次性状态，NSLock 串行化「检查-注册-置位」
+        /// 原子序列；与 `SsrfGuard.enabled`（DEBUG 一次性）同款模式，见 review 三、Sendable 审计。
+        private static let aeadRegisteredLock = NSLock()
+        private nonisolated(unsafe) static var _aeadRegistered = false
+        private static var aeadRegistered: Bool {
+            get { aeadRegisteredLock.withLock { Self._aeadRegistered } }
+            set { aeadRegisteredLock.withLock { Self._aeadRegistered = newValue } }
         }
 
         private func loadOrCreateHandle() throws -> TINKKeysetHandle {
