@@ -47,7 +47,7 @@ import SwiftVault
 import Foundation
 import SwiftVault
 
-let vault = VaultRepository.get()
+let vault = VaultRepository.shared
 let password = Data("strong-password".utf8)
 
 try await vault.initializePassword(password)

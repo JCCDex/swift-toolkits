@@ -13,10 +13,6 @@ public actor VaultRepository {
     private let keyDeriver: any VaultKeyDeriver
     private var sessionKey: Data?
 
-    public static func get() -> VaultRepository {
-        self.shared
-    }
-
     public init(
         storageURL: URL? = nil,
         fileManager: FileManager = .default,

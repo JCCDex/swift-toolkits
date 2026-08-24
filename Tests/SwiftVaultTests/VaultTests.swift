@@ -3,8 +3,8 @@ import Foundation
 import Testing
 
 @Test func `vault repository singleton is cached`() {
-    let first = VaultRepository.get()
-    let second = VaultRepository.get()
+    let first = VaultRepository.shared
+    let second = VaultRepository.shared
 
     #expect(first === second)
 }
