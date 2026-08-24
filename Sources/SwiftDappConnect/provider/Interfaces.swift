@@ -41,10 +41,10 @@ public protocol SecretProvider: Sendable {
 /// 网络 I/O 移到协作线程池，MainActor 中间件 await 时不阻塞主线程（见 review #5；
 /// 原标 @MainActor 仅是为通过 Swift 6 严格并发——参数经 Sendable 包装后无需）。
 public protocol NodeProvider: Sendable {
-    func getRpcUrl(chain: ChainType) async throws -> String
-    func getBlockNumber(chain: ChainType) async throws -> String
-    func getTransactionCount(address: String, chain: ChainType) async throws -> String
-    func getGasPrice(chain: ChainType) async throws -> String
+    func rpcUrl(chain: ChainType) async throws -> String
+    func blockNumber(chain: ChainType) async throws -> String
+    func transactionCount(address: String, chain: ChainType) async throws -> String
+    func gasPrice(chain: ChainType) async throws -> String
     func getMaxPriorityFeePerGas(chain: ChainType) async throws -> String
     func estimateGas(txParams: JsonObjectParams, chain: ChainType) async throws -> String
     func broadcastTransaction(signedTx: String, chain: ChainType) async throws -> String
@@ -65,6 +65,6 @@ public protocol ChainProvider: Sendable {
 /// NftProvider 交换 `JsonArrayParams`（whiteList），**非 @MainActor**（网络 I/O 移出主线程，
 /// 见 review #5）。
 public protocol NftProvider: Sendable {
-    func getEvmNfts(address: String, chainIdHex: String, whiteList: JsonArrayParams?) async throws -> EvmNftResult
-    func getSwtcNfts(address: String) async throws -> SwtcNftResult
+    func evmNfts(address: String, chainIdHex: String, whiteList: JsonArrayParams?) async throws -> EvmNftResult
+    func swtcNfts(address: String) async throws -> SwtcNftResult
 }

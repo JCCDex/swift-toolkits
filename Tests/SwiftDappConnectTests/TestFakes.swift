@@ -123,19 +123,19 @@ final class FakeNodeProvider: NodeProvider {
     var rawTxHash = "0xblobhash"
     var sequence: Int64 = 1
 
-    func getRpcUrl(chain _: ChainType) async throws -> String {
+    func rpcUrl(chain _: ChainType) async throws -> String {
         "https://rpc.example.com"
     }
 
-    func getBlockNumber(chain _: ChainType) async throws -> String {
+    func blockNumber(chain _: ChainType) async throws -> String {
         self.blockNumber
     }
 
-    func getTransactionCount(address _: String, chain _: ChainType) async throws -> String {
+    func transactionCount(address _: String, chain _: ChainType) async throws -> String {
         self.transactionCount
     }
 
-    func getGasPrice(chain _: ChainType) async throws -> String {
+    func gasPrice(chain _: ChainType) async throws -> String {
         self.gasPrice
     }
 
@@ -218,7 +218,7 @@ final class FakeWalletSigning: WalletSigning {
         "0xaddr"
     }
 
-    func getEncryptionPublicKey(privateKey _: String) async throws -> String {
+    func encryptionPublicKey(privateKey _: String) async throws -> String {
         "0xpub"
     }
 
@@ -279,11 +279,11 @@ final class FakeEthMiddleware: EthMiddlewareProtocol {
         self.requestAccountsResult
     }
 
-    func getChainId() -> String {
+    func chainId() -> String {
         "0x38"
     }
 
-    func getBlockNumber() async throws -> String {
+    func blockNumber() async throws -> String {
         "0x1"
     }
 
@@ -299,7 +299,7 @@ final class FakeEthMiddleware: EthMiddlewareProtocol {
         "0xtyped"
     }
 
-    func getEncryptionPublicKey(address _: String, origin _: String) async throws -> String {
+    func encryptionPublicKey(address _: String, origin _: String) async throws -> String {
         "0xpub"
     }
 
@@ -349,7 +349,7 @@ final class FakeSwtcMiddleware: SwtcMiddlewareProtocol {
         "0xsig"
     }
 
-    func getPublicKey(address _: String, origin _: String) async throws -> String {
+    func publicKey(address _: String, origin _: String) async throws -> String {
         "0xpub"
     }
 }

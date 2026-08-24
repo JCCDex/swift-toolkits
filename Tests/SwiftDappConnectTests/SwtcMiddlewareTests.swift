@@ -76,7 +76,7 @@ private func makeSwtcMiddleware(
 
 @Test @MainActor func `swtc get public key returns account public key`() async throws {
     let middleware = makeSwtcMiddleware(accounts: [swtcAccount("j1", publicKey: "0xKEY")])
-    let publicKey = try await middleware.getPublicKey(address: "j1", origin: "https://dapp.com")
+    let publicKey = try await middleware.publicKey(address: "j1", origin: "https://dapp.com")
     #expect(publicKey == "0xKEY")
 }
 

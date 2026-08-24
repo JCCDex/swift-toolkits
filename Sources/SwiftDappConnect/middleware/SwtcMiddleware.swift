@@ -79,7 +79,7 @@ public final class SwtcMiddleware: SwtcMiddlewareProtocol {
         return try await self.signing.signMessage(from: from, data: data, secret: secret)
     }
 
-    public func getPublicKey(address: String, origin _: String) async throws -> String {
+    public func publicKey(address: String, origin _: String) async throws -> String {
         let account = try await validateSwtcAccount(address)
         return account.publicKey
     }

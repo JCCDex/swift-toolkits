@@ -257,7 +257,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         }
     }
 
-    /// SWTC 域：requestAccounts / sendTransaction / multiSign / signMessage / getPublicKey / requestNfts。
+    /// SWTC 域：requestAccounts / sendTransaction / multiSign / signMessage / publicKey / requestNfts。
     private func routeSwtc(_ request: DAppRequest, origin: String) async -> [String: Any] {
         let nonce = request.nonce ?? request.id
         switch DAppMethod.fromValue(request.name) {
@@ -304,7 +304,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             // EIP-1193：eth_accounts 静默返回已授权账户，不弹授权框（review P1#2）
             return await self.handleEthAccounts(nonce: nonce)
         case .ethChainId:
-            return self.success(nonce, .string(self.ethMiddleware.getChainId()))
+            return self.success(nonce, .string(self.ethMiddleware.chainId()))
         case .ethBlockNumber:
             return await self.handleEthBlockNumber(nonce: nonce)
         case .ethPersonalSign:
@@ -441,7 +441,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private func handleSwtcGetPublicKey(nonce: String, origin: String, address: String) async -> [String: Any] {
         do {
-            let result = try await swtcMiddleware.getPublicKey(address: address, origin: origin)
+            let result = try await swtcMiddleware.publicKey(address: address, origin: origin)
             return self.success(nonce, .string(result))
         } catch {
             return self.failure(nonce, error)
@@ -470,7 +470,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private func handleEthBlockNumber(nonce: String) async -> [String: Any] {
         do {
-            let blockNumber = try await ethMiddleware.getBlockNumber()
+            let blockNumber = try await ethMiddleware.blockNumber()
             return self.success(nonce, .string(blockNumber))
         } catch {
             return self.failure(nonce, error)
@@ -517,7 +517,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private func handleEthGetEncryptionPublicKey(nonce: String, origin: String, address: String) async -> [String: Any] {
         do {
-            let result = try await ethMiddleware.getEncryptionPublicKey(address: address, origin: origin)
+            let result = try await ethMiddleware.encryptionPublicKey(address: address, origin: origin)
             return self.success(nonce, .string(result))
         } catch {
             return self.failure(nonce, error)
@@ -570,7 +570,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private func handleDidGetBase58PublicKey(nonce: String, origin: String, address: String) async -> [String: Any] {
         do {
             let didSDK = try requireDidSDK()
-            let privateKey = try await getPrivateKeyOrFail(address: address, origin: origin)
+            let privateKey = try await privateKeyOrFail(address: address, origin: origin)
             let result = try await didSDK.didGenerateBase58PublicKey(privateKey: privateKey)
             return self.success(nonce, .object([
                 "publicKeyBase58": result.publicKeyBase58,
@@ -593,7 +593,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             else {
                 throw DAppConnectError.internalError("Missing keyDoc.address")
             }
-            let privateKey = try await getPrivateKeyOrFail(address: address, origin: origin)
+            let privateKey = try await privateKeyOrFail(address: address, origin: origin)
             let signedVc = try await didSDK.signCredential(privateKey: privateKey, vcJson: vcJson.jsonString)
             if let object = (try? JSONSerialization.jsonObject(with: Data(signedVc.utf8))) as? [String: Any] {
                 return self.success(nonce, .object(object))
@@ -611,7 +611,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             guard bytes.count == data.count else {
                 throw DAppConnectError.internalError("Invalid ipfs_personalSign data")
             }
-            let privateKey = try await getPrivateKeyOrFail(address: address, origin: origin)
+            let privateKey = try await privateKeyOrFail(address: address, origin: origin)
             let signature = try await didSDK.ipfsPersonalSign(privateKey: privateKey, data: bytes)
             self.didDocumentMutationListener?()
             return self.success(nonce, .string(signature))
@@ -623,7 +623,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private func handleIpfsGetPublicKey(nonce: String, origin: String, address: String) async -> [String: Any] {
         do {
             let didSDK = try requireDidSDK()
-            let privateKey = try await getPrivateKeyOrFail(address: address, origin: origin)
+            let privateKey = try await privateKeyOrFail(address: address, origin: origin)
             let publicKey = try await didSDK.ipfsGetPublicKey(privateKey: privateKey)
             return self.success(nonce, .string(publicKey))
         } catch {
@@ -638,7 +638,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             return self.success(nonce, .object(self.emptyNftResult(address: address)))
         }
         do {
-            let result = try await nftProvider.getSwtcNfts(address: address)
+            let result = try await nftProvider.swtcNfts(address: address)
             return self.success(nonce, .object(self.swtcNftJson(result)))
         } catch {
             return self.failure(nonce, error)
@@ -650,9 +650,9 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             return self.success(nonce, .object(self.emptyNftResult(address: address)))
         }
         do {
-            let chainIdHex = "0x" + (Int64(ethMiddleware.getChainId().replacingOccurrences(of: "0x", with: ""), radix: 16)
+            let chainIdHex = "0x" + (Int64(ethMiddleware.chainId().replacingOccurrences(of: "0x", with: ""), radix: 16)
                 .map { String($0, radix: 16) } ?? "1")
-            let result = try await nftProvider.getEvmNfts(address: address, chainIdHex: chainIdHex, whiteList: JsonArrayParams(whiteList))
+            let result = try await nftProvider.evmNfts(address: address, chainIdHex: chainIdHex, whiteList: JsonArrayParams(whiteList))
             return self.success(nonce, .object(self.ethNftJson(result, defaultChainIdHex: chainIdHex)))
         } catch {
             return self.failure(nonce, error)
@@ -668,7 +668,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         return didSDK
     }
 
-    private func getPrivateKeyOrFail(address: String, origin: String) async throws -> String {
+    private func privateKeyOrFail(address: String, origin: String) async throws -> String {
         guard let secretProvider else {
             throw DAppConnectError.internalError("SecretProvider not configured")
         }

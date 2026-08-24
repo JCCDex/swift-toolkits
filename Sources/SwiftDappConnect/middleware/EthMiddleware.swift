@@ -64,13 +64,13 @@ public final class EthMiddleware: EthMiddlewareProtocol {
             .map(\.address)
     }
 
-    public func getChainId() -> String {
+    public func chainId() -> String {
         let chainId = self.currentChain.evmChainId ?? 1
         return "0x" + String(chainId, radix: 16)
     }
 
-    public func getBlockNumber() async throws -> String {
-        try await self.nodeProvider.getBlockNumber(chain: self.currentChain)
+    public func blockNumber() async throws -> String {
+        try await self.nodeProvider.blockNumber(chain: self.currentChain)
     }
 
     public func personalSign(address: String, message: String, origin: String) async throws -> String {
@@ -93,10 +93,10 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         try await self.signing.recoverTypedSignature(data: data, signature: signature, version: version)
     }
 
-    public func getEncryptionPublicKey(address: String, origin: String) async throws -> String {
+    public func encryptionPublicKey(address: String, origin: String) async throws -> String {
         _ = try await self.validateEvmAddress(address)
         let privateKey = try await requirePrivateKey(address: address, origin: origin)
-        return try await self.signing.getEncryptionPublicKey(privateKey: privateKey)
+        return try await self.signing.encryptionPublicKey(privateKey: privateKey)
     }
 
     public func decrypt(address: String, encryptedData: String, origin: String) async throws -> String {
@@ -135,7 +135,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
         // nonce
         if tx["nonce"] == nil {
-            tx["nonce"] = try await self.nodeProvider.getTransactionCount(address: from, chain: chainType)
+            tx["nonce"] = try await self.nodeProvider.transactionCount(address: from, chain: chainType)
         }
 
         let isEip1559 = tx["maxFeePerGas"] != nil || tx["maxPriorityFeePerGas"] != nil
@@ -149,12 +149,12 @@ public final class EthMiddleware: EthMiddlewareProtocol {
                 }
             }
             if self.isZeroOrEmpty(tx["maxFeePerGas"] as? String) {
-                tx["maxFeePerGas"] = try await self.nodeProvider.getGasPrice(chain: chainType)
+                tx["maxFeePerGas"] = try await self.nodeProvider.gasPrice(chain: chainType)
             }
             tx.removeValue(forKey: "gasPrice")
         } else {
             if self.isZeroOrEmpty(tx["gasPrice"] as? String) {
-                tx["gasPrice"] = try await self.nodeProvider.getGasPrice(chain: chainType)
+                tx["gasPrice"] = try await self.nodeProvider.gasPrice(chain: chainType)
             }
         }
 
@@ -225,7 +225,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
 
         self.currentChain = targetChain
 
-        let targetAccounts = await getAccountsForChain(targetChain)
+        let targetAccounts = await accountsForChain(targetChain)
         guard let firstAccount = targetAccounts.first else {
             return
         }
@@ -239,7 +239,7 @@ public final class EthMiddleware: EthMiddlewareProtocol {
         self.onAccountSwitched?(targetAccount.address)
     }
 
-    public func getAccountsForChain(_ chain: ChainType) async -> [WalletAccount] {
+    public func accountsForChain(_ chain: ChainType) async -> [WalletAccount] {
         let accounts = await accountProvider.accounts.firstValue() ?? []
         return accounts.filter { $0.chain == chain && !$0.isHDRoot }
     }

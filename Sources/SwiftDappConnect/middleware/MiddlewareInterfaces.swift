@@ -18,12 +18,12 @@ public protocol EthMiddlewareProtocol {
     /// `eth_accounts`：静默返回已授权账户（当前链、非 HD 根），**不弹授权框**——EIP-1193
     /// 规定 `eth_accounts` 只返回已授权账户，DApp 加载时探测不应打扰用户（见 review P1#2）。
     func accounts() async throws -> [String]
-    func getChainId() -> String
-    func getBlockNumber() async throws -> String
+    func chainId() -> String
+    func blockNumber() async throws -> String
     func personalSign(address: String, message: String, origin: String) async throws -> String
     func recoverPersonalSignature(message: String, signature: String) async throws -> String
     func signTypedData(address: String, typedData: String, version: String, origin: String) async throws -> String
-    func getEncryptionPublicKey(address: String, origin: String) async throws -> String
+    func encryptionPublicKey(address: String, origin: String) async throws -> String
     func decrypt(address: String, encryptedData: String, origin: String) async throws -> String
     func signTransaction(txParams: [String: Any], origin: String) async throws -> SignTransactionResult
     func sendTransaction(txParams: [String: Any], origin: String) async throws -> String
@@ -37,7 +37,7 @@ public protocol SwtcMiddlewareProtocol {
     func sendTransaction(txParams: [String: Any], origin: String) async throws -> String
     func multiSign(msParams: [String: Any], origin: String) async throws -> [String: Any]
     func signMessage(from: String, data: String, origin: String) async throws -> String
-    func getPublicKey(address: String, origin: String) async throws -> String
+    func publicKey(address: String, origin: String) async throws -> String
 }
 
 /// 交易签名能力抽象（对应 Kotlin `WalletSdk` 的调用面），宿主接线。
@@ -47,7 +47,7 @@ public protocol WalletSigning {
     func recoverPersonalSignature(message: String, signature: String) async throws -> String
     func signTypedData(privateKey: String, typedData: String, version: String) async throws -> String
     func recoverTypedSignature(data: String, signature: String, version: String) async throws -> String
-    func getEncryptionPublicKey(privateKey: String) async throws -> String
+    func encryptionPublicKey(privateKey: String) async throws -> String
     func decrypt(privateKey: String, encryptedData: String) async throws -> String
     func signEthTransaction(privateKey: String, txParams: [String: Any]) async throws -> String
     func signSwtcTransaction(txParams: [String: Any], secret: String) async throws -> String
