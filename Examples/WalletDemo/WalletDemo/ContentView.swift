@@ -402,7 +402,7 @@ struct HDSubAccountListView: View {
 
     private func revealKey(for child: WalletAccount) async {
         do {
-            // 助记词存根账户地址下（importHdWallet 以根地址存 mnemonic），子账户只有私钥
+            // 助记词存根账户地址下（importHDWallet 以根地址存 mnemonic），子账户只有私钥
             let value = try await self.wallet.revealKey(for: child.address, mnemonicFrom: self.root.address)
             self.keyResult = KeyResult(address: child.address, value: value)
         } catch {

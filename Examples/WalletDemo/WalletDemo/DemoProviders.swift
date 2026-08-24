@@ -128,19 +128,19 @@ final class DemoSecretProvider: SecretProvider {
 
 @MainActor
 final class DemoNodeProvider: NodeProvider {
-    func getRpcUrl(chain _: ChainType) async throws -> String {
+    func rpcUrl(chain _: ChainType) async throws -> String {
         "https://rpc.example.com"
     }
 
-    func getBlockNumber(chain _: ChainType) async throws -> String {
+    func blockNumber(chain _: ChainType) async throws -> String {
         "0x1"
     }
 
-    func getTransactionCount(address _: String, chain _: ChainType) async throws -> String {
+    func transactionCount(address _: String, chain _: ChainType) async throws -> String {
         "0x0"
     }
 
-    func getGasPrice(chain _: ChainType) async throws -> String {
+    func gasPrice(chain _: ChainType) async throws -> String {
         "0x1"
     }
 

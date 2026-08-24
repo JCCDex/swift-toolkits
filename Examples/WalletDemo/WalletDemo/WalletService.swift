@@ -75,7 +75,7 @@ final class WalletService: ObservableObject {
 
         self.status = "正在派生 ETH 账户…"
         let derived = try await self.wallet.deriveFromMnemonic(
-            mnemonic: mnemonic.value,
+            mnemonic.value,
             chain: ChainType.eth.bip44Code
         )
 
@@ -107,9 +107,9 @@ final class WalletService: ObservableObject {
         self.status = "钱包已生成：\(derived.address)"
     }
 
-    // MARK: - 生成 HD 钱包（根 + 子账户；演示 importHdWallet）
+    // MARK: - 生成 HD 钱包（根 + 子账户；演示 importHDWallet）
 
-    /// 生成 HD 钱包：根账户（SWTC）+ 指定链的子账户（走 `importHdWallet`，私钥在导入时
+    /// 生成 HD 钱包：根账户（SWTC）+ 指定链的子账户（走 `importHDWallet`，私钥在导入时
     /// 全部落 vault）。返回 rootAccountId 供后续 `deriveAndImportSubAccount` 派生子账户。
     func addHDWallet() async throws -> String? {
         guard !self.isLoading else { return nil }
@@ -122,7 +122,7 @@ final class WalletService: ObservableObject {
         let mnemonic = try await self.wallet.generateMnemonic()
         // chains: [eth, swtc] → HD 子账户（BIP44 同路径多链）
         let hd = try await self.wallet.hdWalletFromMnemonic(
-            mnemonic: mnemonic.value,
+            mnemonic.value,
             chains: [ChainType.eth.bip44Code, ChainType.swtc.bip44Code],
             language: mnemonic.language
         )
@@ -133,7 +133,7 @@ final class WalletService: ObservableObject {
         } else {
             _ = try await self.vault.unlock(self.demoPassword)
         }
-        let result = await self.accountManager.importHdWallet(
+        let result = await self.accountManager.importHDWallet(
             hdResult: hd,
             name: "HD Wallet",
             password: self.demoPassword
@@ -153,7 +153,7 @@ final class WalletService: ObservableObject {
     /// 完整 keypair），私钥由 `importSubAccount` 显式落库——两步缺一不可，否则子账户
     /// 元数据在但密钥不在 vault，无法签名。
     /// - Parameters:
-    ///   - rootAccountId: HD 根账户 id（`accountManager.importHdWallet` 返回的 rootAccountId）。
+    ///   - rootAccountId: HD 根账户 id（`accountManager.importHDWallet` 返回的 rootAccountId）。
     ///   - chain: 子账户链（如 `.eth`）。
     ///   - index: 指定派生 index；nil = 自动取 `maxIndex+1`。
     func deriveAndImportSubAccount(
@@ -187,7 +187,7 @@ final class WalletService: ObservableObject {
 
     // MARK: - 按地址查看密钥（从 SwiftVault 解密读出）
 
-    /// 查看地址的私钥 + 助记词。HD 子账户的助记词存在**根账户**地址下（importHdWallet
+    /// 查看地址的私钥 + 助记词。HD 子账户的助记词存在**根账户**地址下（importHDWallet
     /// 以根地址存 mnemonic），子账户地址只有私钥——故需传 `mnemonicFrom`（根地址）。
     /// - Parameters:
     ///   - address: 要查看的账户地址（私钥按其查）。
