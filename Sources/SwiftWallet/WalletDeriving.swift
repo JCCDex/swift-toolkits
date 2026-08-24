@@ -16,11 +16,11 @@ public protocol WalletDeriving: Sendable {
 
     /// 从助记词生成 HD 钱包（根 + 各链子账户）。
     func hdWalletFromMnemonic(
-        mnemonic: String,
+        _ mnemonic: String,
         chains: [Int64],
         language: String
     ) async throws -> GenerateHDWalletResult
 
     /// 从私钥派生单账户。
-    func deriveFromPrivateKey(privateKey: String, chain: Int64) async throws -> TraditionalDeriveResult
+    func deriveFromPrivateKey(_ privateKey: String, chain: Int64) async throws -> TraditionalDeriveResult
 }

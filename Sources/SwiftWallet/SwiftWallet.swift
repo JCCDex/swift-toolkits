@@ -15,9 +15,9 @@ public final class SwiftWallet: WalletDeriving {
     private let bridge: any EngineBridge
     private var started = false
 
-    /// 真实桥（默认）：`WebviewBridgeEngine` 加载 `wallet-bridge.html`；
+    /// 真实桥（默认）：`WebViewBridgeEngine` 加载 `wallet-bridge.html`；
     /// 测试/宿主可注入自定义桥（对应 Kotlin `installBridgeForTest`）。
-    public init(bridge: any EngineBridge = WebviewBridgeEngine(bridgeFileName: "wallet-bridge.html")) {
+    public init(bridge: any EngineBridge = WebViewBridgeEngine(bridgeFileName: "wallet-bridge.html")) {
         self.bridge = bridge
     }
 
@@ -46,7 +46,7 @@ public final class SwiftWallet: WalletDeriving {
     }
 
     public func generateMnemonic(length: Int = 128, language: String = "english") async throws -> Mnemonic {
-        try await self.callAs(method: "generateMnemonic", params: [
+        try await self.callTyped(method: "generateMnemonic", params: [
             "length": length, "language": language
         ])
     }
@@ -59,7 +59,7 @@ public final class SwiftWallet: WalletDeriving {
         index: Int = 0,
         language: String = "english"
     ) async throws -> SubWallet {
-        try await self.callAs(method: "deriveChild", params: [
+        try await self.callTyped(method: "deriveChild", params: [
             "mnemonic": mnemonic, "chain": chain,
             "account": account, "change": change, "index": index,
             "language": language
@@ -67,32 +67,32 @@ public final class SwiftWallet: WalletDeriving {
     }
 
     public func hdWalletFromMnemonic(
-        mnemonic: String,
+        _ mnemonic: String,
         chains: [Int64] = [],
         language: String = "english"
     ) async throws -> GenerateHDWalletResult {
-        try await self.callAs(method: "hdWalletFromMnemonic", params: [
+        try await self.callTyped(method: "hdWalletFromMnemonic", params: [
             "mnemonic": mnemonic, "chains": chains, "language": language
         ])
     }
 
     public func deriveFromMnemonic(
-        mnemonic: String,
+        _ mnemonic: String,
         chain: Int64,
         account: Int = 0,
         change: Int = 0,
         index: Int = 0,
         language: String = "english"
     ) async throws -> TraditionalDeriveResult {
-        try await self.callAs(method: "deriveFromMnemonic", params: [
+        try await self.callTyped(method: "deriveFromMnemonic", params: [
             "mnemonic": mnemonic, "chain": chain,
             "account": account, "change": change, "index": index,
             "language": language
         ])
     }
 
-    public func deriveFromPrivateKey(privateKey: String, chain: Int64) async throws -> TraditionalDeriveResult {
-        try await self.callAs(method: "deriveFromPrivateKey", params: [
+    public func deriveFromPrivateKey(_ privateKey: String, chain: Int64) async throws -> TraditionalDeriveResult {
+        try await self.callTyped(method: "deriveFromPrivateKey", params: [
             "privateKey": privateKey, "chain": chain
         ])
     }
@@ -204,7 +204,7 @@ public final class SwiftWallet: WalletDeriving {
         ])
     }
 
-    public func getEncryptionPublicKey(privateKey: String) async throws -> String {
+    public func encryptionPublicKey(privateKey: String) async throws -> String {
         try await self.call(method: "getEncryptionPublicKey", params: ["privateKey": privateKey])
     }
 
@@ -227,9 +227,9 @@ public final class SwiftWallet: WalletDeriving {
         return try await self.bridge.call(method: method, params: params)
     }
 
-    private func callAs<T: Decodable>(method: String, params: [String: Any]?) async throws -> T {
+    private func callTyped<T: Decodable>(method: String, params: [String: Any]?) async throws -> T {
         try self.ensureStarted()
-        return try await self.bridge.callAs(method: method, params: params, as: T.self)
+        return try await self.bridge.callTyped(method: method, params: params, asType: T.self)
     }
 
     /// 对齐 Kotlin `String.toBoolean()`：仅 "true"（忽略大小写与首尾空白）为 true。

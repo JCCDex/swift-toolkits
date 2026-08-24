@@ -18,7 +18,7 @@ extension SwiftWallet: WalletSigning {
         try await self.signTypedData(privateKey: privateKey, data: typedData, version: version)
     }
 
-    // recoverTypedSignature(data:signature:version:) / getEncryptionPublicKey(privateKey:) /
+    // recoverTypedSignature(data:signature:version:) / encryptionPublicKey(privateKey:) /
     // multiSign(tx:secret:) 与类自身方法签名一致，协议需求已由 SwiftWallet 原生方法满足，
     // 无需（也不能）在扩展中重复声明。
 

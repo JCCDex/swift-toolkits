@@ -37,18 +37,18 @@ final class FakeWalletBridge: EngineBridge {
         return self.responses[method] ?? ""
     }
 
-    func callAs<T: Decodable>(
+    func callTyped<T: Decodable>(
         method: String,
         params: [String: Any]?,
-        as type: T.Type
+        asType type: T.Type
     ) async throws -> T {
-        try await self.callAs(method: method, params: params, as: type, timeoutMs: 30000, readyWaitMs: 15000)
+        try await self.callTyped(method: method, params: params, asType: type, timeoutMs: 30000, readyWaitMs: 15000)
     }
 
-    func callAs<T: Decodable>(
+    func callTyped<T: Decodable>(
         method: String,
         params: [String: Any]?,
-        as _: T.Type,
+        asType _: T.Type,
         timeoutMs _: TimeInterval,
         readyWaitMs _: TimeInterval
     ) async throws -> T {
@@ -135,7 +135,7 @@ private func makeWallet(bridge: FakeWalletBridge) -> SwiftWallet {
     let wallet = makeWallet(bridge: bridge)
     try wallet.start()
 
-    let result = try await wallet.hdWalletFromMnemonic(mnemonic: "a b c", chains: [2_147_483_708])
+    let result = try await wallet.hdWalletFromMnemonic("a b c", chains: [2_147_483_708])
 
     #expect(result.address == "0xroot")
     #expect(result.accounts.count == 1)
