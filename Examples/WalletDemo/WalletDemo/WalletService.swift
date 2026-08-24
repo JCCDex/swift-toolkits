@@ -107,11 +107,98 @@ final class WalletService: ObservableObject {
         self.status = "钱包已生成：\(derived.address)"
     }
 
+    // MARK: - 生成 HD 钱包（根 + 子账户；演示 importHdWallet）
+
+    /// 生成 HD 钱包：根账户（SWTC）+ 指定链的子账户（走 `importHdWallet`，私钥在导入时
+    /// 全部落 vault）。返回 rootAccountId 供后续 `deriveAndImportSubAccount` 派生子账户。
+    func addHDWallet() async throws -> String? {
+        guard !self.isLoading else { return nil }
+        self.isLoading = true
+        defer { self.isLoading = false }
+        self.status = "正在启动加密桥…"
+        try self.wallet.start()
+
+        self.status = "正在生成助记词…"
+        let mnemonic = try await self.wallet.generateMnemonic()
+        // chains: [eth, swtc] → HD 子账户（BIP44 同路径多链）
+        let hd = try await self.wallet.hdWalletFromMnemonic(
+            mnemonic: mnemonic.value,
+            chains: [ChainType.eth.bip44Code, ChainType.swtc.bip44Code],
+            language: mnemonic.language
+        )
+
+        self.status = "正在导入 HD 钱包…"
+        if try await !self.vault.hasPassword() {
+            _ = try await self.vault.initializePassword(self.demoPassword)
+        } else {
+            _ = try await self.vault.unlock(self.demoPassword)
+        }
+        let result = await self.accountManager.importHdWallet(
+            hdResult: hd,
+            name: "HD Wallet",
+            password: self.demoPassword
+        )
+        guard case let .success(imported) = result else {
+            self.status = "HD 导入失败：\(result)"
+            return nil
+        }
+        self.status = "HD 钱包已生成：根 \(hd.address) + \(imported.children.count) 个子账户"
+        return imported.rootAccountId
+    }
+
+    // MARK: - 派生子账户（两步：deriveSubAccount 只派生 → importSubAccount 落库）
+
+    /// 从 HD 根账户派生子账户并落库。
+    /// ⚠️ 新语义（review SwiftAccount P1#1）：`deriveSubAccount` **只派生不落 vault**（返回
+    /// 完整 keypair），私钥由 `importSubAccount` 显式落库——两步缺一不可，否则子账户
+    /// 元数据在但密钥不在 vault，无法签名。
+    /// - Parameters:
+    ///   - rootAccountId: HD 根账户 id（`accountManager.importHdWallet` 返回的 rootAccountId）。
+    ///   - chain: 子账户链（如 `.eth`）。
+    ///   - index: 指定派生 index；nil = 自动取 `maxIndex+1`。
+    func deriveAndImportSubAccount(
+        rootAccountId: String,
+        chain: ChainType,
+        index: Int? = nil
+    ) async -> String? {
+        // 1) 派生（只派生，不落库）
+        let derived = await self.accountManager.deriveSubAccount(
+            chain: chain,
+            rootAccountId: rootAccountId,
+            password: self.demoPassword,
+            index: index
+        )
+        guard case let .success(subAccount) = derived else {
+            self.status = "派生子账户失败：\(derived)"
+            return nil
+        }
+        // 2) 落库（这里才把子账户私钥写入 vault + 元数据写入 store）
+        let imported = await self.accountManager.importSubAccount(
+            derived: subAccount,
+            name: "\(chain.label)-HD"
+        )
+        guard case let .success(accountId) = imported else {
+            self.status = "导入子账户失败：\(imported)"
+            return nil
+        }
+        self.status = "子账户已派生并落库：\(subAccount.address)"
+        return accountId
+    }
+
     // MARK: - 按地址查看密钥（从 SwiftVault 解密读出）
 
-    func revealKey(for address: String) async throws -> (privateKey: String, mnemonic: String) {
+    /// 查看地址的私钥 + 助记词。HD 子账户的助记词存在**根账户**地址下（importHdWallet
+    /// 以根地址存 mnemonic），子账户地址只有私钥——故需传 `mnemonicFrom`（根地址）。
+    /// - Parameters:
+    ///   - address: 要查看的账户地址（私钥按其查）。
+    ///   - mnemonicFrom: 助记词归属地址；nil = 与 `address` 相同（传统账户）。
+    func revealKey(
+        for address: String,
+        mnemonicFrom rootAddress: String? = nil
+    ) async throws -> (privateKey: String, mnemonic: String) {
         let privateKey = try await self.vault.getPrivateKey(address: address, password: self.demoPassword)
-        let mnemonic = try await self.vault.getMnemonic(address: address, password: self.demoPassword)
+        let mnemonicAddress = rootAddress ?? address
+        let mnemonic = try await self.vault.getMnemonic(address: mnemonicAddress, password: self.demoPassword)
         return (
             String(decoding: privateKey, as: UTF8.self),
             String(decoding: mnemonic, as: UTF8.self)

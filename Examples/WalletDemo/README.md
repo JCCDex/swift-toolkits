@@ -22,6 +22,13 @@
   **列表与当前地址均由 SwiftAccount 驱动**：`DemoWalletState` 订阅 `SwiftAccount.accounts` /
   `currentAccount` 观察流（GRDB ValueObservation），切换当前地址委托
   `setCurrentAccount(accountId:)`，当前选中持久化在 `current_account` 表，重启自动恢复。
+- **HD 钱包（示例）**：主界面「HD」区块进入**二级页**（根账户列表）：
+  - 二级页顶部「生成 HD」经 `accountManager.importHdWallet` 建根（SWTC）+ ETH/SWTC 子账户
+    （私钥全部落 vault），列表显示 HD 根账户地址；
+  - 点击根账户进入**三级页**（子账户列表）：每项显示地址 + 派生 `path`，可查看密钥
+    （SwiftVault 解密）；顶部「派生子账户」演示两步语义（review SwiftAccount P1#1）：
+    `deriveSubAccount` **只派生不落库**（返回完整 keypair）→ `importSubAccount` 才把
+    子账户私钥写入 vault + 元数据落 store——缺一步则子账户有元数据但无密钥，无法签名。
 - **DID 头像（示例）**：主界面「DID」区块按钮进入**二级全屏页**（与 DApp 页同形态），展示
   `did:swtc:…` 与 `did:ethr:…` 两个示例 DID 的头像：
   - 解析链：`resolveDid`（链上取档）→ `generateProfileVC`（SwiftDid API，读 preferredAvatar VC）→ SwiftNft

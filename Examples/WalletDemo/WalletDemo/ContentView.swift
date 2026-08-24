@@ -44,6 +44,16 @@ struct ContentView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        HDWalletListView()
+                    } label: {
+                        Label("HD 钱包（根账户 + 子账户）", systemImage: "rectangle.stack.badge.plus")
+                    }
+                } header: {
+                    Text("HD")
+                }
+
+                Section {
                     Button {
                         self.showDidAvatar = true
                     } label: {
@@ -226,5 +236,182 @@ struct DappScreen: View {
                 }
         }
         .navigationViewStyle(.stack)
+    }
+}
+
+// MARK: - HD 钱包列表（二级页：root address 列表 + 生成 HD 按钮）
+
+/// HD 根账户列表页：显示所有 HD 根账户（`isHD && parentId == nil`），
+/// 提供「生成 HD」按钮；点击根账户进入其子账户列表。
+struct HDWalletListView: View {
+    @EnvironmentObject private var wallet: WalletService
+    @State private var roots: [WalletAccount] = []
+    @State private var errorText: String?
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    Task { await self.generateHD() }
+                } label: {
+                    Label("生成 HD", systemImage: "plus.circle")
+                }
+                Text("生成 HD 钱包：根账户（SWTC）+ ETH/SWTC 子账户，私钥全部落 vault")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
+            Section {
+                if self.roots.isEmpty {
+                    Text("尚无 HD 根账户")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(self.roots) { root in
+                        NavigationLink {
+                            HDSubAccountListView(root: root, wallet: self.wallet)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.shortAddress(root.address))
+                                    .font(.system(.caption, design: .monospaced))
+                                Text("HD 根账户 · \(root.chain.label)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("根账户（点击进入子账户列表）")
+            }
+        }
+        .navigationTitle("HD 钱包")
+        .task { await self.reload() }
+        .alert("出错了", isPresented: .init(
+            get: { self.errorText != nil },
+            set: {
+                if !$0 {
+                    self.errorText = nil
+                }
+            }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(self.errorText ?? "")
+        }
+    }
+
+    private func generateHD() async {
+        do {
+            _ = try await self.wallet.addHDWallet()
+            await self.reload()
+        } catch {
+            self.errorText = error.localizedDescription
+        }
+    }
+
+    /// 重新拉取 HD 根账户列表（观察流首帧即当前值）。
+    private func reload() async {
+        self.roots = await self.wallet.account.rootHDAccounts.firstValue() ?? []
+    }
+
+    private static func shortAddress(_ address: String) -> String {
+        guard address.count > 22 else { return address }
+        return String(address.prefix(10)) + "…" + String(address.suffix(8))
+    }
+}
+
+// MARK: - HD 子账户列表（三级页：地址 / path / 密钥）
+
+/// 某根账户的子账户列表（`parentId == root.id`）：每项显示地址、派生 path，
+/// 并提供「密钥」查看（SwiftVault 解密）；顶部可继续派生子账户。
+struct HDSubAccountListView: View {
+    let root: WalletAccount
+    @ObservedObject var wallet: WalletService
+    @State private var children: [WalletAccount] = []
+    @State private var keyResult: KeyResult?
+    @State private var errorText: String?
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    Task { await self.deriveChild() }
+                } label: {
+                    Label("派生子账户", systemImage: "arrow.triangle.branch")
+                }
+            } header: {
+                Text("根账户 \(Self.shortAddress(self.root.address))")
+            }
+
+            Section {
+                if self.children.isEmpty {
+                    Text("尚无子账户")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(self.children) { child in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.shortAddress(child.address))
+                                    .font(.system(.caption, design: .monospaced))
+                                Text(child.path?.derivationPath ?? "—")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("密钥") {
+                                Task { await self.revealKey(for: child) }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+            } header: {
+                Text("子账户（地址 / path）")
+            }
+        }
+        .navigationTitle("子账户")
+        .task { await self.reload() }
+        .sheet(item: self.$keyResult) { result in
+            KeySheet(result: result)
+        }
+        .alert("出错了", isPresented: .init(
+            get: { self.errorText != nil },
+            set: {
+                if !$0 {
+                    self.errorText = nil
+                }
+            }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(self.errorText ?? "")
+        }
+    }
+
+    /// 两步派生：deriveSubAccount（只派生）→ importSubAccount（落库）。
+    private func deriveChild() async {
+        _ = await self.wallet.deriveAndImportSubAccount(rootAccountId: self.root.id, chain: .eth)
+        await self.reload()
+    }
+
+    private func reload() async {
+        self.children = await self.wallet.account.subAccounts(of: self.root.id).firstValue() ?? []
+    }
+
+    private func revealKey(for child: WalletAccount) async {
+        do {
+            // 助记词存根账户地址下（importHdWallet 以根地址存 mnemonic），子账户只有私钥
+            let value = try await self.wallet.revealKey(for: child.address, mnemonicFrom: self.root.address)
+            self.keyResult = KeyResult(address: child.address, value: value)
+        } catch {
+            self.errorText = error.localizedDescription
+        }
+    }
+
+    private static func shortAddress(_ address: String) -> String {
+        guard address.count > 22 else { return address }
+        return String(address.prefix(10)) + "…" + String(address.suffix(8))
     }
 }
