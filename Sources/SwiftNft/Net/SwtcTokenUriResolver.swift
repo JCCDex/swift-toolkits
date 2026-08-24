@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// SWTC `erc_info` RPC 节点提供者：返回单个 RPC URL 字符串（nil = 无可用节点 → 解析返回 nil）。
 /// 对齐 Kotlin `DEFAULT_RPC_NODES`（app 侧内置）——Swift 由宿主经 init 注入，模块不内置节点。
@@ -45,7 +46,7 @@ public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }
 
         guard let data = try? await self.httpClient.fetchRpc(url, body: httpBody),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+              let json = Json.parseObject(data)
         else { return nil }
         if json["error"] != nil {
             return nil
@@ -61,16 +62,12 @@ public struct SwtcTokenUriResolver: ISwtcTokenUriResolver {
         else { return nil }
 
         let tokenInfosJson: String = if let array = tokenInfos as? [Any] {
-            Self.jsonString(array) ?? ""
+            Json.stringifyOrNil(array) ?? ""
         } else if let string = tokenInfos as? String, !string.isEmpty {
             string
         } else {
-            Self.jsonString(tokenInfos) ?? ""
+            Json.stringifyOrNil(tokenInfos) ?? ""
         }
         return parseSwtcMetadataUri(tokenInfosJson, gateway: gateway)
-    }
-
-    private static func jsonString(_ value: Any) -> String? {
-        (try? JSONSerialization.data(withJSONObject: value)).flatMap { String(data: $0, encoding: .utf8) }
     }
 }

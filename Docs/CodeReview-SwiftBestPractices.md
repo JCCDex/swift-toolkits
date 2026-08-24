@@ -451,6 +451,19 @@ if !expirationDate.isEmpty,
 
 ## 修复记录
 
+- **SwiftCore 收敛批（2025-08-24，第三轮复查 6.2 C-1~C-4 + 顺带 V-2）**：
+  `Json` 新增 `parseObject(_ data: Data)` / `parseArray(_ data: Data)`（String 版委托 Data 版）、
+  `stringifyOrNil(_:fragmentsAllowed:)`、`jsStringLiteral(_:escapingSlashes:)`（JS 字符串字面量，
+  `true` 转义 `/` 对齐桥内注入、`false` 保留 URL 原文）；`String` 新增 `removingWhitespace()`
+  （`\s+`，统一原 `"\\s"`/`"\\s+"` 两种写法）。收敛调用点：桥 3 处（`PromiseGateway.parseResult` /
+  `WebViewBridgeClient.jsonString`/`jsString`/`jsonDictionary`）、DappConnect 3 处（`WebAppInterface`
+  解析 ×2 / `NativeResponseChannel.jsonString`）、SwiftWallet 1 处、SwiftNft 5 处
+  （`EthTokenUriResolver` / `SwtcTokenUriResolver` / `NftUrlUtils` ×3 / `NftClient` ×2）、
+  SwiftDid 2 处（`DidCredentialHelper` 去空白）；**删除 `DAppConnectSdk.jsQuote` 与
+  `WebViewBridgeClient.jsString` 双实现**（跨模块重复 2.1 该条由「模块内复用」升级为 SwiftCore
+  单一工具），**消除全部 `try!` / `String(data:)!`**（V-2 一并闭合，恢复「零 try!」承诺）；
+  `SwiftWebviewBridge` 补 SwiftCore 依赖（无循环，SwiftCore 为最底层）。全模块构建 0 error、
+  352/352 测试通过、Demo xcodebuild SUCCEEDED。
 - **命名规范批（2025-08-22，Swift API Design Guidelines 专项 #1/#3/#4/#5/#6/#7）**：
   `get` 前缀清除——EthMiddleware/SwtcMiddleware/WebAppInterface/NftProvider/WalletSigning 协议
   与实现全量改名（`getChainId`→`chainId`、`getBlockNumber`→`blockNumber`、`getAccountsForChain`→
@@ -692,10 +705,10 @@ if !expirationDate.isEmpty,
 
 | 项 | 位置 | 说明 | 建议 |
 |---|---|---|---|
-| C-1 | `Json.swift` | `Json.parseObject/parseArray` 仅接受 `String`，缺 `Data` 重载；全库 **11 处**直接 `(try? JSONSerialization.jsonObject(with: data)) as? [String: Any]`（PromiseGateway / WebAppInterface ×2 / EthTokenUriResolver / SwtcTokenUriResolver / NftUrlUtils ×3 / NftClient ×2 / SwiftWallet+WalletSigning） | 加 `parseObject(_ data: Data)` / `parseArray(_ data: Data)` 重载，11 处收敛 |
-| C-2 | 7 处 | `JSONSerialization.data(withJSONObject:)` + `String(data:, .utf8)` 组合重复（`SwtcTokenUriResolver.jsonString`、`NativeResponseChannel.jsonString`、`WebViewBridgeClient.jsonString` 等） | 加 `Json.stringify(_ data:)` 或 `Json.stringData(_:)` 收敛 |
-| C-3 | `DAppConnectSdk.jsQuote` vs `WebViewBridgeClient.jsString` | 同一「JS 字符串字面量转义」两个实现（JSONEncoder `.withoutEscapingSlashes` vs JSONSerialization `.fragmentsAllowed`，`/` 转义语义略异） | 收敛为带 `escapeSlashes:` 参数的单一工具，顺带消除 V-2 |
-| C-4 | `DidCredentialHelper.swift:27,37` vs `String+Manipulation.swift:24` | 去空白正则 `"\\s+"` vs `"\\s"` 语义不一致 | 统一为 SwiftCore `removingWhitespace()` 扩展 |
+| C-1 | `Json.swift` | `Json.parseObject/parseArray` 仅接受 `String`，缺 `Data` 重载；全库 **11 处**直接 `(try? JSONSerialization.jsonObject(with: data)) as? [String: Any]`（PromiseGateway / WebAppInterface ×2 / EthTokenUriResolver / SwtcTokenUriResolver / NftUrlUtils ×3 / NftClient ×2 / SwiftWallet+WalletSigning） | ✅ **已实现**：`Json.parseObject(_ data: Data)` / `parseArray(_ data: Data)` 重载（String 版委托 Data 版），11 处调用点收敛（SwiftWebviewBridge 补 SwiftCore 依赖） |
+| C-2 | 7 处 | `JSONSerialization.data(withJSONObject:)` + `String(data:, .utf8)` 组合重复（`SwtcTokenUriResolver.jsonString`、`NativeResponseChannel.jsonString`、`WebViewBridgeClient.jsonString` 等） | ✅ **已实现**：新增 `Json.stringifyOrNil(_:fragmentsAllowed:)`，`PromiseGateway.parseResult` / `SwtcTokenUriResolver` / `NativeResponseChannel.jsonString` / `WebViewBridgeClient.jsonString` 收敛 |
+| C-3 | `DAppConnectSdk.jsQuote` vs `WebViewBridgeClient.jsString` | 同一「JS 字符串字面量转义」两个实现（JSONEncoder `.withoutEscapingSlashes` vs JSONSerialization `.fragmentsAllowed`，`/` 转义语义略异） | ✅ **已实现**：新增 `Json.jsStringLiteral(_:escapingSlashes:)`（桥内 `true`、URL 场景 `false`），删除两处 `jsQuote`/`jsString` 私有实现，**顺带消除 V-2 的 `try!`** |
+| C-4 | `DidCredentialHelper.swift:27,37` vs `String+Manipulation.swift:24` | 去空白正则 `"\\s+"` vs `"\\s"` 语义不一致 | ✅ **已实现**：SwiftCore 新增 `String.removingWhitespace()`（`\s+`），`hex2utf8` 与 `DidCredentialHelper` 两处收敛 |
 
 ### 6.3 性能
 
@@ -711,10 +724,10 @@ if !expirationDate.isEmpty,
 | 优先级 | 项 | 类型 |
 |---|---|---|
 | P0 | V-1 Vault `get*Internal` 改 internal | 漏洞 |
-| P1 | C-1 `Json.parseObject(Data)` 重载收敛 11 处 | 收敛 |
+| P1 | ~~C-1 `Json.parseObject(Data)` 重载收敛 11 处~~（✅ 已实现，见 6.2） | 收敛 |
 | P1 | P-1 `JSONEncoder` 复用（桥热路径） | 性能 |
 | P1 | V-4 DidCoreService 写路径吞错 | 漏洞 |
-| P2 | V-2 `try!` 消除 + C-3 JS 转义收敛 | 漏洞+收敛 |
+| P2 | ~~V-2 `try!` 消除 + C-3 JS 转义收敛~~（✅ 已实现，见 6.2 C-3） | 漏洞+收敛 |
 | P2 | V-3 `precondition` → throw | 漏洞 |
-| P2 | C-2 / C-4 序列化 / 去空白收敛 | 收敛 |
+| P2 | ~~C-2 / C-4 序列化 / 去空白收敛~~（✅ 已实现，见 6.2） | 收敛 |
 | 记录 | P-2 / P-3 / P-4 主线程 JSON、正则、O(n²) | 性能 |

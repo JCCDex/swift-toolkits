@@ -211,7 +211,7 @@ public final class NftClient: DidNftResolution, Sendable {
             self.logFailure("fetchAndCacheNftMeta fetch failed", host: self.hostOf(normalized))
             return nil
         }
-        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        guard let json = Json.parseObject(data) else {
             self.logFailure("fetchAndCacheNftMeta parse failed", host: self.hostOf(normalized))
             return nil
         }
@@ -489,7 +489,7 @@ public final class NftClient: DidNftResolution, Sendable {
 
     private func parseVc(_ vc: String) -> [String: Any]? {
         guard let data = vc.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return Json.parseObject(data)
     }
 
     private func sanitizeUri(_ uri: String?) -> String {

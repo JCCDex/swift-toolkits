@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 @MainActor
 final class PromiseGateway {
@@ -172,7 +173,7 @@ final class PromiseGateway {
     static func parseResult(_ resultJson: String) -> Result<String, Error> {
         guard
             let data = resultJson.data(using: .utf8),
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let object = Json.parseObject(data)
         else {
             return .failure(WebViewBridgeError.malformedJSON(resultJson))
         }
@@ -188,8 +189,7 @@ final class PromiseGateway {
             return .success(string)
         }
         // 顶层数字/布尔需要 .fragmentsAllowed；对象/NSNull 不受影响。
-        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]),
-           let text = String(data: data, encoding: .utf8) {
+        if let text = Json.stringifyOrNil(result, fragmentsAllowed: true) {
             return .success(text)
         }
         // 兜底：NSNumber 用 stringValue（固定格式，与 locale 无关——`String(describing:)` 会随

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import WebKit
 
 @MainActor
@@ -271,7 +272,7 @@ public final class WebViewBridgeClient: NSObject {
     /// 与 Kotlin 只接受 JSONObject 参数的契约保持一致，避免静默变成 nil。
     private static func jsonDictionary(_ params: some Encodable) throws -> [String: Any] {
         let data = try JSONEncoder().encode(params)
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let object = Json.parseObject(data) else {
             throw WebViewBridgeError.invalidParams
         }
         return object
@@ -280,17 +281,14 @@ public final class WebViewBridgeClient: NSObject {
     /// [String: Any] -> JSON 文本；nil -> nil（调用处回退 "null"）
     private static func jsonString(_ value: Any?) -> String? {
         guard let value else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return Json.stringifyOrNil(value)
     }
 
     /// 生成 JS 字符串字面量（JSON 字符串是 JS 字符串字面量的安全超集），
     /// 等价 Kotlin 的 JSONObject.quote()，避免手拼转义导致注入/语法错误。
+    /// 桥内 method/id 注入按 JSONSerialization 默认行为转义 `/`（对齐原 jsString）。
     private static func jsString(_ value: String) -> String {
-        // 顶层字符串必须加 .fragmentsAllowed，否则 NSJSONSerialization 抛 ObjC 异常，
-        // 在 Swift 桥接下表现为内存损坏（malloc guard 报错）。
-        let data = try! JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
-        return String(data: data, encoding: .utf8)!
+        Json.jsStringLiteral(value, escapingSlashes: true)
     }
 }
 

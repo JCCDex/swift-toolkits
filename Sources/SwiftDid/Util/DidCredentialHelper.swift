@@ -24,7 +24,7 @@ enum DidCredentialHelper {
 
     static func generateVcId(_ data: UnifiedNftCredentialData) -> String {
         if self.isSwtcOwnerDid(data.ownerDid) {
-            let tokenNameClean = (data.tokenName ?? "").replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+            let tokenNameClean = (data.tokenName ?? "").removingWhitespace()
             return "\(data.ownerDid)#nft-\(tokenNameClean)-\(data.nftIssuer ?? "")-\(data.tokenId)-\(data.granteeDid)"
         }
         let checksumContract = ChecksumUtils.toChecksumAddress(data.contractAddress ?? "", or: "")
@@ -34,7 +34,7 @@ enum DidCredentialHelper {
     static func buildAvatarCredentialId(ownerDid: String, asset: DidAvatarAsset, granteeDid: String = "") -> String {
         let grantee = granteeDid.isEmpty ? ownerDid : granteeDid
         if asset.isSwtc {
-            let tokenNameClean = (asset.tokenName ?? "").replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+            let tokenNameClean = (asset.tokenName ?? "").removingWhitespace()
             return "\(ownerDid)#nft-\(tokenNameClean)-\(asset.issuer ?? "")-\(asset.tokenId)-\(grantee)"
         }
         let checksumContract = ChecksumUtils.toChecksumAddress(asset.contract, or: "")

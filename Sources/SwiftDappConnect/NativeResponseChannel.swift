@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 
 /// Native → JS 响应 payload 构造（Kotlin `NativeResponseChannel` 的序列化规则）。
 public enum NativeResponseChannel {
@@ -19,10 +20,6 @@ public enum NativeResponseChannel {
 extension [String: Any] {
     /// JSON 序列化辅助（仅用于需要与 Kotlin wire 格式严格对齐或日志时）。
     var jsonString: String {
-        guard
-            let data = try? JSONSerialization.data(withJSONObject: self),
-            let text = String(data: data, encoding: .utf8)
-        else { return "{}" }
-        return text
+        Json.stringifyOrNil(self) ?? "{}"
     }
 }

@@ -74,24 +74,57 @@ public enum Json {
 
     /// 解析 JSON 字符串为字典（非法/非字典 → nil）。
     public static func parseObject(_ string: String) -> [String: Any]? {
-        guard let data = string.data(using: .utf8),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        else { return nil }
-        return object
+        guard let data = string.data(using: .utf8) else { return nil }
+        return self.parseObject(data)
+    }
+
+    /// 解析 JSON Data 为字典（非法/非字典 → nil；收敛全库 11 处
+    /// `(try? JSONSerialization.jsonObject(with: data)) as? [String: Any]` 重复，见 review 六 C-1）。
+    public static func parseObject(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     /// 解析 JSON 字符串为数组（非法/非数组 → nil）。
     public static func parseArray(_ string: String) -> [Any]? {
-        guard let data = string.data(using: .utf8),
-              let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
-        else { return nil }
-        return array
+        guard let data = string.data(using: .utf8) else { return nil }
+        return self.parseArray(data)
+    }
+
+    /// 解析 JSON Data 为数组（非法/非数组 → nil）。
+    public static func parseArray(_ data: Data) -> [Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [Any]
     }
 
     /// 序列化为 JSON 字符串（非法值 → ""）。
     public static func stringify(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return "" }
-        return String(data: data, encoding: .utf8) ?? ""
+        self.stringifyOrNil(value) ?? ""
+    }
+
+    /// 序列化为 JSON 字符串（非法值 → nil；收敛全库
+    /// `try? JSONSerialization.data(withJSONObject:)` + `String(data:, .utf8)` 组合，见 review 六 C-2）。
+    /// `fragmentsAllowed: true` 允许顶层数字/布尔/字符串（JS 回传场景，对齐 Kotlin）。
+    public static func stringifyOrNil(_ value: Any, fragmentsAllowed: Bool = false) -> String? {
+        let options: JSONSerialization.WritingOptions = fragmentsAllowed ? [.fragmentsAllowed] : []
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: options) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// 生成 JS 字符串字面量（JSON 字符串是 JS 字符串字面量的安全超集；收敛
+    /// `DAppConnectSdk.jsQuote` / `WebViewBridgeClient.jsString` 双实现，见 review 六 C-3）。
+    /// - `escapingSlashes: true`：`/` → `\/`（JSONSerialization 默认行为，对齐桥内 method/id 注入）；
+    /// - `escapingSlashes: false`：保留 `/` 原文（URL 场景，对齐 `JSONEncoder .withoutEscapingSlashes`）。
+    public static func jsStringLiteral(_ value: String, escapingSlashes: Bool = false) -> String {
+        let text: String?
+        if escapingSlashes {
+            // 顶层字符串必须加 .fragmentsAllowed，否则 NSJSONSerialization 抛 ObjC 异常
+            // （原 jsString 注释：Swift 桥接下表现为内存损坏）。
+            text = self.stringifyOrNil(value, fragmentsAllowed: true)
+        } else {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.withoutEscapingSlashes]
+            text = (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
+        }
+        return text ?? "\"\""
     }
 
     /// 缺失 JSON 文档哨兵（对齐 Kotlin `DidResolveUtils.isMissingDidDocument` + 空串防御，

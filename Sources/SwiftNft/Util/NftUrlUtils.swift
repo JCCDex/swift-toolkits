@@ -135,7 +135,7 @@ func extractMetadataImageURLFromBody(
     gateway: String = IpfsResolver.defaultGateway
 ) -> String? {
     guard let data = metadataBody.data(using: .utf8),
-          let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+          let root = Json.parseObject(data)
     else { return nil }
     return extractMetadataImageURL(dict: root, metadataUri: metadataUri, gateway: gateway)
 }
@@ -163,7 +163,7 @@ public func extractMetadataFields(
     gateway: String = IpfsResolver.defaultGateway
 ) -> NftMetadataFields {
     guard let data = metadataBody.data(using: .utf8),
-          let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+          let root = Json.parseObject(data)
     else { return .empty }
     let payload = (root["data"] as? [String: Any]) ?? root
     let image = extractMetadataImageURL(dict: root, metadataUri: metadataUri, gateway: gateway)
@@ -180,7 +180,7 @@ public func extractMetadataFields(
 func parseSwtcMetadataUri(_ tokenInfosPayload: String?, gateway: String = IpfsResolver.defaultGateway) -> String? {
     guard let payload = tokenInfosPayload, !payload.isEmpty,
           let data = payload.data(using: .utf8),
-          let infos = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
+          let infos = Json.parseArray(data)
     else { return nil }
     for element in infos {
         guard let item = element as? [String: Any],

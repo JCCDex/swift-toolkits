@@ -117,7 +117,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         Task { @MainActor [weak self] in
             let parsed = await Task.detached(priority: .userInitiated) { () -> ParsedMessage in
                 let obj: [String: Any]? = if let bodyText {
-                    try? JSONSerialization.jsonObject(with: Data(bodyText.utf8)) as? [String: Any]
+                    Json.parseObject(Data(bodyText.utf8))
                 } else {
                     nil
                 }
@@ -221,12 +221,8 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         let nonce = (payload["nonce"] as? String) ?? ""
         let json = payload.jsonString
         let script =
-            "window._ccdaoSettle && window._ccdaoSettle(\(Self.jsQuote(nonce)), \(Self.jsQuote(json)), \(Self.jsQuote(self.responseToken)));"
+            "window._ccdaoSettle && window._ccdaoSettle(\(Json.jsStringLiteral(nonce)), \(Json.jsStringLiteral(json)), \(Json.jsStringLiteral(self.responseToken)));"
         webView.evaluateJavaScript(script, completionHandler: nil)
-    }
-
-    private static func jsQuote(_ s: String) -> String {
-        DAppConnectSdk.jsQuote(s)
     }
 
     // MARK: - 路由（internal，供测试直接调用）
@@ -595,7 +591,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             }
             let privateKey = try await privateKeyOrFail(address: address, origin: origin)
             let signedVc = try await didSDK.signCredential(privateKey: privateKey, vcJson: vcJson.jsonString)
-            if let object = (try? JSONSerialization.jsonObject(with: Data(signedVc.utf8))) as? [String: Any] {
+            if let object = Json.parseObject(Data(signedVc.utf8)) {
                 return self.success(nonce, .object(object))
             }
             return self.success(nonce, .string(signedVc))

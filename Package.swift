@@ -48,6 +48,9 @@ var targets: [Target] = [
     ),
     .target(
         name: "SwiftWebviewBridge",
+        dependencies: [
+            .target(name: "SwiftCore") // Json 解析/JS 字面量工具（review 六 C-1/C-3）
+        ],
         path: "Sources/SwiftWebviewBridge",
         exclude: ["README.md"], // 模块内 README 非 target 资源（消除 SwiftPM unhandled 告警）
         resources: [

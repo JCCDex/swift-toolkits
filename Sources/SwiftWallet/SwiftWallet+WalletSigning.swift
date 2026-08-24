@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCore
 import SwiftDappConnect
 
 // MARK: - SwiftWallet: WalletSigning
@@ -46,7 +47,7 @@ extension SwiftWallet: WalletSigning {
         let raw: String = try await self.buildSwtcNftTransferRaw(address: address, to: to, tokenId: tokenId, memo: memo)
         guard
             let data = raw.data(using: .utf8),
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let object = Json.parseObject(data)
         else {
             throw SwiftWalletError.invalidResponse(
                 "buildSwtcNftTransfer: bridge returned non-JSON-object: \(Self.sanitizedPreview(raw))"

@@ -94,14 +94,14 @@ public enum DAppConnectSdk {
             return ""
         }
         // 把资源里的占位符替换为 token 字面量；未找到占位符时保持 null（fail-closed）。
-        return template.replacingOccurrences(of: "/*__CCDAO_BRIDGE_TOKEN__*/ null", with: self.jsQuote(token))
+        return template.replacingOccurrences(of: "/*__CCDAO_BRIDGE_TOKEN__*/ null", with: Json.jsStringLiteral(token))
     }
 
     /// 初始化 JS：经 `_ccdaoNative('init', ...)` 设置 chainId / rpcUrl（带 token 鉴权）。
     public static func dappInit(chainIdHex: String, rpcUrl: String, token: String) -> String {
-        let chain = self.jsQuote(chainIdHex)
-        let rpc = self.jsQuote(rpcUrl)
-        let auth = self.jsQuote(token)
+        let chain = Json.jsStringLiteral(chainIdHex)
+        let rpc = Json.jsStringLiteral(rpcUrl)
+        let auth = Json.jsStringLiteral(token)
         return """
         (function () {
           try {
@@ -117,16 +117,16 @@ public enum DAppConnectSdk {
 
     /// 推送选中地址变更（经 `_ccdaoNative('setAddress', ...)`，带 token 鉴权）。
     public static func setAddress(address: String, isSwtc: Bool, token: String) -> String {
-        let addr = self.jsQuote(address)
-        let auth = self.jsQuote(token)
+        let addr = Json.jsStringLiteral(address)
+        let auth = Json.jsStringLiteral(token)
         return "if (window._ccdaoNative) { window._ccdaoNative('setAddress', { address: \(addr), isSwtc: \(isSwtc) }, \(auth)); }"
     }
 
     /// 推送链切换并触发 chainChanged（经 `_ccdaoNative('setChainId', ...)`，带 token 鉴权）。
     public static func setChainId(chainIdHex: String, rpcUrl: String, token: String) -> String {
-        let chain = self.jsQuote(chainIdHex)
-        let rpc = self.jsQuote(rpcUrl)
-        let auth = self.jsQuote(token)
+        let chain = Json.jsStringLiteral(chainIdHex)
+        let rpc = Json.jsStringLiteral(rpcUrl)
+        let auth = Json.jsStringLiteral(token)
         return "if (window._ccdaoNative) { window._ccdaoNative('setChainId', { chainIdHex: \(chain), rpcUrl: \(rpc) }, \(auth)); }"
     }
 
@@ -185,17 +185,6 @@ public enum DAppConnectSdk {
       };
     })();
     """
-
-    /// JS 字符串字面量转义（WebAppInterface 复用；两处原各有一份私有实现，见跨模块重复 2.1）。
-    /// 用 `JSONEncoder` + `.withoutEscapingSlashes` 单次序列化取代手写 4 次 `replacingOccurrences`
-    /// 全串拷贝（JSON 字符串转义是 JS 字符串字面量转义的超集；不转义 `/` 保留 URL 原文，
-    /// 见 review F-1；`JSONSerialization` 会把 `/` 转成 `\/`，不可用）。
-    static func jsQuote(_ s: String) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        let data = try! encoder.encode(s)
-        return String(data: data, encoding: .utf8)!
-    }
 }
 
 private extension WebAppInterface {

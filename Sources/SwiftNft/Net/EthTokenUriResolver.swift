@@ -64,7 +64,7 @@ public final class EthTokenUriResolver: IEthTokenUriResolver {
         ]) else { return nil }
 
         guard let data = try? await self.httpClient.fetchRpc(url, body: body),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let json = Json.parseObject(data),
               let rawResult = json["result"] as? String
         else { return nil }
         return Self.normalizeTokenMetadataUri(Self.decodeAbiString(rawResult), gateway: self.gateway)

@@ -21,8 +21,14 @@ public extension String {
         if clean.lowercased().hasPrefix("0x") {
             clean = String(clean.dropFirst(2))
         }
-        clean = clean.replacingOccurrences(of: "\\s", with: "", options: .regularExpression)
+        clean = clean.removingWhitespace()
         guard let bytes = Hex.decode(clean) else { return "" }
         return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    /// 移除全部空白字符（正则 `\s+`；统一此前 `"\\s"` / `"\\s+"` 两种写法，见 review 六 C-4）。
+    /// 结果等价（`\s` 逐个移除 vs `\s+` 连续段一次移除），`\s+` 少一次中间分配。
+    func removingWhitespace() -> String {
+        replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
     }
 }
