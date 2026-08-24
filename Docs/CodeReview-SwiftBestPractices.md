@@ -287,7 +287,7 @@ if !expirationDate.isEmpty,
 5. **`Hd` → `HD`**：`importHdWallet`/`hdResult:`/`rootHDAccounts`。
 6. **标签冗余**：`hdWalletFromMnemonic(mnemonic:)`、`deriveFromMnemonic(mnemonic:)`、`updateParentId(accountId:parentId:)`。
 7. **同操作不同名**：`ContinuationBox.resume` vs `ReadyWaitBox.resumeIfPending`；`PromiseGateway` 内 `onPromiseResult/register/finish/remove` 四动词。
-8. **`route()` / `WebAppInterface` 672 行**：按域拆 `routeSwtc/routeEth/routeDidNft`，把参数提取下沉到各 handler。
+8. ✅ **已实现**：`route()` / `WebAppInterface` 672 行——已按域拆 `routeSwtc`/`routeEth`/`routeWallet`/`routeDidNft`（顶层 `route` 只按 `DAppMethod` 域分发，各域方法内做参数提取与 handler 调用；参数提取位置不变——用户评估后认为下沉到 handler 更啰嗦，见 SwiftDappConnect P1#8）。
 9. `handleEthSignTypedData` 收整个 `request` 与其余 handler 收提取参数的风格不一致。
 
 ---

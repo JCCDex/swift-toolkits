@@ -228,11 +228,36 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     // MARK: - 路由（internal，供测试直接调用）
 
-    func route(_ request: DAppRequest, origin: String) async -> [String: Any] {
-        let nonce = request.nonce ?? request.id
+    // 按域拆分（review 命名规范 #8）：顶层 route 只按域分发，各域方法内做参数提取
+    // 与 handler 调用（参数提取位置不变——用户评估后认为下沉到 handler 更啰嗦，见 P1#8）。
 
+    func route(_ request: DAppRequest, origin: String) async -> [String: Any] {
         switch DAppMethod.fromValue(request.name) {
-        // SWTC
+        case .swtcRequestAccounts, .swtcSendTransaction, .swtcMultiSign,
+             .swtcSignMessage, .swtcGetPublicKey, .swtcRequestNfts:
+            await self.routeSwtc(request, origin: origin)
+        case .ethAccounts, .ethRequestAccounts, .ethChainId, .ethBlockNumber,
+             .ethPersonalSign, .ethPersonalEcRecover, .ethSignTypedData,
+             .ethSignTypedDataV3, .ethSignTypedDataV4, .ethSendTransaction,
+             .ethSignTransaction, .ethGetEncryptionPublicKey, .ethDecrypt,
+             .ethRequestNfts:
+            await self.routeEth(request, origin: origin)
+        case .walletSwitchEthereumChain:
+            await self.routeWallet(request, origin: origin)
+        case .didRequestAccountName, .didGetBase58PublicKey, .didIssueCredential,
+             .ipfsPersonalSign, .ipfsGetPublicKey:
+            await self.routeDidNft(request, origin: origin)
+        case .web3ClientVersion:
+            self.success(request.nonce ?? request.id, .string("CCDAO/v1.0.0"))
+        case .unknown:
+            self.error(request.nonce ?? request.id, "Method not supported")
+        }
+    }
+
+    /// SWTC 域：requestAccounts / sendTransaction / multiSign / signMessage / getPublicKey / requestNfts。
+    private func routeSwtc(_ request: DAppRequest, origin: String) async -> [String: Any] {
+        let nonce = request.nonce ?? request.id
+        switch DAppMethod.fromValue(request.name) {
         case .swtcRequestAccounts:
             return await self.handleSwtcRequestAccounts(nonce: nonce, origin: origin)
         case .swtcSendTransaction:
@@ -258,7 +283,18 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 return self.error(nonce, "Missing address parameter")
             }
             return await self.handleSwtcGetPublicKey(nonce: nonce, origin: origin, address: address)
-        // ETH
+        case .swtcRequestNfts:
+            let address = self.paramsString(request.params, index: 0) ?? ""
+            return await self.handleSwtcRequestNfts(nonce: nonce, address: address)
+        default:
+            return self.error(nonce, "Method not supported")
+        }
+    }
+
+    /// ETH 域：EIP-1193 全部 + eth_requestNfts。
+    private func routeEth(_ request: DAppRequest, origin: String) async -> [String: Any] {
+        let nonce = request.nonce ?? request.id
+        switch DAppMethod.fromValue(request.name) {
         case .ethRequestAccounts, .ethAccounts:
             return await self.handleEthRequestAccounts(nonce: nonce, origin: origin)
         case .ethChainId:
@@ -310,21 +346,28 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
                 return self.error(nonce, "Missing transaction parameters")
             }
             return await self.handleEthSendTransaction(nonce: nonce, origin: origin, txParams: txParams)
-        // Wallet
-        case .walletSwitchEthereumChain:
-            guard let chainId = paramsObject(request.params, index: 0)?["chainId"] as? String else {
-                return self.error(nonce, "Missing chainId parameter")
-            }
-            return await self.handleWalletSwitchEthereumChain(nonce: nonce, origin: origin, chainId: chainId)
-        // SWTC / ETH NFT
-        case .swtcRequestNfts:
-            let address = self.paramsString(request.params, index: 0) ?? ""
-            return await self.handleSwtcRequestNfts(nonce: nonce, address: address)
         case .ethRequestNfts:
             let address = self.paramsString(request.params, index: 0) ?? ""
             let whiteList = self.paramsArray(request.params, index: 1)
             return await self.handleEthRequestNfts(nonce: nonce, address: address, whiteList: whiteList)
-        // DID / IPFS
+        default:
+            return self.error(nonce, "Method not supported")
+        }
+    }
+
+    /// Wallet 域：wallet_switchEthereumChain。
+    private func routeWallet(_ request: DAppRequest, origin: String) async -> [String: Any] {
+        let nonce = request.nonce ?? request.id
+        guard let chainId = paramsObject(request.params, index: 0)?["chainId"] as? String else {
+            return self.error(nonce, "Missing chainId parameter")
+        }
+        return await self.handleWalletSwitchEthereumChain(nonce: nonce, origin: origin, chainId: chainId)
+    }
+
+    /// DID / IPFS 域：did_* / ipfs_*（与 NFT 相关方法一同按域拆分，命名 #8）。
+    private func routeDidNft(_ request: DAppRequest, origin: String) async -> [String: Any] {
+        let nonce = request.nonce ?? request.id
+        switch DAppMethod.fromValue(request.name) {
         case .didRequestAccountName:
             let address = self.paramsString(request.params, index: 0) ?? ""
             return await self.handleDidRequestAccountName(nonce: nonce, address: address)
@@ -343,10 +386,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         case .ipfsGetPublicKey:
             let address = self.paramsString(request.params, index: 0) ?? ""
             return await self.handleIpfsGetPublicKey(nonce: nonce, origin: origin, address: address)
-        // Common
-        case .web3ClientVersion:
-            return self.success(nonce, .string("CCDAO/v1.0.0"))
-        case .unknown:
+        default:
             return self.error(nonce, "Method not supported")
         }
     }
