@@ -24,16 +24,16 @@ public enum AccountOperationError: Error, Equatable, Sendable {
 /// HD 钱包导入结果（对齐 Kotlin `ImportHdWalletResult`）。
 public struct ImportHdWalletResult: Sendable, Equatable {
     public let rootAccountId: String
-    public let children: [HdChildAccountId]
+    public let children: [HDChildAccountId]
 
-    public init(rootAccountId: String, children: [HdChildAccountId]) {
+    public init(rootAccountId: String, children: [HDChildAccountId]) {
         self.rootAccountId = rootAccountId
         self.children = children
     }
 }
 
-/// HD 子账户标识（对齐 Kotlin `HdChildAccountId`）。
-public struct HdChildAccountId: Sendable, Equatable {
+/// HD 子账户标识（对齐 Kotlin `HDChildAccountId`）。
+public struct HDChildAccountId: Sendable, Equatable {
     public let chain: ChainType
     public let accountId: String
 

@@ -91,8 +91,8 @@ public final class SwiftAccount: Sendable {
         try await self.store.updatePublicKey(accountId: accountId, publicKey: publicKey)
     }
 
-    public func updateParentId(accountId: String, parentId: String) async throws {
-        try await self.store.updateParentId(accountId: accountId, parentId: parentId)
+    public func updateParentId(_ accountId: String, parentId: String) async throws {
+        try await self.store.updateParentId(accountId, parentId: parentId)
     }
 
     public func clearAllAccounts() async throws {
@@ -121,19 +121,19 @@ public final class SwiftAccount: Sendable {
         try await self.store.findNonRootAccount(address: address, chain: chain)
     }
 
-    public func getMaxIndexByChain(parentId: String, chain: ChainType) async throws -> Int {
-        try await self.store.getMaxIndexByChain(parentId: parentId, chain: chain)
+    public func maxIndexByChain(parentId: String, chain: ChainType) async throws -> Int {
+        try await self.store.maxIndexByChain(parentId: parentId, chain: chain)
     }
 
     public func countSubAccountsByChain(parentId: String, chain: ChainType) async throws -> Int {
         try await self.store.countSubAccountsByChain(parentId: parentId, chain: chain)
     }
 
-    public func getCurrentAccountId() async throws -> String? {
-        try await self.store.getCurrentAccountId()
+    public func currentAccountId() async throws -> String? {
+        try await self.store.currentAccountId()
     }
 
-    public func getSameAccountsCount(address: String) async throws -> Int {
-        try await self.store.getSameAccountsCount(address: address)
+    public func sameAccountsCount(address: String) async throws -> Int {
+        try await self.store.sameAccountsCount(address: address)
     }
 }

@@ -54,7 +54,7 @@ public final class AccountManager: Sendable {
     /// 导入 HD 钱包：根账户（SWTC）+ 各链子账户。
     /// - Parameters:
     ///   - password: vault 为空时初始化密码；vault 已有密码时忽略。
-    public func importHdWallet(
+    public func importHDWallet(
         hdResult: GenerateHDWalletResult,
         name: String,
         password: Data?
@@ -90,7 +90,7 @@ public final class AccountManager: Sendable {
                 publicKey: hdResult.keypair.publicKey
             )
             var accounts = [rootAccount]
-            var childIds: [HdChildAccountId] = []
+            var childIds: [HDChildAccountId] = []
             var keys: [VaultPrivateKeyImport] = []
 
             for sub in hdResult.accounts {
@@ -110,7 +110,7 @@ public final class AccountManager: Sendable {
                     publicKey: sub.keypair.publicKey
                 )
                 accounts.append(child)
-                childIds.append(HdChildAccountId(chain: chainType, accountId: child.id))
+                childIds.append(HDChildAccountId(chain: chainType, accountId: child.id))
             }
 
             try await self.vault.importPrivateKeys(keys)
@@ -164,7 +164,7 @@ public final class AccountManager: Sendable {
                 var deriveIndex: Int = if let index {
                     index
                 } else {
-                    try await self.store.getMaxIndexByChain(parentId: rootAccountId, chain: chain) + 1
+                    try await self.store.maxIndexByChain(parentId: rootAccountId, chain: chain) + 1
                 }
                 var subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
 
@@ -206,7 +206,7 @@ public final class AccountManager: Sendable {
             guard let account = try await self.store.findById(accountId) else {
                 return .success(())
             }
-            let count = try await self.store.getSameAccountsCount(address: account.address)
+            let count = try await self.store.sameAccountsCount(address: account.address)
             try await self.store.removeAccount(accountId: account.id)
             if count == 1 {
                 try await self.vault.removeAddressUnlocked(address: account.address)

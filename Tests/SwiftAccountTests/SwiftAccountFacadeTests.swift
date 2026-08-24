@@ -55,11 +55,11 @@ final class SwiftAccountFacadeTests: XCTestCase {
         XCTAssertEqual(byAddress, account)
 
         try await self.account.addAccounts([self.makeAccount(address: "0xb")])
-        let sameCount = try await self.account.getSameAccountsCount(address: "0xabc")
+        let sameCount = try await self.account.sameAccountsCount(address: "0xabc")
         XCTAssertEqual(sameCount, 1)
 
         try await self.account.setCurrentAccount(accountId: account.id)
-        let currentId = try await self.account.getCurrentAccountId()
+        let currentId = try await self.account.currentAccountId()
         XCTAssertEqual(currentId, account.id)
 
         try await self.account.updateAccountName(accountId: account.id, name: "renamed")

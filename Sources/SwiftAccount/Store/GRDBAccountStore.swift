@@ -173,7 +173,7 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         }
     }
 
-    public func updateParentId(accountId: String, parentId: String) async throws {
+    public func updateParentId(_ accountId: String, parentId: String) async throws {
         try await self.database.write { db in
             try Self.requireUpdate(db, sql: "UPDATE accounts SET parentId = ? WHERE id = ?", arguments: [parentId, accountId], accountId: accountId)
         }
@@ -249,7 +249,7 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         }
     }
 
-    public func getMaxIndexByChain(parentId: String, chain: ChainType) async throws -> Int {
+    public func maxIndexByChain(parentId: String, chain: ChainType) async throws -> Int {
         try await self.database.read { db in
             let sql = """
             SELECT MAX(pathIndex) FROM accounts
@@ -272,13 +272,13 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         }
     }
 
-    public func getCurrentAccountId() async throws -> String? {
+    public func currentAccountId() async throws -> String? {
         try await self.database.read { db in
             try CurrentAccountRecord.fetchOne(db)?.accountId
         }
     }
 
-    public func getSameAccountsCount(address: String) async throws -> Int {
+    public func sameAccountsCount(address: String) async throws -> Int {
         try await self.database.read { db in
             try Int.fetchOne(
                 db,

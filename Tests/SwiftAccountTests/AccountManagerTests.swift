@@ -106,7 +106,7 @@ final class AccountManagerTests: XCTestCase {
         XCTAssertNil(saved)
     }
 
-    // MARK: - importHdWallet
+    // MARK: - importHDWallet
 
     func testImportHdWalletRootAndChildren() async throws {
         let hd = GenerateHDWalletResult(
@@ -120,13 +120,13 @@ final class AccountManagerTests: XCTestCase {
                 SubWallet(chain: 999_999, address: "unknown-chain", path: Path(chain: 999_999), keypair: self.keypair("unknown-chain"))
             ]
         )
-        let result = await self.manager.importHdWallet(hdResult: hd, name: "My HD", password: self.password)
+        let result = await self.manager.importHDWallet(hdResult: hd, name: "My HD", password: self.password)
 
         guard case let .success(imported) = result else {
             return XCTFail("应成功，得到 \(result)")
         }
         // 根 + 2 个已知链子账户；未知链整体跳过
-        let rootCount = try await self.store.getSameAccountsCount(address: "rootAddr")
+        let rootCount = try await self.store.sameAccountsCount(address: "rootAddr")
         XCTAssertEqual(rootCount, 1)
         XCTAssertEqual(imported.children.count, 2)
         XCTAssertEqual(imported.children[0].chain, .eth)
@@ -149,11 +149,11 @@ final class AccountManagerTests: XCTestCase {
             mnemonic: "m", address: "rootAddr", language: "english",
             keypair: self.keypair("rootAddr"), accounts: []
         )
-        let result = await self.manager.importHdWallet(hdResult: hd, name: "x", password: nil)
+        let result = await self.manager.importHDWallet(hdResult: hd, name: "x", password: nil)
         XCTAssertEqual(result, .failure(.passwordRequired))
     }
 
-    // 清空操作已从 importHdWallet 解耦（用户要求）：clearExisting/clearExistingPassword
+    // 清空操作已从 importHDWallet 解耦（用户要求）：clearExisting/clearExistingPassword
     // 参数移除，清库统一走 clearWalletData（密码门测试见 testClearWalletData）。
 
     // MARK: - deriveSubAccount
@@ -166,7 +166,7 @@ final class AccountManagerTests: XCTestCase {
             address: "rootAddr", language: "english",
             keypair: self.keypair("rootAddr"), accounts: []
         )
-        guard case let .success(imported) = await self.manager.importHdWallet(hdResult: hd, name: "Root", password: self.password) else {
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
             return XCTFail("导入根失败")
         }
         // Fake：派生地址 = "0xchild-<index>"，索引推进
@@ -177,7 +177,7 @@ final class AccountManagerTests: XCTestCase {
         guard case let .success(derived1) = first else {
             return XCTFail("第一次派生失败：\(first)")
         }
-        XCTAssertEqual(derived1.address, "0xchild-0", "空表 getMaxIndexByChain=-1 → 首个子账户 index 0")
+        XCTAssertEqual(derived1.address, "0xchild-0", "空表 maxIndexByChain=-1 → 首个子账户 index 0")
 
         // 落库后自动索引推进到 1
         _ = await self.manager.importSubAccount(derived: derived1, name: "c1")
@@ -197,7 +197,7 @@ final class AccountManagerTests: XCTestCase {
             address: "rootAddr", language: "english",
             keypair: self.keypair("rootAddr"), accounts: []
         )
-        guard case let .success(imported) = await self.manager.importHdWallet(hdResult: hd, name: "Root", password: self.password) else {
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
             return XCTFail("导入根失败")
         }
         // 传统账户占用 index 0 的地址（0xchild-0）
@@ -258,7 +258,7 @@ final class AccountManagerTests: XCTestCase {
         guard case .success = ok else {
             return XCTFail("清除应成功，得到 \(ok)")
         }
-        let count = try await self.store.getSameAccountsCount(address: "0xabc")
+        let count = try await self.store.sameAccountsCount(address: "0xabc")
         XCTAssertEqual(count, 0)
     }
 
@@ -285,7 +285,7 @@ final class AccountManagerTests: XCTestCase {
 
     func testImportHdWalletInitializesPasswordWhenVaultEmpty() async throws {
         let hd = GenerateHDWalletResult(mnemonic: "m", address: "rootAddr", language: "english", keypair: self.keypair("rootAddr"), accounts: [])
-        let result = await self.manager.importHdWallet(hdResult: hd, name: "x", password: self.password)
+        let result = await self.manager.importHDWallet(hdResult: hd, name: "x", password: self.password)
         guard case .success = result else { return XCTFail("应成功：\(result)") }
         let hasPwd = try await self.vault.hasPassword()
         XCTAssertTrue(hasPwd, "空 vault + password → 初始化密码")
@@ -294,8 +294,8 @@ final class AccountManagerTests: XCTestCase {
     func testImportHdWalletReturnsErrorWhenRootExists() async throws {
         try await self.vault.initializePassword(self.password)
         let hd = GenerateHDWalletResult(mnemonic: "m", address: "rootAddr", language: "english", keypair: self.keypair("rootAddr"), accounts: [])
-        _ = await self.manager.importHdWallet(hdResult: hd, name: "x", password: self.password)
-        let dup = await self.manager.importHdWallet(hdResult: hd, name: "y", password: self.password)
+        _ = await self.manager.importHDWallet(hdResult: hd, name: "x", password: self.password)
+        let dup = await self.manager.importHDWallet(hdResult: hd, name: "y", password: self.password)
         XCTAssertEqual(dup, .failure(.accountAlreadyExists))
     }
 
@@ -308,7 +308,7 @@ final class AccountManagerTests: XCTestCase {
             mnemonic: "m", address: "rootAddr", language: "english", keypair: self.keypair("rootAddr"),
             accounts: [SubWallet(chain: ChainType.eth.bip44Code, address: "0xeth", path: Path(chain: ChainType.eth.bip44Code), keypair: self.keypair("0xeth"))]
         )
-        let result = await self.manager.importHdWallet(hdResult: hd, name: "y", password: self.password)
+        let result = await self.manager.importHDWallet(hdResult: hd, name: "y", password: self.password)
         guard case let .success(imported) = result else { return XCTFail("应成功：\(result)") }
         XCTAssertEqual(imported.children.count, 0, "子账户已存在 → 跳过")
         let existing = try await self.store.findById("0xeth#\(ChainType.eth.bip44Code)")
@@ -347,7 +347,7 @@ final class AccountManagerTests: XCTestCase {
     func testDeriveSubAccountUsesSpecifiedIndex() async throws {
         try await self.vault.initializePassword(self.password)
         let hd = GenerateHDWalletResult(mnemonic: "m", address: "rootAddr", language: "english", keypair: self.keypair("rootAddr"), accounts: [])
-        guard case let .success(imported) = await self.manager.importHdWallet(hdResult: hd, name: "Root", password: self.password) else {
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
             return XCTFail("导入根失败")
         }
         let result = await self.manager.deriveSubAccount(chain: .eth, rootAccountId: imported.rootAccountId, password: self.password, index: 5)
@@ -358,7 +358,7 @@ final class AccountManagerTests: XCTestCase {
     func testDeriveSubAccountReturnsFailureWhenWalletThrows() async throws {
         try await self.vault.initializePassword(self.password)
         let hd = GenerateHDWalletResult(mnemonic: "m", address: "rootAddr", language: "english", keypair: self.keypair("rootAddr"), accounts: [])
-        guard case let .success(imported) = await self.manager.importHdWallet(hdResult: hd, name: "Root", password: self.password) else {
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
             return XCTFail("导入根失败")
         }
         self.wallet.setThrowError(AccountOperationError.failure("sdk error"))
@@ -410,11 +410,11 @@ final class FakeWalletDeriving: WalletDeriving, @unchecked Sendable {
         return SubWallet(chain: chain, address: address, path: Path(chain: chain, account: account, change: change, index: index), keypair: Keypair(privateKey: "pk", publicKey: "pub"))
     }
 
-    func hdWalletFromMnemonic(mnemonic: String, chains _: [Int64], language: String) async throws -> GenerateHDWalletResult {
+    func hdWalletFromMnemonic(_ mnemonic: String, chains _: [Int64], language: String) async throws -> GenerateHDWalletResult {
         GenerateHDWalletResult(mnemonic: mnemonic, address: "addr", language: language, keypair: Keypair(privateKey: "pk", publicKey: "pub"), accounts: [])
     }
 
-    func deriveFromPrivateKey(privateKey: String, chain _: Int64) async throws -> TraditionalDeriveResult {
+    func deriveFromPrivateKey(_ privateKey: String, chain _: Int64) async throws -> TraditionalDeriveResult {
         TraditionalDeriveResult(address: "0xfrom", keypair: Keypair(privateKey: privateKey, publicKey: "pub"), path: nil)
     }
 }

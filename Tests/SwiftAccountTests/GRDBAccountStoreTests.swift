@@ -50,7 +50,7 @@ final class GRDBAccountStoreTests: XCTestCase {
         XCTAssertEqual(v0, account)
         let v1 = try await self.store.findByAddress("0xABC", chain: .eth)
         XCTAssertEqual(v1, account, "address 大小写不敏感（LOWER）")
-        let v2 = try await self.store.getSameAccountsCount(address: "0XABC")
+        let v2 = try await self.store.sameAccountsCount(address: "0XABC")
         XCTAssertEqual(v2, 1)
 
         try await self.store.removeAccount(accountId: account.id)
@@ -82,11 +82,11 @@ final class GRDBAccountStoreTests: XCTestCase {
         let account = self.makeAccount()
         try await self.store.addAccount(account)
         try await self.store.setCurrentAccount(accountId: account.id)
-        let v4 = try await self.store.getCurrentAccountId()
+        let v4 = try await self.store.currentAccountId()
         XCTAssertEqual(v4, account.id)
 
         try await self.store.removeAccount(accountId: account.id)
-        let v5 = try await self.store.getCurrentAccountId()
+        let v5 = try await self.store.currentAccountId()
         XCTAssertNil(v5, "删除当前账户 → current 行一并删除（clearIfCurrent）")
     }
 
@@ -95,9 +95,9 @@ final class GRDBAccountStoreTests: XCTestCase {
         try await self.store.addAccount(account)
         try await self.store.setCurrentAccount(accountId: account.id)
         try await self.store.clearAllAccounts()
-        let v6 = try await self.store.getSameAccountsCount(address: account.address)
+        let v6 = try await self.store.sameAccountsCount(address: account.address)
         XCTAssertEqual(v6, 0)
-        let v7 = try await self.store.getCurrentAccountId()
+        let v7 = try await self.store.currentAccountId()
         XCTAssertNil(v7, "clearAllAccounts 一并清空 current_account")
     }
 
@@ -110,7 +110,7 @@ final class GRDBAccountStoreTests: XCTestCase {
     }
 
     func testGetMaxIndexByChainEmptyReturnsMinusOne() async throws {
-        let v9 = try await self.store.getMaxIndexByChain(parentId: "root", chain: .eth)
+        let v9 = try await self.store.maxIndexByChain(parentId: "root", chain: .eth)
         XCTAssertEqual(v9, -1, "空表 MAX 为 NULL → -1")
         let v10 = try await self.store.countSubAccountsByChain(parentId: "root", chain: .eth)
         XCTAssertEqual(v10, 0)
@@ -123,7 +123,7 @@ final class GRDBAccountStoreTests: XCTestCase {
             self.makeAccount(address: "c0", isHD: true, parentId: root.id, index: 0),
             self.makeAccount(address: "c1", isHD: true, parentId: root.id, index: 1)
         ])
-        let maxIndex = try await self.store.getMaxIndexByChain(parentId: root.id, chain: .eth)
+        let maxIndex = try await self.store.maxIndexByChain(parentId: root.id, chain: .eth)
         XCTAssertEqual(maxIndex, 1)
         let subCount = try await self.store.countSubAccountsByChain(parentId: root.id, chain: .eth)
         XCTAssertEqual(subCount, 2)
@@ -181,7 +181,7 @@ final class GRDBAccountStoreTests: XCTestCase {
         try await self.store.addAccounts([a, b])
         try await self.store.setCurrentAccount(accountId: a.id)
         try await self.store.removeAccount(accountId: b.id)
-        let v102 = try await self.store.getCurrentAccountId()
+        let v102 = try await self.store.currentAccountId()
         XCTAssertEqual(v102, a.id, "删除非当前账户保留 current")
     }
 
@@ -190,7 +190,7 @@ final class GRDBAccountStoreTests: XCTestCase {
         try await self.store.addAccount(account)
         try await self.store.updateAccountName(accountId: account.id, name: "renamed")
         try await self.store.updatePublicKey(accountId: account.id, publicKey: "new-pub")
-        try await self.store.updateParentId(accountId: account.id, parentId: "root")
+        try await self.store.updateParentId(account.id, parentId: "root")
         let updated = try await self.store.findById(account.id)
         XCTAssertEqual(updated?.name, "renamed")
         XCTAssertEqual(updated?.publicKey, "new-pub")

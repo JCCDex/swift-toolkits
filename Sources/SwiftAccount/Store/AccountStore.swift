@@ -26,7 +26,7 @@ public protocol AccountStore: AnyObject, Sendable {
     func updateAccountName(accountId: String, name: String) async throws
     func updateAccountNameByAddress(address: String, name: String) async throws
     func updatePublicKey(accountId: String, publicKey: String) async throws
-    func updateParentId(accountId: String, parentId: String) async throws
+    func updateParentId(_ accountId: String, parentId: String) async throws
     /// 清空 accounts 与 current_account（对齐 Kotlin `deleteAllAccounts + deleteAll`）。
     func clearAllAccounts() async throws
 
@@ -39,10 +39,10 @@ public protocol AccountStore: AnyObject, Sendable {
     func findNonRootAccount(address: String, chain: ChainType) async throws -> WalletAccount?
     /// 该父账户 + 链下最大子账户 index；**无行 → -1**（Kotlin `MAX(pathIndex) ?: -1`，
     /// `deriveSubAccount` 依赖 -1 + 1 = 0 让首个子账户落在 index 0）。
-    func getMaxIndexByChain(parentId: String, chain: ChainType) async throws -> Int
+    func maxIndexByChain(parentId: String, chain: ChainType) async throws -> Int
     /// 该父账户 + 链下子账户数；无行 → 0。
     func countSubAccountsByChain(parentId: String, chain: ChainType) async throws -> Int
-    func getCurrentAccountId() async throws -> String?
+    func currentAccountId() async throws -> String?
     /// 跨链同地址计数（同地址不同链算多次；判重/删 vault 用）。
-    func getSameAccountsCount(address: String) async throws -> Int
+    func sameAccountsCount(address: String) async throws -> Int
 }

@@ -7,7 +7,7 @@
 | 类型 | 职责 |
 | --- | --- |
 | `SwiftAccount` | 门面：观察流 / CRUD / 查询 + 非 Optional 的 `accountManager` 成员 |
-| `AccountManager` | 六条流程：`importSingleAccount` / `importHdWallet` / `importSubAccount` / `deriveSubAccount` / `removeAccount` / `clearWalletData` |
+| `AccountManager` | 六条流程：`importSingleAccount` / `importHDWallet` / `importSubAccount` / `deriveSubAccount` / `removeAccount` / `clearWalletData` |
 | `AccountStore` | 存储协议（观察 / 写 / 查，纯存储，编排逻辑归 Manager） |
 | `GRDBAccountStore` | GRDB 实现：`accounts` + `current_account` 表，raw SQL（与 Kotlin Room 逐条对齐） |
 | `AccountOperationResult` / `AccountOperationError` | 编排结果/错误（Success/Failure 命名对齐 Kotlin，不用 Swift `Result`） |
@@ -58,15 +58,15 @@ if case let .success(accountId) = result {
 
 ## 设计要点（与 Kotlin 对齐）
 
-1. **id 默认 UUID（对齐 Kotlin）**：`WalletAccount.id` 用默认 `UUID().uuidString`——**判重不依赖 id**：`importSingleAccount`/`importSubAccount` 入口先 `findNonRootAccount(address, chain)` 按地址判重，`importHdWallet` 根账户用 `findRootAccountByAddress` 判重、子账户按地址跳过已存在；重复导入返回 `addressAlreadyExists`/`accountAlreadyExists`，不会落库。
+1. **id 默认 UUID（对齐 Kotlin）**：`WalletAccount.id` 用默认 `UUID().uuidString`——**判重不依赖 id**：`importSingleAccount`/`importSubAccount` 入口先 `findNonRootAccount(address, chain)` 按地址判重，`importHDWallet` 根账户用 `findRootAccountByAddress` 判重、子账户按地址跳过已存在；重复导入返回 `addressAlreadyExists`/`accountAlreadyExists`，不会落库。
 2. **冲突即抛错**：`addAccount`/`addAccounts` 走 GRDB insert（ABORT 语义），不做 upsert 静默覆盖；编排器先判重（见 04 坑 #14）。
-3. **`getMaxIndexByChain` 空表 → -1**：`deriveSubAccount` 依赖 -1 + 1 = 0 让首个子账户落在 index 0（见 04 坑 #15）。
+3. **`maxIndexByChain` 空表 → -1**：`deriveSubAccount` 依赖 -1 + 1 = 0 让首个子账户落在 index 0（见 04 坑 #15）。
 4. **`findNonRootAccount` SQL 含 `((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)`**：与 Kotlin 一致；`importSingleAccount`/`importSubAccount` 用它判重（不判根）。
 5. **`AsyncMutex` 互斥**：`deriveSubAccount` 用链式 Task 串行（对应 Kotlin `Mutex`）；`NSLock` 跨 await 会死锁、actor 在 await 点可重入都会破坏互斥（见 04 坑 #16）。
 6. **`removeAccount` 幂等 + vault 清理**：账户不存在返回成功；同地址仅此一条时同步删 vault 密钥（`getSameAccountsCount == 1`）。
-7. **`clearWalletData` 须当前密码**：vault 已有密码时必须传 `password`，不得把 nil 透传给 `clearAllData`（SwiftVault 缺省 nil 不验密直接清库，见 02 设计稿 importHdWallet 段）。
+7. **`clearWalletData` 须当前密码**：vault 已有密码时必须传 `password`，不得把 nil 透传给 `clearAllData`（SwiftVault 缺省 nil 不验密直接清库，见 02 设计稿 importHDWallet 段）。
 8. **密钥三选一落库**：`mnemonic`（+pathPrefix）> `secret` > `privateKey`，对应 Kotlin `persistVaultMaterial`；`importSubAccount` 不碰私钥（地址已在派生阶段入 vault）。
-9. **`importHdWallet` 根账户 chain = SWTC**：字面根路径 `m/44'/0'/0'/0/0` 仅作 pathPrefix（Kotlin 字面 `Path(chain: 0, …)`），`path.chain` 不落库；可选 `clearExisting` 清空重导；`deriveSubAccount` 结束时 vault 处于解锁态（`getMnemonic` 走 `ensureUnlocked` 自动解锁），宿主按需 `lock()`（见 04 坑 #6）。
+9. **`importHDWallet` 根账户 chain = SWTC**：字面根路径 `m/44'/0'/0'/0/0` 仅作 pathPrefix（Kotlin 字面 `Path(chain: 0, …)`），`path.chain` 不落库；可选 `clearExisting` 清空重导；`deriveSubAccount` 结束时 vault 处于解锁态（`getMnemonic` 走 `ensureUnlocked` 自动解锁），宿主按需 `lock()`（见 04 坑 #6）。
 
 ## 模块结构
 
