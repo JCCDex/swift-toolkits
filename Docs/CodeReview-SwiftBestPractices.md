@@ -669,3 +669,52 @@ if !expirationDate.isEmpty,
 - 第一轮有两处**事实性错误已被纠正**（`try append`、`VaultKeyDeriver` Sendable）。
 - 新增最关键的正面结论：**代码库在 Swift 6 严格并发下零编译告警零错误**——并发/Sendable 纪律的编译器级验证通过。
 - 新增一批跨模块去重与架构一致性建议（表二~四），这些是单模块审查无法发现的。
+
+---
+
+## 六、第三轮复查（2025-08-24，全库模式扫描：漏洞 / 可收敛 SwiftCore / 性能）
+
+> 方式：全库 grep 模式扫描（崩溃 / 吞错 / 强制解包 / 主线程 IO / 编码器新建）+ 关键文件通读。
+> 范围：`Sources/` 8 模块 72 文件 9,881 行。**未落地**项；落地后标 ✅ 并写入修复记录。
+> 关键结论：跨模块去重（表二~四）后仍有**新的收敛机会**（JSON 的 Data 重载缺失）；且
+> 「零 `try!`」结论在 `jsQuote`/`jsString` 重构后出现**回归**（3 处 `try!` + 2 处 `String(data:)!`）。
+
+### 6.1 漏洞 / 崩溃风险
+
+| 项 | 位置 | 说明 | 建议 |
+|---|---|---|---|
+| V-1 | `VaultRepository.swift:352 / 362 / 372` | `getPrivateKeyInternal` / `getMnemonicInternal` / `getSecretInternal` 仍为 `public`（P0-1 复验，未落地），暴露绕过密码鉴权的取密面；仅模块内 3 个安全包装方法 + `@testable` 测试调用 | 改 `internal`（`@testable import` 仍可测） |
+| V-2 | `DAppConnectSdk.swift:196-197`、`WebViewBridgeClient.swift:292-293` | `try!` ×3 + `String(data: .utf8)!` ×2 —— `jsQuote`/`jsString` 重构引入，违背「零 try!」承诺。`encode(String)`/UTF-8 解码对合法 String 不会失败，实际风险低但风格回归 | 改 `?? fallback` 或收敛到统一安全工具（见 6.2-3，一并消除） |
+| V-3 | `VaultRepository.swift:480` | `precondition(status == errSecSuccess)` SecRandomCopyBytes 失败即崩溃；与库「零 fatalError/precondition」风格不一致 | 改 `throw`（KDF salt 路径已是 `throws`） |
+| V-4 | `DidCoreService.swift`（11 处）、`SwiftDid.swift:88 / 409` | 写路径 `try? await store.deletePending/delete`、启动清理 `deleteExpiredPending` 静默吞错（四#1 复验，未落地）；pending 清理失败导致对账状态泄漏 | 写路径 `throws`，读路径带 `os.Logger` 降级 |
+
+### 6.2 可收敛 SwiftCore
+
+| 项 | 位置 | 说明 | 建议 |
+|---|---|---|---|
+| C-1 | `Json.swift` | `Json.parseObject/parseArray` 仅接受 `String`，缺 `Data` 重载；全库 **11 处**直接 `(try? JSONSerialization.jsonObject(with: data)) as? [String: Any]`（PromiseGateway / WebAppInterface ×2 / EthTokenUriResolver / SwtcTokenUriResolver / NftUrlUtils ×3 / NftClient ×2 / SwiftWallet+WalletSigning） | 加 `parseObject(_ data: Data)` / `parseArray(_ data: Data)` 重载，11 处收敛 |
+| C-2 | 7 处 | `JSONSerialization.data(withJSONObject:)` + `String(data:, .utf8)` 组合重复（`SwtcTokenUriResolver.jsonString`、`NativeResponseChannel.jsonString`、`WebViewBridgeClient.jsonString` 等） | 加 `Json.stringify(_ data:)` 或 `Json.stringData(_:)` 收敛 |
+| C-3 | `DAppConnectSdk.jsQuote` vs `WebViewBridgeClient.jsString` | 同一「JS 字符串字面量转义」两个实现（JSONEncoder `.withoutEscapingSlashes` vs JSONSerialization `.fragmentsAllowed`，`/` 转义语义略异） | 收敛为带 `escapeSlashes:` 参数的单一工具，顺带消除 V-2 |
+| C-4 | `DidCredentialHelper.swift:27,37` vs `String+Manipulation.swift:24` | 去空白正则 `"\\s+"` vs `"\\s"` 语义不一致 | 统一为 SwiftCore `removingWhitespace()` 扩展 |
+
+### 6.3 性能
+
+| 项 | 位置 | 说明 | 建议 |
+|---|---|---|---|
+| P-1 | `WebViewBridgeClient.swift:273`、`DAppConnectSdk.swift:194` | `JSONEncoder()` 每次新建——`jsonDictionary` 是**热路径**（每次 `callJSMethod(Encodable)` 都编码），`jsQuote` 每次 deliver/init 都新建；decoder 已复用（`sharedJSONDecoder`）encoder 却漏了 | 提 `static let`（`jsQuote` 需 `.withoutEscapingSlashes`，单独缓存一个） |
+| P-2 | `hex2utf8`、`ChecksumUtils`、`DidCredentialHelper` ×2 | `replacingOccurrences(..., options: .regularExpression)` 每次调用隐式编译正则 | **非热点，记录在案不优化**（避免过度工程） |
+| P-3 | `SwiftDid.swift` / `DidCoreService.swift` | 门面 + core 仍 `@MainActor`，门面内 **25 处** JSON 解析/序列化；大 DID payload（含 credentials 数组）会卡主线程 | 架构层取舍（桥调用免 hop），记录为待评估项 |
+| P-4 | `EthTokenUriResolver.decimalStringToBytes` | `value.removeFirst()` O(n²)，但 tokenId ≤32 字节 → 十进制 ≤78 位 | **可忽略，无需改** |
+
+### 6.4 优先级
+
+| 优先级 | 项 | 类型 |
+|---|---|---|
+| P0 | V-1 Vault `get*Internal` 改 internal | 漏洞 |
+| P1 | C-1 `Json.parseObject(Data)` 重载收敛 11 处 | 收敛 |
+| P1 | P-1 `JSONEncoder` 复用（桥热路径） | 性能 |
+| P1 | V-4 DidCoreService 写路径吞错 | 漏洞 |
+| P2 | V-2 `try!` 消除 + C-3 JS 转义收敛 | 漏洞+收敛 |
+| P2 | V-3 `precondition` → throw | 漏洞 |
+| P2 | C-2 / C-4 序列化 / 去空白收敛 | 收敛 |
+| 记录 | P-2 / P-3 / P-4 主线程 JSON、正则、O(n²) | 性能 |
