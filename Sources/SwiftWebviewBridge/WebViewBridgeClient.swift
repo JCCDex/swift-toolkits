@@ -2,15 +2,15 @@ import Foundation
 import WebKit
 
 @MainActor
-public final class WebviewBridgeClient: NSObject {
+public final class WebViewBridgeClient: NSObject {
     // 继承 NSObject：WKNavigationDelegate 继承 NSObjectProtocol，
     // 非 NSObject 类无法声明该 conformance。
     let gateway: PromiseGateway
     private let runtimeFactory: (() throws -> WebViewRuntime)?
     private var runtime: WebViewRuntime?
     private var messageHandler: BridgeMessageHandler?
-    private var config: WebviewBridgeConfig!
-    private var resourceBundle: Bundle = WebviewBridgeResources.bundle
+    private var config: WebViewBridgeConfig!
+    private var resourceBundle: Bundle = WebViewBridgeResources.bundle
     private var isInitialized = false
 
     override public init() {
@@ -31,8 +31,8 @@ public final class WebviewBridgeClient: NSObject {
     // MARK: - 生命周期
 
     public func initialize(
-        bundle: Bundle = WebviewBridgeResources.bundle,
-        config: WebviewBridgeConfig
+        bundle: Bundle = WebViewBridgeResources.bundle,
+        config: WebViewBridgeConfig
     ) {
         self.resourceBundle = bundle
         self.config = config
@@ -40,14 +40,14 @@ public final class WebviewBridgeClient: NSObject {
     }
 
     public func start() throws {
-        guard self.isInitialized else { throw WebviewBridgeError.notInitialized }
+        guard self.isInitialized else { throw WebViewBridgeError.notInitialized }
         guard self.runtime == nil else { return } // 复用已有 WebView
 
         self.gateway.resetReady()
 
         let webView = try makeRuntime()
         guard let bridgeURL = resolveBridgeURL() else {
-            throw WebviewBridgeError.missingBridgeResource(self.config.bridgeFileName)
+            throw WebViewBridgeError.missingBridgeResource(self.config.bridgeFileName)
         }
         webView.loadBridgeFile(bridgeURL, allowingReadAccessTo: bridgeURL.deletingLastPathComponent())
         self.runtime = webView
@@ -73,13 +73,13 @@ public final class WebviewBridgeClient: NSObject {
     // MARK: - 调用 JS
 
     /// 基础调用：返回 JS 结果的字符串形式（与 Kotlin 规则一致）。
-    public func callJsMethod(
+    public func callJSMethod(
         method: String,
         params: [String: Any]? = nil,
         timeoutMs: TimeInterval = 30000,
         readyWaitMs: TimeInterval = 15000
     ) async throws -> String {
-        guard self.isInitialized else { throw WebviewBridgeError.notInitialized }
+        guard self.isInitialized else { throw WebViewBridgeError.notInitialized }
         try self.startIfNeeded()
         try await self.gateway.waitForReady(timeoutMs: min(readyWaitMs, timeoutMs))
 
@@ -96,7 +96,7 @@ public final class WebviewBridgeClient: NSObject {
 
                 guard let runtime = self.runtime else {
                     self.gateway.remove(id: id)
-                    box.resume(throwing: WebviewBridgeError.webViewUnavailable)
+                    box.resume(throwing: WebViewBridgeError.webViewUnavailable)
                     return
                 }
 
@@ -138,14 +138,14 @@ public final class WebviewBridgeClient: NSObject {
     }
 
     /// Encodable 参数重载：自动将强类型参数编码为 JSON 字典后调用 JS。
-    public func callJsMethod(
+    public func callJSMethod(
         method: String,
         params: some Encodable,
         timeoutMs: TimeInterval = 30000,
         readyWaitMs: TimeInterval = 15000
     ) async throws -> String {
         let dict = try Self.jsonDictionary(params)
-        return try await self.callJsMethod(
+        return try await self.callJSMethod(
             method: method,
             params: dict,
             timeoutMs: timeoutMs,
@@ -154,14 +154,14 @@ public final class WebviewBridgeClient: NSObject {
     }
 
     /// 类型化调用：将 JS 返回的 JSON 字符串解码为 Swift 类型。
-    public func callJsMethodAs<T: Decodable>(
+    public func callJSMethodAs<T: Decodable>(
         method: String,
         params: [String: Any]? = nil,
         as _: T.Type = T.self,
         timeoutMs: TimeInterval = 30000,
         readyWaitMs: TimeInterval = 15000
     ) async throws -> T {
-        let raw = try await callJsMethod(
+        let raw = try await callJSMethod(
             method: method,
             params: params,
             timeoutMs: timeoutMs,
@@ -172,13 +172,13 @@ public final class WebviewBridgeClient: NSObject {
             return string
         }
         guard let data = raw.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else {
-            throw WebviewBridgeError.malformedJSON(raw)
+            throw WebViewBridgeError.malformedJSON(raw)
         }
         return try Self.sharedJSONDecoder.decode(T.self, from: data)
     }
 
     /// Encodable 参数 + Decodable 结果的组合重载。
-    public func callJsMethodAs<T: Decodable>(
+    public func callJSMethodAs<T: Decodable>(
         method: String,
         params: some Encodable,
         as type: T.Type = T.self,
@@ -186,7 +186,7 @@ public final class WebviewBridgeClient: NSObject {
         readyWaitMs: TimeInterval = 15000
     ) async throws -> T {
         let dict = try Self.jsonDictionary(params)
-        return try await self.callJsMethodAs(
+        return try await self.callJSMethodAs(
             method: method,
             params: dict,
             as: type,
@@ -272,7 +272,7 @@ public final class WebviewBridgeClient: NSObject {
     private static func jsonDictionary(_ params: some Encodable) throws -> [String: Any] {
         let data = try JSONEncoder().encode(params)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw WebviewBridgeError.invalidParams
+            throw WebViewBridgeError.invalidParams
         }
         return object
     }
@@ -296,7 +296,7 @@ public final class WebviewBridgeClient: NSObject {
 
 // MARK: - BridgeMessageHandlerDelegate
 
-extension WebviewBridgeClient: BridgeMessageHandlerDelegate {
+extension WebViewBridgeClient: BridgeMessageHandlerDelegate {
     func onPromiseResult(id: String, resultJson: String) {
         self.gateway.onPromiseResult(id: id, resultJson: resultJson)
     }
@@ -319,7 +319,7 @@ extension WebviewBridgeClient: BridgeMessageHandlerDelegate {
 
 // MARK: - WKNavigationDelegate
 
-extension WebviewBridgeClient: WKNavigationDelegate {
+extension WebViewBridgeClient: WKNavigationDelegate {
     public nonisolated func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
         // 对应 Kotlin onPageFinished 兜底：did-bridge.js 不主动通知就绪，
         // 在此检测并调用 onBridgeReady()。

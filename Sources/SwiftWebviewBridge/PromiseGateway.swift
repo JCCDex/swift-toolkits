@@ -36,7 +36,7 @@ final class PromiseGateway {
     // MARK: - Native -> JS
 
     /// 注册一次调用：超时任务先到则回 timeout，JS 结果先到则取消超时任务。
-    /// `jsTask` 由调用方在创建后补挂（见 `WebviewBridgeClient.callJsMethod`）。
+    /// `jsTask` 由调用方在创建后补挂（见 `WebViewBridgeClient.callJSMethod`）。
     func register(
         id: String,
         timeoutMs: TimeInterval,
@@ -44,7 +44,7 @@ final class PromiseGateway {
     ) {
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.sleepNanoseconds(timeoutMs))
-            self?.finish(id: id, result: .failure(WebviewBridgeError.timeout))
+            self?.finish(id: id, result: .failure(WebViewBridgeError.timeout))
         }
         self.pending[id] = PendingCall(onResult: onResult, timeoutTask: timeoutTask)
     }
@@ -79,16 +79,16 @@ final class PromiseGateway {
                 box.remover = self.addReadyListener { [weak box] error in
                     box?.timeoutTask?.cancel()
                     if let error {
-                        box?.resumeIfPending(throwing: error)
+                        box?.resume(throwing: error)
                     } else {
-                        box?.resumeIfPending()
+                        box?.resume()
                     }
                 }
 
                 box.timeoutTask = Task { @MainActor [weak box] in
                     try? await Task.sleep(nanoseconds: Self.sleepNanoseconds(timeoutMs))
                     box?.remover?()
-                    box?.resumeIfPending(throwing: WebviewBridgeError.timeout)
+                    box?.resume(throwing: WebViewBridgeError.timeout)
                 }
 
                 // 关闭「取消先于 setup」的竞态窗口：setup 后若任务已被取消，立即自清理。
@@ -132,7 +132,7 @@ final class PromiseGateway {
         let listeners = self.readyListeners.values
         self.readyListeners.removeAll()
         for listener in listeners {
-            listener(WebviewBridgeError.webViewUnavailable)
+            listener(WebViewBridgeError.webViewUnavailable)
         }
         self.isReady = false
     }
@@ -148,7 +148,7 @@ final class PromiseGateway {
         for call in calls {
             call.timeoutTask.cancel()
             call.jsTask?.cancel()
-            call.onResult(.failure(WebviewBridgeError.webViewUnavailable))
+            call.onResult(.failure(WebViewBridgeError.webViewUnavailable))
         }
         self.readyListeners.removeAll()
         self.isReady = false
@@ -174,14 +174,14 @@ final class PromiseGateway {
             let data = resultJson.data(using: .utf8),
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
-            return .failure(WebviewBridgeError.malformedJSON(resultJson))
+            return .failure(WebViewBridgeError.malformedJSON(resultJson))
         }
 
         if let error = object["error"] as? String {
-            return .failure(WebviewBridgeError.jsError(error))
+            return .failure(WebViewBridgeError.jsError(error))
         }
         guard let result = object["result"] else {
-            return .failure(WebviewBridgeError.invalidResponseFormat)
+            return .failure(WebViewBridgeError.invalidResponseFormat)
         }
         // {result: null} 时 result 是 NSNull（非 nil）→ 序列化为 "null"，与 Kotlin 一致。
         if let string = result as? String {

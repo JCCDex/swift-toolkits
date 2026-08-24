@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WebviewBridgeError: Error, Sendable, Equatable {
+public enum WebViewBridgeError: Error, Sendable, Equatable {
     case notInitialized
     case missingBridgeResource(String)
     case invalidParams

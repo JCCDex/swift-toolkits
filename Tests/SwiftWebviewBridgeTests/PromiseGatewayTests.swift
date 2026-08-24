@@ -69,7 +69,7 @@ final class PromiseGatewayTests: XCTestCase {
         gateway.resetReady()
 
         let error = await waiter.value
-        let bridgeError = try XCTUnwrap(error as? WebviewBridgeError)
+        let bridgeError = try XCTUnwrap(error as? WebViewBridgeError)
         XCTAssertEqual(bridgeError, .webViewUnavailable, "resetReady 以 webViewUnavailable 恢复等待方")
     }
 
@@ -136,7 +136,7 @@ final class PromiseGatewayTests: XCTestCase {
             XCTFail("expected timeout failure")
             return
         }
-        XCTAssertEqual(error as? WebviewBridgeError, .timeout)
+        XCTAssertEqual(error as? WebViewBridgeError, .timeout)
         XCTAssertEqual(gateway.pendingCount, 0)
     }
 
@@ -163,7 +163,7 @@ final class PromiseGatewayTests: XCTestCase {
         XCTAssertEqual(gateway.pendingCount, 0)
         XCTAssertEqual(results.count, 2, "pending 调用者必须被恢复（P0-3：不得悬挂）")
         for result in results {
-            XCTAssertEqual(result.failureError as? WebviewBridgeError, .webViewUnavailable)
+            XCTAssertEqual(result.failureError as? WebViewBridgeError, .webViewUnavailable)
         }
     }
 
@@ -185,7 +185,7 @@ final class PromiseGatewayTests: XCTestCase {
         do {
             try await gateway.waitForReady(timeoutMs: 30)
             XCTFail("expected timeout")
-        } catch let error as WebviewBridgeError {
+        } catch let error as WebViewBridgeError {
             XCTAssertEqual(error, .timeout)
         } catch {
             XCTFail("unexpected error: \(error)")
@@ -253,17 +253,17 @@ final class PromiseGatewayTests: XCTestCase {
 
     func test_parseResult_reportsErrorResponse() {
         let result = PromiseGateway.parseResult(#"{"error":"boom"}"#)
-        XCTAssertEqual(result.failureError as? WebviewBridgeError, .jsError("boom"))
+        XCTAssertEqual(result.failureError as? WebViewBridgeError, .jsError("boom"))
     }
 
     func test_parseResult_reportsInvalidResponseFormat() {
         let result = PromiseGateway.parseResult(#"{"status":"ok"}"#)
-        XCTAssertEqual(result.failureError as? WebviewBridgeError, .invalidResponseFormat)
+        XCTAssertEqual(result.failureError as? WebViewBridgeError, .invalidResponseFormat)
     }
 
     func test_parseResult_reportsMalformedJson() {
         let result = PromiseGateway.parseResult("not-json")
-        XCTAssertEqual(result.failureError as? WebviewBridgeError, .malformedJSON("not-json"))
+        XCTAssertEqual(result.failureError as? WebViewBridgeError, .malformedJSON("not-json"))
     }
 }
 

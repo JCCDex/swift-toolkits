@@ -3,21 +3,21 @@ import WebKit
 import XCTest
 
 @MainActor
-final class WebviewBridgeClientTests: XCTestCase {
+final class WebViewBridgeClientTests: XCTestCase {
     func test_initialize_setsConfig() {
-        let client = WebviewBridgeClient()
+        let client = WebViewBridgeClient()
 
-        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "custom.html"))
+        client.initialize(config: WebViewBridgeConfig(bridgeFileName: "custom.html"))
 
         // 公开行为验证：初始化后 start() 会用所配置的 bridgeFileName 找资源，
         // 找不到抛 missingBridgeResource（未初始化时抛的是 notInitialized）。
         XCTAssertThrowsError(try client.start()) { error in
-            XCTAssertEqual(error as? WebviewBridgeError, .missingBridgeResource("custom.html"))
+            XCTAssertEqual(error as? WebViewBridgeError, .missingBridgeResource("custom.html"))
         }
     }
 
     func test_defaultConfig_usesStableDefaults() {
-        let config = WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html")
+        let config = WebViewBridgeConfig(bridgeFileName: "wallet-bridge.html")
 
         XCTAssertEqual(config.bridgeFileName, "wallet-bridge.html")
         XCTAssertEqual(config.jsInterfaceName, "JSBridge")
@@ -25,26 +25,26 @@ final class WebviewBridgeClientTests: XCTestCase {
         XCTAssertFalse(config.allowsConsoleForwarding)
     }
 
-    func test_callJsMethod_throwsWhenNotInitialized() async {
-        let client = WebviewBridgeClient()
+    func test_callJSMethod_throwsWhenNotInitialized() async {
+        let client = WebViewBridgeClient()
 
         do {
-            _ = try await client.callJsMethod(method: "ping")
+            _ = try await client.callJSMethod(method: "ping")
             XCTFail("expected notInitialized")
-        } catch let error as WebviewBridgeError {
+        } catch let error as WebViewBridgeError {
             XCTAssertEqual(error, .notInitialized)
         } catch {
             XCTFail("unexpected error: \(error)")
         }
     }
 
-    func test_callJsMethodAs_throwsWhenNotInitialized() async {
-        let client = WebviewBridgeClient()
+    func test_callJSMethodAs_throwsWhenNotInitialized() async {
+        let client = WebViewBridgeClient()
 
         do {
-            _ = try await client.callJsMethodAs(method: "ping", as: String.self)
+            _ = try await client.callJSMethodAs(method: "ping", as: String.self)
             XCTFail("expected notInitialized")
-        } catch let error as WebviewBridgeError {
+        } catch let error as WebViewBridgeError {
             XCTAssertEqual(error, .notInitialized)
         } catch {
             XCTFail("unexpected error: \(error)")
@@ -52,23 +52,23 @@ final class WebviewBridgeClientTests: XCTestCase {
     }
 
     func test_start_throwsWhenNotInitialized() {
-        XCTAssertThrowsError(try WebviewBridgeClient().start()) { error in
-            XCTAssertEqual(error as? WebviewBridgeError, .notInitialized)
+        XCTAssertThrowsError(try WebViewBridgeClient().start()) { error in
+            XCTAssertEqual(error as? WebViewBridgeError, .notInitialized)
         }
     }
 
     func test_start_throwsWhenBridgeResourceMissing() {
-        let client = WebviewBridgeClient()
-        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "missing.html"))
+        let client = WebViewBridgeClient()
+        client.initialize(config: WebViewBridgeConfig(bridgeFileName: "missing.html"))
 
         XCTAssertThrowsError(try client.start()) { error in
-            XCTAssertEqual(error as? WebviewBridgeError, .missingBridgeResource("missing.html"))
+            XCTAssertEqual(error as? WebViewBridgeError, .missingBridgeResource("missing.html"))
         }
     }
 
     func test_bridgeReadyScript_usesConfiguredInterfaceName() {
-        let client = WebviewBridgeClient()
-        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "bridge.html", jsInterfaceName: "BridgeJs"))
+        let client = WebViewBridgeClient()
+        client.initialize(config: WebViewBridgeConfig(bridgeFileName: "bridge.html", jsInterfaceName: "BridgeJs"))
 
         let script = client.bridgeReadyScript()
 
@@ -115,18 +115,18 @@ final class WebviewBridgeClientTests: XCTestCase {
         }
     }
 
-    func test_callJsMethod_cancelledFromBackgroundThread_resumesExactlyOnce() async throws {
-        // P0-2 回归：从后台线程取消 callJsMethod —— onCancel 在取消线程同步执行。
+    func test_callJSMethod_cancelledFromBackgroundThread_resumesExactlyOnce() async throws {
+        // P0-2 回归：从后台线程取消 callJSMethod —— onCancel 在取消线程同步执行。
         // 修复前直接 box.resume(throwing:) 会与主线程路径并发访问盒子；
         // 修复后 onCancel 统一跳主线程，恰好一次 resume。
         let gateway = PromiseGateway()
-        let client = WebviewBridgeClient(gateway: gateway, runtimeFactory: { FakeRuntime() })
-        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html"))
+        let client = WebViewBridgeClient(gateway: gateway, runtimeFactory: { FakeRuntime() })
+        client.initialize(config: WebViewBridgeConfig(bridgeFileName: "wallet-bridge.html"))
         try client.start()
         gateway.onBridgeReady() // 模拟 JS 就绪（FakeRuntime 不会回调 onBridgeReady）
 
         let task = Task { () -> String in
-            try await client.callJsMethod(method: "ping", timeoutMs: 60000, readyWaitMs: 60000)
+            try await client.callJSMethod(method: "ping", timeoutMs: 60000, readyWaitMs: 60000)
         }
         // 等调用注册完成（box.continuation 已设置、pending 已入表）
         while gateway.pendingCount == 0 {
@@ -149,17 +149,17 @@ final class WebviewBridgeClientTests: XCTestCase {
         client.destroy()
     }
 
-    func test_callJsMethod_destroyWhileInFlight_resumesWithError() async throws {
+    func test_callJSMethod_destroyWhileInFlight_resumesWithError() async throws {
         // P0-3 回归：调用 in-flight 时 destroy() —— clearAll 必须恢复调用者
-        // （修复前续体永不 resume，callJsMethod 永久悬挂并强持有 client/box）。
+        // （修复前续体永不 resume，callJSMethod 永久悬挂并强持有 client/box）。
         let gateway = PromiseGateway()
-        let client = WebviewBridgeClient(gateway: gateway, runtimeFactory: { FakeRuntime() })
-        client.initialize(config: WebviewBridgeConfig(bridgeFileName: "wallet-bridge.html"))
+        let client = WebViewBridgeClient(gateway: gateway, runtimeFactory: { FakeRuntime() })
+        client.initialize(config: WebViewBridgeConfig(bridgeFileName: "wallet-bridge.html"))
         try client.start()
         gateway.onBridgeReady() // 模拟 JS 就绪
 
         let task = Task { () -> String in
-            try await client.callJsMethod(method: "ping", timeoutMs: 60000, readyWaitMs: 60000)
+            try await client.callJSMethod(method: "ping", timeoutMs: 60000, readyWaitMs: 60000)
         }
         // 等调用注册完成（pending 已入表）
         while gateway.pendingCount == 0 {
@@ -171,7 +171,7 @@ final class WebviewBridgeClientTests: XCTestCase {
         do {
             _ = try await task.value
             XCTFail("expected webViewUnavailable")
-        } catch let error as WebviewBridgeError {
+        } catch let error as WebViewBridgeError {
             XCTAssertEqual(error, .webViewUnavailable, "destroy 后 in-flight 调用以 webViewUnavailable 恢复")
         } catch {
             XCTFail("unexpected error: \(error)")

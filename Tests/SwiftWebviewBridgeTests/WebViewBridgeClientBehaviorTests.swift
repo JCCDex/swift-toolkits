@@ -2,7 +2,7 @@
 import XCTest
 
 /// 真实 WKWebView 集成测试：不注入 FakeRuntime，
-/// 走生产路径的 `WebviewBridgeClient()` + 真实 `wallet-bridge.html` JS，
+/// 走生产路径的 `WebViewBridgeClient()` + 真实 `wallet-bridge.html` JS，
 /// 验证 Swift -> JS -> 消息通道 -> Swift 的完整桥接链路。
 ///
 /// 性能说明：iOS 模拟器上每次创建新 client 的首次调用都会冷启动 WebContent
@@ -10,13 +10,13 @@ import XCTest
 /// 因此每个用例独立 client（不做跨用例共享，避免 CI 中共享 WebView 状态异常），
 /// 且 ready/timeout 都给足余量（120s / 180s）。
 @MainActor
-final class WebviewBridgeClientBehaviorTests: XCTestCase {
+final class WebViewBridgeClientBehaviorTests: XCTestCase {
 
     private static let readyWaitMs: TimeInterval = 120_000
     private static let timeoutMs: TimeInterval = 180_000
 
-    private func makeClient() -> WebviewBridgeClient {
-        let client = WebviewBridgeClient()
+    private func makeClient() -> WebViewBridgeClient {
+        let client = WebViewBridgeClient()
         client.initialize(config: .bridge(named: "wallet-bridge"))
         return client
     }
@@ -30,7 +30,7 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         try client.start()
 
         // 公开行为验证：桥已就绪 → JS 调用能往返并返回真实结果
-        let raw = try await client.callJsMethod(
+        let raw = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -46,7 +46,7 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         // @MainActor 约束：后台线程需经 MainActor.run 切换（对应 Kotlin Handler.post）
         try await MainActor.run { try client.start() }
 
-        let raw = try await client.callJsMethod(
+        let raw = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -57,11 +57,11 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
 
     // MARK: - 真实 JS 往返
 
-    func test_callJsMethod_generateMnemonic_returnsRealResult() async throws {
+    func test_callJSMethod_generateMnemonic_returnsRealResult() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let raw = try await client.callJsMethod(
+        let raw = try await client.callJSMethod(
             method: "generateMnemonic",
             params: ["length": 128],
             timeoutMs: Self.timeoutMs,
@@ -74,11 +74,11 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         XCTAssertEqual(result.value.split(separator: " ").count, 12) // 128-bit -> 12 words
     }
 
-    func test_callJsMethodAs_decodesTypedResult() async throws {
+    func test_callJSMethodAs_decodesTypedResult() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let result: MnemonicResult = try await client.callJsMethodAs(
+        let result: MnemonicResult = try await client.callJSMethodAs(
             method: "generateMnemonic",
             params: ["length": 128],
             as: MnemonicResult.self,
@@ -90,11 +90,11 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         XCTAssertEqual(result.value.split(separator: " ").count, 12)
     }
 
-    func test_callJsMethodAs_stringTarget_returnsRawString() async throws {
+    func test_callJSMethodAs_stringTarget_returnsRawString() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let raw = try await client.callJsMethodAs(
+        let raw = try await client.callJSMethodAs(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             as: String.self,
@@ -105,11 +105,11 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         XCTAssertEqual(raw, "true")
     }
 
-    func test_callJsMethod_coercesBooleanResultToString() async throws {
+    func test_callJSMethod_coercesBooleanResultToString() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let valid = try await client.callJsMethod(
+        let valid = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -117,7 +117,7 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         )
         XCTAssertEqual(valid, "true")
 
-        let invalid = try await client.callJsMethod(
+        let invalid = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": "not a mnemonic"],
             timeoutMs: Self.timeoutMs,
@@ -126,11 +126,11 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         XCTAssertEqual(invalid, "false")
     }
 
-    func test_callJsMethod_withEncodableParams_encodesAndExecutes() async throws {
+    func test_callJSMethod_withEncodableParams_encodesAndExecutes() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let raw = try await client.callJsMethod(
+        let raw = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -142,18 +142,18 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
 
     // MARK: - 错误路径
 
-    func test_callJsMethod_unknownMethod_reportsJsError() async throws {
+    func test_callJSMethod_unknownMethod_reportsJsError() async throws {
         let client = self.makeClient()
         defer { client.destroy() }
 
         do {
-            _ = try await client.callJsMethod(
+            _ = try await client.callJSMethod(
                 method: "noSuchMethod",
                 timeoutMs: Self.timeoutMs,
                 readyWaitMs: Self.readyWaitMs
             )
             XCTFail("expected jsError")
-        } catch let error as WebviewBridgeError {
+        } catch let error as WebViewBridgeError {
             XCTAssertEqual(error, .jsError("no such method: noSuchMethod"))
         } catch {
             XCTFail("unexpected error: \(error)")
@@ -166,7 +166,7 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
         let client = self.makeClient()
         defer { client.destroy() }
 
-        let first = try await client.callJsMethod(
+        let first = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,
@@ -176,7 +176,7 @@ final class WebviewBridgeClientBehaviorTests: XCTestCase {
 
         client.destroy()
 
-        let second = try await client.callJsMethod(
+        let second = try await client.callJSMethod(
             method: "validateMnemonic",
             params: ["mnemonic": validBip39Mnemonic],
             timeoutMs: Self.timeoutMs,

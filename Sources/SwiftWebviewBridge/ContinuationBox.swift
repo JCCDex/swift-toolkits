@@ -4,7 +4,7 @@ import Foundation
 /// 保证「恰好一次 resume」。
 ///
 /// 线程模型（P0-2 修复）：`onCancel` 由 `withTaskCancellationHandler` 在**取消线程**同步执行，
-/// 因此调用方（`WebviewBridgeClient.callJsMethod`）已约定把 onCancel 内的 resume 跳回主线程；
+/// 因此调用方（`WebViewBridgeClient.callJSMethod`）已约定把 onCancel 内的 resume 跳回主线程；
 /// 这里再用 `NSLock` 把所有字段访问（install / resume / take）做成原子操作作为纵深防御——
 /// 即使未来某条路径忘记跳主线程，两个线程并发 resume 也只会有一个拿到续体，绝不
 /// double-resume。标注 `@unchecked Sendable`：允许盒子被 onCancel 闭包跨线程捕获，
@@ -54,12 +54,12 @@ final class ReadyWaitBox: @unchecked Sendable {
     var timeoutTask: Task<Void, Never>?
     var remover: (() -> Void)?
 
-    func resumeIfPending() {
+    func resume() {
         self.continuation?.resume()
         self.continuation = nil
     }
 
-    func resumeIfPending(throwing error: Error) {
+    func resume(throwing error: Error) {
         self.continuation?.resume(throwing: error)
         self.continuation = nil
     }
@@ -69,6 +69,6 @@ final class ReadyWaitBox: @unchecked Sendable {
     func cancel() {
         self.timeoutTask?.cancel()
         self.remover?()
-        self.resumeIfPending(throwing: CancellationError())
+        self.resume(throwing: CancellationError())
     }
 }
