@@ -43,6 +43,43 @@ import Testing
     #expect(calls.count == 2)
 }
 
+@Test @MainActor func `clear cache during inflight cancels delegate and does not repopulate`() async throws {
+    // review P1#11：in-flight 期间 clearCache → 取消委托 Task；慢委托完成也不回填缓存
+    let delegate = FakeSecretProvider(privateKey: "pk", delayNanos: 80_000_000) // 80ms 慢委托
+    let provider = CachingSecretProvider(delegate: delegate, bridgeWindowMs: 500, maxAgeMs: 20000)
+
+    let fetchTask = Task { () -> String? in
+        try? await provider.getPrivateKeyForAddress("0x1", origin: "https://dapp.com")
+    }
+    try await Task.sleep(nanoseconds: 10_000_000) // 让委托进入 in-flight
+    await provider.clearCache()
+
+    _ = await fetchTask.value
+    // clearCache 后重新拉取应再次委托（旧 in-flight 结果未被回填）
+    let after = try await provider.getPrivateKeyForAddress("0x1", origin: "https://dapp.com")
+    #expect(after == "pk")
+
+    let calls = await delegate.recorder.privateKeyCalls
+    #expect(calls.count == 2, "in-flight 被取消/未回填，clearCache 后重新委托")
+}
+
+@Test @MainActor func `clear cache after inflight completes does not repopulate`() async throws {
+    // review P1#11：in-flight 完成后（值已返回但未及回填）clearCache → 不得回填旧结果
+    let delegate = FakeSecretProvider(privateKey: "pk", delayNanos: 40_000_000)
+    let provider = CachingSecretProvider(delegate: delegate, bridgeWindowMs: 500, maxAgeMs: 20000)
+
+    async let fetched = provider.getPrivateKeyForAddress("0x1", origin: "https://dapp.com")
+    try await Task.sleep(nanoseconds: 50_000_000) // 委托已完成返回，fetch 可能已回填
+    await provider.clearCache()
+    let value = try await fetched
+    #expect(value == "pk", "调用方仍拿到委托结果")
+
+    // clearCache 后重新拉取：若旧结果被错误回填会命中缓存（1 次委托）；否则重新委托（2 次）
+    _ = try await provider.getPrivateKeyForAddress("0x1", origin: "https://dapp.com")
+    let calls = await delegate.recorder.privateKeyCalls
+    #expect(calls.count == 2, "clearCache 后旧结果未回填，重新委托")
+}
+
 @Test @MainActor func `cache expires after max age`() async throws {
     let delegate = FakeSecretProvider(privateKey: "pk")
     let provider = CachingSecretProvider(delegate: delegate, bridgeWindowMs: 500, maxAgeMs: 80)

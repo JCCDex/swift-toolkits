@@ -76,19 +76,33 @@ final class FakeSecretProvider: SecretProvider, @unchecked Sendable {
     let recorder: SecretRecorder
     let privateKey: String?
     let secret: String?
+    /// P1#11 测试用：非 0 时委托前 sleep 该纳秒数（模拟慢委托，供 clearCache 取消 in-flight）。
+    let delayNanos: UInt64
 
-    init(privateKey: String? = nil, secret: String? = nil, recorder: SecretRecorder = SecretRecorder()) {
+    init(
+        privateKey: String? = nil,
+        secret: String? = nil,
+        recorder: SecretRecorder = SecretRecorder(),
+        delayNanos: UInt64 = 0
+    ) {
         self.privateKey = privateKey
         self.secret = secret
         self.recorder = recorder
+        self.delayNanos = delayNanos
     }
 
     func getPrivateKeyForAddress(_ address: String, origin: String) async throws -> String? {
+        if self.delayNanos > 0 {
+            try? await Task.sleep(nanoseconds: self.delayNanos)
+        }
         await self.recorder.recordPrivateKey(address, origin)
         return self.privateKey
     }
 
     func getSecretForAddress(_ address: String, origin: String) async throws -> String? {
+        if self.delayNanos > 0 {
+            try? await Task.sleep(nanoseconds: self.delayNanos)
+        }
         await self.recorder.recordSecret(address, origin)
         return self.secret
     }

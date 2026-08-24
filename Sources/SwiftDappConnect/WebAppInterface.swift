@@ -401,9 +401,10 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
 
     private func handleSwtcRequestAccounts(nonce: String, origin: String) async -> [String: Any] {
         do {
-            if self.ethMiddleware.currentChain != .swtc {
-                self.ethMiddleware.setCurrentChain(.swtc)
-            }
+            // review P1#1：SWTC 流程不再污染共享 ETH 链状态——原 `ethMiddleware.setCurrentChain(.swtc)`
+            // 会让之后所有 ETH DApp 拿到 eth_chainId = 0x1（swtc 无 evmChainId 回退 1），且
+            // eth_sendTransaction 无显式 chainId 时报 "Chain swtc does not have an EVM chainId"。
+            // SWTC 账户走 swtcMiddleware（按 bip44Code == swtc 过滤），与 ethMiddleware 无关。
             let accounts = try await swtcMiddleware.requestAccounts(origin: origin)
             return self.success(nonce, .array(accounts))
         } catch {

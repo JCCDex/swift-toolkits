@@ -21,6 +21,9 @@ public actor CachingSecretProvider: SecretProvider {
     private var inFlightSecret: [String: Task<String?, Error>] = [:]
     private var activeOps = 0
     private var clearTask: Task<Void, Never>?
+    /// review P1#11：`clearCache()` 递增代号——in-flight 完成时若代号已变（期间清过缓存）
+    /// 则不回填（否则锁屏后明文最多再服务 20s）。
+    private var generation = 0
 
     public init(
         delegate: any SecretProvider,
@@ -40,8 +43,19 @@ public actor CachingSecretProvider: SecretProvider {
         try await self.fetch(cacheKey: "sec:\(origin)|\(address)", address: address, origin: origin, isSecret: true)
     }
 
-    /// 强制清空缓存（切后台 / 锁屏 / 切换账户时调用）。
+    /// 强制清空缓存并取消 in-flight 委托（切后台 / 锁屏 / 切换账户时调用，review P1#11）：
+    /// - 递增代号：in-flight 完成不得回填旧结果；
+    /// - 取消在途 Task：`await existing.value` 抛 `CancellationError`，调用方不再等到明文。
     public func clearCache() {
+        self.generation += 1
+        for task in self.inFlightPrivate.values {
+            task.cancel()
+        }
+        for task in self.inFlightSecret.values {
+            task.cancel()
+        }
+        self.inFlightPrivate.removeAll()
+        self.inFlightSecret.removeAll()
         self.cache.removeAll()
         self.clearTask?.cancel()
         self.clearTask = nil
@@ -63,6 +77,7 @@ public actor CachingSecretProvider: SecretProvider {
             return try await existing.value
         }
 
+        let generation = self.generation
         let task = Task { [delegate] in
             if isSecret {
                 return try await delegate.getSecretForAddress(address, origin: origin)
@@ -85,6 +100,8 @@ public actor CachingSecretProvider: SecretProvider {
             } else {
                 self.inFlightPrivate[cacheKey] = nil
             }
+            // review P1#11：clearCache()（切后台/锁屏）期间完成的旧结果不得回填新缓存
+            guard generation == self.generation else { return value }
             if let value {
                 self.cache[cacheKey] = Entry(value: value, at: self.nowMs())
             }

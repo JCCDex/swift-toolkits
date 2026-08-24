@@ -42,7 +42,10 @@ private func request(
     #expect(error?["message"] as? String == "Method not supported")
 }
 
-@Test @MainActor func `swtc request accounts flips eth chain to swtc`() async {
+@Test @MainActor func `swtc request accounts does not pollute eth chain`() async {
+    // review P1#1：SWTC 流程不再污染共享 ETH 链状态（原会 setCurrentChain(.swtc)，
+    // 导致后续 ETH DApp eth_chainId = 0x1 / eth_sendTransaction 报 "Chain swtc does not
+    // have an EVM chainId"）
     let eth = FakeEthMiddleware()
     let swtc = FakeSwtcMiddleware()
     swtc.requestAccountsResult = ["j1"]
@@ -51,7 +54,7 @@ private func request(
     let payload = await interface.route(request(name: "swtc_requestAccounts", network: "swtc"), origin: "https://dapp.com")
 
     #expect(payload["result"] as? [String] == ["j1"])
-    #expect(eth.setCurrentChainCalls == [.swtc])
+    #expect(eth.setCurrentChainCalls.isEmpty, "SWTC 请求不得改动 ETH 中间件 currentChain")
 }
 
 @Test @MainActor func `user rejected maps to error code 4001`() async {
