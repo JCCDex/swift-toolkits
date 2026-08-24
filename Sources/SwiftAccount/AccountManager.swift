@@ -10,7 +10,7 @@ public final class AccountManager: Sendable {
     private let store: any AccountStore
     private let vault: VaultRepository
     private let wallet: any WalletDeriving
-    private let deriveGate = AsyncMutex()
+    private let mutex = AsyncMutex()
 
     public init(store: any AccountStore, vault: VaultRepository, wallet: any WalletDeriving) {
         self.store = store
@@ -51,7 +51,7 @@ public final class AccountManager: Sendable {
         }
     }
 
-    /// 导入 HD 钱包：根账户（SWTC）+ 各链子账户；可选清空既有数据。
+    /// 导入 HD 钱包：根账户（SWTC）+ 各链子账户。
     /// - Parameters:
     ///   - password: vault 为空时初始化密码；vault 已有密码时忽略。
     public func importHdWallet(
@@ -120,7 +120,8 @@ public final class AccountManager: Sendable {
         }
     }
 
-    /// 落库已派生的子账户（deriveSubAccount 产出；私钥已在派生阶段入 vault，此处不碰私钥）。
+    /// 落库已派生的子账户（`deriveSubAccount` 只派生不落库）：用完整 keypair 走
+    /// `importSingleAccount`（persistVault 落 vault 私钥 + store 元数据），见 review P1#1。
     public func importSubAccount(
         derived: DerivedSubAccount,
         name: String
@@ -132,7 +133,7 @@ public final class AccountManager: Sendable {
             return await self.importSingleAccount(
                 derived: TraditionalDeriveResult(
                     address: derived.address,
-                    keypair: Keypair(privateKey: "", publicKey: derived.publicKey),
+                    keypair: derived.keypair,
                     path: derived.path
                 ),
                 chain: derived.chain,
@@ -143,20 +144,16 @@ public final class AccountManager: Sendable {
         }
     }
 
-    // MARK: - 派生
-
     /// 从 HD 根账户派生子账户（链式 Task 串行互斥；vault 解锁态副作用见 Account-Swift 04 坑 #6）。
+    /// **只派生不落库**：返回完整 keypair，私钥由 `importSubAccount` 落 vault（review P1#1）。
     public func deriveSubAccount(
         chain: ChainType,
         rootAccountId: String,
         password: Data,
         index: Int? = nil
     ) async -> AccountOperationResult<DerivedSubAccount> {
-        await self.deriveGate.withLock {
+        await self.mutex.withLock {
             await self.runOperation {
-                guard try await self.store.findById(rootAccountId) != nil else {
-                    return .failure(.rootAccountNotFound)
-                }
                 guard let root = try await self.store.findById(rootAccountId) else {
                     return .failure(.rootAccountNotFound)
                 }
@@ -164,12 +161,12 @@ public final class AccountManager: Sendable {
                 let mnemonic = try await self.vault.getMnemonic(address: root.address, password: password)
                 let language = try await self.vault.getMnemonicLanguage(address: root.address)
 
-                var deriveIndex: Int = if let index {
+                let deriveIndex: Int = if let index {
                     index
                 } else {
                     try await self.store.getMaxIndexByChain(parentId: rootAccountId, chain: chain) + 1
                 }
-                var subWallet = try await self.wallet.deriveChild(
+                let subWallet = try await self.wallet.deriveChild(
                     mnemonic: String(decoding: mnemonic, as: UTF8.self),
                     chain: chain.bip44Code,
                     account: 0,
@@ -177,30 +174,13 @@ public final class AccountManager: Sendable {
                     index: deriveIndex,
                     language: language
                 )
-                while index == nil {
-                    let occupied = await (try? self.store.findNonRootAccount(address: subWallet.address, chain: chain)) != nil
-                    if !occupied {
-                        break
-                    }
-                    deriveIndex += 1
-                    subWallet = try await self.wallet.deriveChild(
-                        mnemonic: String(decoding: mnemonic, as: UTF8.self),
-                        chain: chain.bip44Code,
-                        account: 0,
-                        change: 0,
-                        index: deriveIndex,
-                        language: language
-                    )
-                }
-
-                try await self.vault.importPrivateKey(address: subWallet.address, privateKey: Data(subWallet.keypair.privateKey.utf8))
 
                 return .success(DerivedSubAccount(
                     address: subWallet.address,
                     chain: chain,
                     path: subWallet.path,
                     rootAccountId: root.id,
-                    publicKey: subWallet.keypair.publicKey
+                    keypair: subWallet.keypair
                 ))
             }
         }
@@ -248,8 +228,6 @@ public final class AccountManager: Sendable {
 
     // MARK: - 内部
 
-    /// 密钥落库（mnemonic / secret / privateKey 三选一，对齐 Kotlin persistVaultMaterial）。
-    ///
     /// vault 写入失败必须向上抛（P0-5：曾用 `try?` 吞错，导致 `importSingleAccount` 报成功
     /// 但私钥从未入库——账户元数据存在却无法签名）。`runOperation` 负责把错误映射为 failure。
     private func persistVault(_ derived: TraditionalDeriveResult) async throws {

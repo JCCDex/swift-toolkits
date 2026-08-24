@@ -280,7 +280,7 @@ final class AccountManagerTests: XCTestCase {
     }
 
     func testImportSubAccountRootNotFound() async {
-        let derived = DerivedSubAccount(address: "0xc", chain: .eth, path: Path(chain: ChainType.eth.bip44Code), rootAccountId: "missing", publicKey: "p")
+        let derived = DerivedSubAccount(address: "0xc", chain: .eth, path: Path(chain: ChainType.eth.bip44Code), rootAccountId: "missing", keypair: Keypair(privateKey: "pk", publicKey: "p"))
         let result = await self.manager.importSubAccount(derived: derived, name: "c")
         XCTAssertEqual(result, .failure(.rootAccountNotFound))
     }

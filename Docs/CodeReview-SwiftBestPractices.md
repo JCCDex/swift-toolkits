@@ -178,7 +178,7 @@ if !expirationDate.isEmpty,
 | 3 | 同步 Argon2（64–256 MiB 内存）在 actor 上执行，且 README 写的是 `try await`；应挪到后台或提供 async 变体 | `Argon2idVaultKeyDeriver.swift` | ✅ `VaultKeyDeriver` 加 `Sendable` + `deriveKeyAsync`（默认实现 `Task.detached` 包裹同步派生）；`VaultRepository` KDF 链（initializePassword/verifyPassword/unlock/changePassword/getPrivateKey/getMnemonic/getSecret/removeAddress/clearAllData/ensureUnlocked/deriveAndVerifyKey）全部 async 化——README 的 `try await` 与 API 现在一致 |
 | 4 | 导入路径 2–4 次全量 store load/save 往返（`importMnemonic`/`importSecret` 内部先调 `importPrivateKey` 再自己 load+append+save） | `VaultRepository.swift:128-168` | ✅ 已随存储专项 C-6 改单次 load + save（1 load + 1 save，对齐 `importPrivateKeys` 批量范式） |
 | 5 | `importPrivateKeys` 重复导入静默 continue；`clearAllData(password: nil)` 无密码即清库（API 设计陷阱，调用方误传 nil 即免密清库） | `VaultRepository.swift:170-189,325-331` | ✅ `clearAllData`：vault 有密码时 nil/错误密码均抛 `wrongPassword`（不再免密清库，测试同步）；`importPrivateKeys` 幂等 continue 为编排路径期望语义，注释确认 |
-| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` | ✅ `lock()` 先 `sessionKey?.wipe()` 再置 nil（主动擦除派生 key 内存，Wipe 不再死代码）；COW 陷阱见补充细节 |
+| 6 | `Wipe.swift` 全库无引用（生产死代码），`sessionKey` 从不主动擦除 | `util/Wipe.swift`、`VaultRepository.swift:13` | ✅ `lock()` 先 `sessionKey?.wipe()` 再置 nil（主动擦除派生 key 内存，Wipe 不再死代码）；`Wipe.swift` 已移入 SwiftCore 归口；COW 陷阱见补充细节 |
 
 > ⚠️ **更正（第二轮 pro 复核）**：第一轮曾把 `try store.keys.append(...)`（`:119,142,161,181,291,301,313`）判为「冗余 try」——**该结论错误**。`Array.append` 本身不抛错，但这些 `try` 覆盖的是**实参里的抛错调用**（`self.cipher.encrypt(...)`、`self.requireSessionKey()`、`keyDeriver.deriveKey(...)`），`VaultCipher.encrypt`/`VaultKeyDeriver.deriveKey` 均为 `throws`（`VaultCipher.swift:4-5`、`VaultKeyDeriver.swift:4`），故 `try` 是必要的。整库干净重编译**零告警**印证了这一点。
 
@@ -198,15 +198,15 @@ if !expirationDate.isEmpty,
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| 1 | `importSubAccount` 以 `Keypair(privateKey: "", ...)` 走 `importSingleAccount` → `persistVault` 会 `importPrivateKey(address, Data())` 加密**空私钥**（当前仅因 `VaultRepository.importPrivateKey` 判重短路才没出事）→ 加 `persistKey: Bool` 参数 | `AccountManager.swift:144-164,289` | 未做（待办） |
-| 2 | **`removeAccount` 同名陷阱**：`SwiftAccount.removeAccount(accountId:)` 是裸 store 删除（不验密、不清理 vault），`AccountManager.removeAccount(accountId:password:)` 才是编排删除——同名异构行为，走门面会静默遗留 vault 密钥 | `SwiftAccount.swift:67-69` vs `AccountManager.swift:232-250` | 未做（待办） |
+| 1 | `importSubAccount` 以 `Keypair(privateKey: "", ...)` 走 `importSingleAccount` → `persistVault` 会 `importPrivateKey(address, Data())` 加密**空私钥**（当前仅因 `VaultRepository.importPrivateKey` 判重短路才没出事）→ 加 `persistKey: Bool` 参数 | `AccountManager.swift:144-164,289` | ✅ `DerivedSubAccount` 改持完整 `keypair`；`deriveSubAccount` **只派生不落库**（不再 importPrivateKey），`importSubAccount` 直接传真实 keypair 走 `persistVault` 落库（persistKey 参数方案已删，无空私钥桩） |
+| 2 | **`removeAccount` 同名陷阱**：`SwiftAccount.removeAccount(accountId:)` 是裸 store 删除（不验密、不清理 vault），`AccountManager.removeAccount(accountId:password:)` 才是编排删除——同名异构行为，走门面会静默遗留 vault 密钥 | `SwiftAccount.swift:67-69` vs `AccountManager.swift:232-250` | ✅ 门面裸删除改名 `removeAccountMeta`（显式「仅元数据」语义），编排删除 `accountManager.removeAccount` 保持；文档警告 |
 | 3 | `removeAccount` 双重 Argon2：先 `verifyPassword` 再 `removeAddress` → `ensureUnlocked` → `unlock` 再派生一次 | `AccountManager.swift:237,246` | ✅ 已随性能专项 B-3 改 `unlock` + `removeAddressUnlocked`（单次派生） |
-| 4 | `SwiftAccount` 是 `AccountStore` 的 ~26 个方法纯透传（零逻辑），会随协议漂移 → 直接暴露 `store` 或让门面 conform `AccountStore` | `SwiftAccount.swift:29-131` | 未做（待办） |
-| 5 | `deriveSubAccount` 连续两次相同 `findById`（第一次 guard 是死代码） | `AccountManager.swift:177-182` | 未做（待办） |
-| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` | 未做（待办） |
-| 7 | 无 `(address, chain)` 唯一索引：预检 + 插入非原子，并发导入同地址会重复入库 | `GRDBAccountStore.swift:23-34` | 未做（待办） |
-| 8 | 观察流出错时静默 `finish()`，消费方无法感知流死亡 | `GRDBAccountStore.swift:283-284` | 未做（待办） |
-| 9 | UPDATE 方法不检查影响行数（更新不存在的 id 静默成功，Kotlin Room `@Update` 有行数返回） | `GRDBAccountStore.swift:142-173` | 未做（待办） |
+| 4 | `SwiftAccount` 是 `AccountStore` 的 ~26 个方法纯透传（零逻辑），会随协议漂移 → 直接暴露 `store` 或让门面 conform `AccountStore` | `SwiftAccount.swift:29-131` | ✅ 门面公开 `store` 属性（需协议级操作直接用；门面方法保留为便捷层，demo/测试在用，删除为破坏性无收益） |
+| 5 | `deriveSubAccount` 连续两次相同 `findById`（第一次 guard 是死代码） | `AccountManager.swift:177-182` | ✅ 合并为单次 `guard let root = findById` |
+| 6 | `(try? findNonRootAccount(...)) != nil` 占用探测：store 出错按「未占用」处理，反而继续派生该 index | `AccountManager.swift:201` | ✅ 占用探测循环已删除（用户要求）——`deriveSubAccount` 只派生不落库（见 #1），index 由 `getMaxIndexByChain+1` 推进；相关 `try?` 问题随之消除 |
+| 7 | 无 `(address, chain)` 唯一索引：预检 + 插入非原子，并发导入同地址会重复入库 | `GRDBAccountStore.swift:23-34` | ✅ v3 迁移加 `(address, chain)` 唯一索引（v2 归一后 address 已小写） |
+| 8 | 观察流出错时静默 `finish()`，消费方无法感知流死亡 | `GRDBAccountStore.swift:283-284` | ✅ 流错误记 `os.Logger`（只打 domain#code，不打 payload）；仍 finish（AsyncStream 无错误通道） |
+| 9 | UPDATE 方法不检查影响行数（更新不存在的 id 静默成功，Kotlin Room `@Update` 有行数返回） | `GRDBAccountStore.swift:142-173` | ✅ `requireUpdate` helper：0 行抛 `accountNotFound`；3 个 update 方法（name/publicKey/parentId）接入 |
 
 ### SwiftNft
 

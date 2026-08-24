@@ -1,4 +1,5 @@
 import SwiftCore
+import SwiftWallet
 
 /// 账户编排结果（对齐 Kotlin `AccountOperationResult<T>`；有意不用 Swift `Result`——
 /// Success/Error 命名与 Kotlin 逐一对齐，`switch` 分支语义贴近原模块）。
@@ -48,13 +49,13 @@ public struct DerivedSubAccount: Sendable, Equatable {
     public let chain: ChainType
     public let path: Path
     public let rootAccountId: String
-    public let publicKey: String
+    public let keypair: Keypair
 
-    public init(address: String, chain: ChainType, path: Path, rootAccountId: String, publicKey: String) {
+    public init(address: String, chain: ChainType, path: Path, rootAccountId: String, keypair: Keypair) {
         self.address = address
         self.chain = chain
         self.path = path
         self.rootAccountId = rootAccountId
-        self.publicKey = publicKey
+        self.keypair = keypair
     }
 }

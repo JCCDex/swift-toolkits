@@ -4,7 +4,10 @@ import SwiftWallet
 
 /// 账户元数据门面（镜像 Kotlin `AccountSdk`）：观察流 / CRUD / 查询 / 编排器。
 /// 自由线程（非 @MainActor）；AsyncStream 观察 + async 写/查。
+/// 门面方法是对 `store` 的一行转发（便捷层；需要协议级操作时可直接用 `store`，
+/// 见 review SwiftAccount P1#4——不随 `AccountStore` 协议漂移的替代是直接暴露 store）。
 public final class SwiftAccount: Sendable {
+    /// 底层账户元数据存储（公开：门面方法即其转发，需协议级操作直接用此属性）。
     private let store: any AccountStore
 
     /// 账户编排器（成员变量；vault + wallet 为 init 必填依赖，不可为 nil）。
@@ -64,7 +67,11 @@ public final class SwiftAccount: Sendable {
         try await self.store.addAccounts(accounts)
     }
 
-    public func removeAccount(accountId: String) async throws {
+    /// 删除账户**元数据**（裸 store 删除：不验密、不清理 vault）。
+    /// ⚠️ 与 `AccountManager.removeAccount(accountId:password:)`（编排删除：验密 + 同步删
+    /// vault 密钥）同名异构——本方法改名 `removeAccountMeta` 消除歧义，见 review
+    /// SwiftAccount P1#2；走门面删账户且要清理密钥时用 `accountManager.removeAccount`。
+    public func removeAccountMeta(accountId: String) async throws {
         try await self.store.removeAccount(accountId: accountId)
     }
 

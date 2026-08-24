@@ -2,6 +2,7 @@ import GRDB
 @testable import SwiftAccount
 import SwiftCore
 import SwiftVault
+import SwiftWallet
 import XCTest
 
 /// 门面委托测试（对齐 Kotlin `AccountSdkTest`）：`SwiftAccount` 全方法透传 store、
@@ -39,7 +40,7 @@ final class SwiftAccountFacadeTests: XCTestCase {
         // 非可选成员变量：类型即保证存在（对齐 orchestrator_returnsAccountOrchestrator）；
         // 用一个编排方法验证可调用
         let result = await self.account.accountManager.importSubAccount(
-            derived: DerivedSubAccount(address: "0xc", chain: .eth, path: Path(chain: ChainType.eth.bip44Code), rootAccountId: "missing", publicKey: "p"),
+            derived: DerivedSubAccount(address: "0xc", chain: .eth, path: Path(chain: ChainType.eth.bip44Code), rootAccountId: "missing", keypair: Keypair(privateKey: "pk", publicKey: "p")),
             name: "c"
         )
         XCTAssertEqual(result, .failure(.rootAccountNotFound), "accountManager 成员可调用")
@@ -65,7 +66,7 @@ final class SwiftAccountFacadeTests: XCTestCase {
         let renamed = try await self.account.findById(account.id)?.name
         XCTAssertEqual(renamed, "renamed")
 
-        try await self.account.removeAccount(accountId: account.id)
+        try await self.account.removeAccountMeta(accountId: account.id)
         let afterRemove = try await self.account.findById(account.id)
         XCTAssertNil(afterRemove)
     }

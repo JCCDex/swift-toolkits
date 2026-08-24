@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import OSLog
 import SwiftCore
 
 /// GRDB 实现（对应 Kotlin `RoomAccountStore` + `AccountRoomDatabase`）：
@@ -45,6 +46,11 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         // 查询去掉 LOWER() 使 idx_accounts_address 生效。
         migrator.registerMigration("v2") { db in
             try db.execute(sql: "UPDATE accounts SET address = LOWER(address)")
+        }
+        // v3（review SwiftAccount P1#7）：(address, chain) 唯一索引——预检 + 插入非原子，
+        // 并发导入同地址会重复入库；v2 归一后 address 已小写，可建唯一索引。
+        migrator.registerMigration("v3") { db in
+            try db.create(index: "idx_accounts_address_chain", on: "accounts", columns: ["address", "chain"], unique: true)
         }
         try migrator.migrate(database)
     }
@@ -148,7 +154,7 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
 
     public func updateAccountName(accountId: String, name: String) async throws {
         try await self.database.write { db in
-            try db.execute(sql: "UPDATE accounts SET name = ? WHERE id = ?", arguments: [name, accountId])
+            try Self.requireUpdate(db, sql: "UPDATE accounts SET name = ? WHERE id = ?", arguments: [name, accountId], accountId: accountId)
         }
     }
 
@@ -163,20 +169,28 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
 
     public func updatePublicKey(accountId: String, publicKey: String) async throws {
         try await self.database.write { db in
-            try db.execute(
-                sql: "UPDATE accounts SET publicKey = ? WHERE id = ?",
-                arguments: [publicKey, accountId]
-            )
+            try Self.requireUpdate(db, sql: "UPDATE accounts SET publicKey = ? WHERE id = ?", arguments: [publicKey, accountId], accountId: accountId)
         }
     }
 
     public func updateParentId(accountId: String, parentId: String) async throws {
         try await self.database.write { db in
-            try db.execute(
-                sql: "UPDATE accounts SET parentId = ? WHERE id = ?",
-                arguments: [parentId, accountId]
-            )
+            try Self.requireUpdate(db, sql: "UPDATE accounts SET parentId = ? WHERE id = ?", arguments: [parentId, accountId], accountId: accountId)
         }
+    }
+
+    /// UPDATE 影响行数检查（review SwiftAccount P1#9）：更新不存在的 id 静默成功 →
+    /// 0 行则抛 `accountNotFound`（对齐 Kotlin Room `@Update` 行数返回，不再无声吞掉）。
+    /// GRDB 的 `Statement.execute` 无行数返回，用 SQLite `changes()` 取本次变更行数。
+    private static func requireUpdate(
+        _ db: Database,
+        sql: String,
+        arguments: StatementArguments,
+        accountId: String
+    ) throws {
+        try db.execute(sql: sql, arguments: arguments)
+        let changed = try Int.fetchOne(db, sql: "SELECT changes()") ?? 0
+        guard changed > 0 else { throw AccountStoreError.accountNotFound(accountId) }
     }
 
     public func clearAllAccounts() async throws {
@@ -276,6 +290,10 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
 
     // MARK: - 观察流适配
 
+    /// 观察流出错记日志（review SwiftAccount P1#8）：原静默 `finish()` 让消费方无法感知
+    /// 流死亡（如表被删）；仍 finish（AsyncStream 无错误通道），但至少留痕可排查。
+    private static let logger = Logger(subsystem: "com.jccdex.toolkits.swiftaccount", category: "GRDBAccountStore")
+
     private func stream<Value, Mapped>(
         _ observation: ValueObservation<ValueReducers.Fetch<Value>>,
         map: @escaping @Sendable (Value) -> Mapped
@@ -288,6 +306,12 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
                     }
                     continuation.finish()
                 } catch {
+                    // P1#8：留痕（只打 domain#code，不打 payload——GRDB 错误可能含 SQL/绑定值）
+                    if let nsError = error as NSError? {
+                        Self.logger.error("observation ended with error: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)")
+                    } else {
+                        Self.logger.error("observation ended with error: \(String(describing: error), privacy: .public)")
+                    }
                     continuation.finish()
                 }
             }
