@@ -39,6 +39,7 @@ public enum VaultError: Error, Equatable, Sendable {
     case secretNotFound
     case biometricNotFound
     case tinkUnavailable
+    case cryptoRandomFailed(OSStatus)
 }
 
 struct VaultStoreSnapshot: Codable {

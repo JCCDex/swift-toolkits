@@ -52,7 +52,7 @@ public actor VaultRepository {
             return false
         }
 
-        let salt = self.randomData(count: 16)
+        let salt = try self.randomData(count: 16)
         let key = try await keyDeriver.deriveKeyAsync(
             password: password, salt: salt, parameters: parameters
         )
@@ -272,7 +272,7 @@ public actor VaultRepository {
 
         let store = try loadStore()
         let currentKey = try requireSessionKey()
-        let newSalt = self.randomData(count: 16)
+        let newSalt = try self.randomData(count: 16)
         let newKey = try await keyDeriver.deriveKeyAsync(
             password: newPassword, salt: newSalt, parameters: parameters
         )
@@ -474,10 +474,13 @@ public actor VaultRepository {
     }
 
     /// 密码学随机数（KDF salt 等必须用 CSPRNG；批量生成而非逐字节 `UInt8.random`）。
-    private func randomData(count: Int) -> Data {
+    /// 失败抛 `cryptoRandomFailed`（不崩溃——CSPRNG 失败属系统级异常但可诊断，见 review 六 V-3）。
+    private func randomData(count: Int) throws -> Data {
         var bytes = [UInt8](repeating: 0, count: count)
         let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
-        precondition(status == errSecSuccess, "SecRandomCopyBytes failed: \(status)")
+        guard status == errSecSuccess else {
+            throw VaultError.cryptoRandomFailed(status)
+        }
         return Data(bytes)
     }
 
