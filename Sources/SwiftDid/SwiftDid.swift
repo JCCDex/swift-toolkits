@@ -60,7 +60,7 @@ public final class SwiftDid: DidSDK {
 
     public init(
         store: any DidStore,
-        bridge: any EngineBridge = WebviewBridgeEngine(bridgeFileName: "did-bridge.html"),
+        bridge: any EngineBridge = WebViewBridgeEngine(bridgeFileName: "did-bridge.html"),
         nft: (any DidNftResolution)? = nil,
         avatarResolver: (any DidAvatarResolver)? = nil,
         avatarCredentialSource: (any DidAvatarCredentialSource)? = nil
@@ -80,7 +80,7 @@ public final class SwiftDid: DidSDK {
     public func start() throws {
         guard !self.started else { return }
         // 协议统一启动（与 SwiftWallet.start 一致）：宿主注入的自定义 EngineBridge 同样
-        // 必须被 start——旧实现对具体类型 WebviewBridgeEngine 特判，自定义桥会被静默跳过
+        // 必须被 start——旧实现对具体类型 WebViewBridgeEngine 特判，自定义桥会被静默跳过
         // （见 review 四、架构层观察 #3）。默认桥网关保持 did-bridge.js 硬编码（见 Did-Swift 03 §3）。
         try self.bridge.start()
         // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）
@@ -248,7 +248,7 @@ public final class SwiftDid: DidSDK {
     // MARK: - DApp 签名面（SwiftDappConnect.DidSDK）
 
     public func didGenerateBase58PublicKey(privateKey: String) async throws -> (publicKeyBase58: String, type: String) {
-        let result: GenerateBase58PKResult = try await bridge.callAs(method: "generatePublicKeyBase58", params: ["privateKey": privateKey], as: GenerateBase58PKResult.self)
+        let result: GenerateBase58PKResult = try await bridge.callTyped(method: "generatePublicKeyBase58", params: ["privateKey": privateKey], asType: GenerateBase58PKResult.self)
         return (result.publicKeyBase58, result.type)
     }
 
@@ -282,7 +282,7 @@ public final class SwiftDid: DidSDK {
 
     public func uploadInitialDidDoc(privateKey: String, did: String, nickname: String = "") async -> Bool {
         do {
-            let keyResult: GenerateBase58PKResult = try await bridge.callAs(method: "generatePublicKeyBase58", params: ["privateKey": privateKey], as: GenerateBase58PKResult.self)
+            let keyResult: GenerateBase58PKResult = try await bridge.callTyped(method: "generatePublicKeyBase58", params: ["privateKey": privateKey], asType: GenerateBase58PKResult.self)
             // didStat 失败 = 发布失败（Swift 修正 #2，不重试）
             guard let previousCid = await self.readDidStatCid(did) else { return false }
 
@@ -318,7 +318,7 @@ public final class SwiftDid: DidSDK {
 
             let generated = try await bridge.call(method: "generateDidDoc", params: didDoc)
             let didDocJson = self.ensureCredentialsArrayInDidDocument(generated)
-            let res: PublishDidResult = try await bridge.callAs(method: "publishDid", params: ["did": did, "privateKey": privateKey, "didDocument": didDocJson], as: PublishDidResult.self)
+            let res: PublishDidResult = try await bridge.callTyped(method: "publishDid", params: ["did": did, "privateKey": privateKey, "didDocument": didDocJson], asType: PublishDidResult.self)
             if res.code == "0" {
                 try await self.core.saveNewCreatedDid(did, doc: didDocJson)
                 return true
@@ -744,17 +744,17 @@ public final class SwiftDid: DidSDK {
     }
 
     private func publishDid(did: String, privateKey: String, didDocument: String) async throws -> PublishDidResult {
-        try await self.bridge.callAs(
+        try await self.bridge.callTyped(
             method: "publishDid",
             params: ["did": did, "privateKey": privateKey, "didDocument": didDocument],
-            as: PublishDidResult.self
+            asType: PublishDidResult.self
         )
     }
 
     /// 返回 nil = didStat 调用失败（不重试，发布应中止，见 Did-Swift 01 §6）；"" = 成功但无 previousCid。
     private func readDidStatCid(_ did: String) async -> String? {
-        guard let result: DidStatResult = try? await bridge.callAs(
-            method: "didStat", params: ["did": did], as: DidStatResult.self
+        guard let result: DidStatResult = try? await bridge.callTyped(
+            method: "didStat", params: ["did": did], asType: DidStatResult.self
         ) else {
             return nil
         }

@@ -266,7 +266,7 @@ final class SwiftDidTests: XCTestCase {
     // MARK: - 生命周期
 
     func testStartInvokesBridgeStartExactlyOnce() throws {
-        // 四、架构观察 #3 回归：start 不得对具体类型 WebviewBridgeEngine 特判——
+        // 四、架构观察 #3 回归：start 不得对具体类型 WebViewBridgeEngine 特判——
         // 注入的自定义 EngineBridge 也必须被启动；SwiftDid 自身幂等。
         XCTAssertEqual(self.bridge.startCount, 0)
         try self.did.start()
@@ -304,7 +304,7 @@ final class FakeDidBridge: EngineBridge {
         try await self.call(method: method, params: params)
     }
 
-    func callAs<T: Decodable>(method: String, params: [String: Any]?, as _: T.Type) async throws -> T {
+    func callTyped<T: Decodable>(method: String, params: [String: Any]?, asType _: T.Type) async throws -> T {
         let raw = try await call(method: method, params: params)
         if T.self == String.self, let string = raw as? T {
             return string
@@ -315,8 +315,8 @@ final class FakeDidBridge: EngineBridge {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    func callAs<T: Decodable>(method: String, params: [String: Any]?, as type: T.Type, timeoutMs _: TimeInterval, readyWaitMs _: TimeInterval) async throws -> T {
-        try await self.callAs(method: method, params: params, as: type)
+    func callTyped<T: Decodable>(method: String, params: [String: Any]?, asType type: T.Type, timeoutMs _: TimeInterval, readyWaitMs _: TimeInterval) async throws -> T {
+        try await self.callTyped(method: method, params: params, asType: type)
     }
 
     func destroy() {}

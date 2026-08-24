@@ -4,7 +4,7 @@
 
 ## 设计原则
 
-1. **复用桥资产、自持独立 runtime**：复用 `SwiftWebviewBridge` 内置的 `did-bridge.html` / `did-bridge.js` / `did-0.3.2.min.js` 与 PromiseBridge 协议；SwiftDid **自持一个 `WebviewBridgeClient`** 加载 did-bridge（`WebviewBridgeEngine.shared` 已被 SwiftWallet 的 wallet-bridge 占用，单例只能承载一个页面）。
+1. **复用桥资产、自持独立 runtime**：复用 `SwiftWebviewBridge` 内置的 `did-bridge.html` / `did-bridge.js` / `did-0.3.2.min.js` 与 PromiseBridge 协议；SwiftDid **自持一个 `WebViewBridgeClient`** 加载 did-bridge（`WebViewBridgeEngine(bridgeFileName: "did-bridge.html")`，与 SwiftWallet 各自独立承载一个页面）。
 2. **GRDB 替代 Room**：`DidStore` 协议 + `GRDBDidStore` 实现（`did_documents` 表 + `did_pending` 表 + ValueObservation 观察流），宿主可替换。
 3. **Swift 化 API**：`suspend` → `async throws`，`Flow` → `AsyncStream`，Gson → `[String: Any]`/Codable；门面 `@MainActor`，存储/解析协议自由线程。
 4. **avatar/NFT 经 `SwiftNft` 接入**：`SwiftDid` 以**可选依赖**接入 `SwiftNft`（对齐 Kotlin `nftSdk: NftSdk? = null`，构造参数 `nft: (any DidNftResolution)?`）；头像解析回退链与 Kotlin 一致：`DidAvatarResolver`（宿主注入）→ `SwiftNft` → 本地兜底解析；未注入时相关方法返回 nil，协议缝保证宿主无 SwiftNft 也能编译。
@@ -65,8 +65,8 @@ Sources/SwiftDid/
 │   ├── DidResolver.swift           // 链上解析协议（桥方法透传）
 │   └── DidDocumentEditor.swift     // DID 文档编辑（增删凭证/改 Profile）
 ├── Bridge/
-│   └── DidBridge.swift             // 桥协议（类型化 did-bridge 方法面）+ WebviewBridgeEngine
-│                                   //   （WebviewBridgeClient 实现，默认 bundle，网关硬编码）
+│   └── DidBridge.swift             // 桥协议（类型化 did-bridge 方法面）+ WebViewBridgeEngine
+│                                   //   （WebViewBridgeClient 实现，默认 bundle，网关硬编码）
 └── Util/
     ├── Keccak256.swift             // keccak-256 自实现（EIP-55 checksum 用）
     ├── ChecksumUtils.swift         // EIP-55 地址校验和
@@ -91,7 +91,7 @@ Sources/SwiftDid/
 
 ## Notes
 
-- **自持 DID 隐藏 WebView**：`WebviewBridgeEngine.shared` 一个 client 只能承载一个 bridge 页面（已被 SwiftWallet 占用），SwiftDid 自持 `WebviewBridgeClient` 加载 `did-bridge.html`，与 Kotlin 的独立 WebView 对齐。
+- **自持 DID 隐藏 WebView**：`WebViewBridgeEngine` 一个 client 只能承载一个 bridge 页面（SwiftWallet 与 SwiftDid 各自构造独立 engine/client），SwiftDid 自持 `WebViewBridgeClient` 加载 `did-bridge.html`，与 Kotlin 的独立 WebView 对齐。
 - **pending 对账状态机（Swift 增强）**：四张 Kotlin 内存表合并为 `did_pending` 单表（kind 列）持久化到 GRDB，消除 Kotlin 内存态的重启丢失窗口；TTL 24h（`deleteExpiredPending` 启动时清理，不启动定时器）；create/delete/avatar/nickname 对账逻辑对齐 Kotlin，含**删除防复活**守卫（`pendingDelete` 检查前置到本地 upsert 之前）。
 - **解析三态不 throw**：`resolveDid` 返回 `.document / .missing / .error`，桥/网络错误不伪装成「链上缺失」（对齐 Kotlin 修正 #2）。
 - **IPFS 网关硬编码（D5 接受）**：复用现有 `did-bridge.js`，其硬编码网关 `https://wodecards.wh.jccdex.cn:8550` **保持原样、不做注入**（与 Kotlin `:did` 现状一致，见 security-review.md D5）。
