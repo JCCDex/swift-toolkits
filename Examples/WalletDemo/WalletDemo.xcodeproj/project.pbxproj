@@ -18,6 +18,7 @@
 		50841E3E0E3BF302DA15EA09 /* SwiftAccount in Frameworks */ = {isa = PBXBuildFile; productRef = 14F5FA1DB0FA7E8807ACC1C3 /* SwiftAccount */; };
 		66A225808B5E8C40A21E1CAF /* WalletService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CD2104B4254BE9E67B42E47 /* WalletService.swift */; };
 		6C4AB7C9255CD888D4D2392B /* dapp.html in Resources */ = {isa = PBXBuildFile; fileRef = C6003972DD8DD06E54F99A1F /* dapp.html */; };
+		811E829248216F81A27591C3 /* WalletSwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E2238C7217280AB0CB08D9 /* WalletSwitcherView.swift */; };
 		8A67C84C6B3C87ADCF40AB50 /* SwiftVault in Frameworks */ = {isa = PBXBuildFile; productRef = 6A2CFE62973B5238598A67E6 /* SwiftVault */; };
 		8CA77E2F41E4C5F5A1723167 /* SwiftDappConnect in Frameworks */ = {isa = PBXBuildFile; productRef = 3014DEEF16D18D7D9F6DF154 /* SwiftDappConnect */; };
 		94F03C858C2360C2743AD6F0 /* SwiftCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5757D4763E15A5B77083498D /* SwiftCore */; };
@@ -32,6 +33,7 @@
 		39F229B27C5FA1304FE57775 /* DappView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DappView.swift; sourceTree = "<group>"; };
 		3F291DDFB9591377F5D1D96B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		64117EC5A7359B04B05ACA37 /* swift-toolkits */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "swift-toolkits"; path = ../..; sourceTree = SOURCE_ROOT; };
+		66E2238C7217280AB0CB08D9 /* WalletSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletSwitcherView.swift; sourceTree = "<group>"; };
 		73ECD42A31516053F6D1E423 /* WalletDemo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WalletDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		789799DB43E5496C77FBAFF5 /* DidAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DidAvatarView.swift; sourceTree = "<group>"; };
 		8FA301B39BD19CF045546BB4 /* DemoProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoProviders.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 				789799DB43E5496C77FBAFF5 /* DidAvatarView.swift */,
 				9D7EDF639B49F48298CBCBA6 /* WalletDemoApp.swift */,
 				0CD2104B4254BE9E67B42E47 /* WalletService.swift */,
+				66E2238C7217280AB0CB08D9 /* WalletSwitcherView.swift */,
 				AD1BF279FD04182924146673 /* Resources */,
 			);
 			path = WalletDemo;
@@ -195,6 +198,7 @@
 				4AF2A401EED91C1D5FA6D9CC /* DidAvatarView.swift in Sources */,
 				0E4EE6CE539C19DE5AC6A23C /* WalletDemoApp.swift in Sources */,
 				66A225808B5E8C40A21E1CAF /* WalletService.swift in Sources */,
+				811E829248216F81A27591C3 /* WalletSwitcherView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

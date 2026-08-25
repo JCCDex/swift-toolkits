@@ -61,56 +61,23 @@ final class WalletService: ObservableObject {
         self.status = "已加载 \(self.state.accounts.count) 个钱包"
     }
 
-    // MARK: - 生成/新增钱包（助记词 → 派生 ETH 账户 → 导入 SwiftVault）
+    // MARK: - 生成钱包（HD：助记词 → hdWalletFromMnemonic → importHDWallet 落库）
 
+    /// 生成钱包：**统一走 HD 流程**（`generateMnemonic` → `hdWalletFromMnemonic` 得到
+    /// `GenerateHDWalletResult` → `importHDWallet` 保存到本地；根 + ETH/SWTC 子账户私钥
+    /// 全部落 vault），并将根账户设为当前地址。与 `addHDWallet()` 同源（demo 需求：
+    /// 生成钱包这步应调用 hdWalletFromMnemonic + importHDWallet）。
     func addWallet() async throws {
-        guard !self.isLoading else { return }
-        self.isLoading = true
-        defer { self.isLoading = false }
-        self.status = "正在启动加密桥…"
-        try self.wallet.start()
-
-        self.status = "正在生成助记词…"
-        let mnemonic = try await self.wallet.generateMnemonic()
-
-        self.status = "正在派生 ETH 账户…"
-        let derived = try await self.wallet.deriveFromMnemonic(
-            mnemonic.value,
-            chain: ChainType.eth.bip44Code
-        )
-
-        self.status = "正在导入账户…"
-        // vault 解锁/初始化（AccountManager.importSingleAccount 内部把助记词+私钥落 vault）
-        if try await !self.vault.hasPassword() {
-            _ = try await self.vault.initializePassword(self.demoPassword)
-        } else {
-            _ = try await self.vault.unlock(self.demoPassword) // vault.pb 已存在：新进程先解锁
-        }
-        let result = await self.accountManager.importSingleAccount(
-            derived: TraditionalDeriveResult(
-                address: derived.address,
-                keypair: derived.keypair,
-                mnemonic: mnemonic,
-                path: derived.path
-            ),
-            chain: .eth,
-            name: "Demo Wallet",
-            isHD: false,
-            parentId: nil
-        )
-        guard case let .success(accountId) = result else {
-            self.status = "导入失败：\(result)"
-            return
-        }
-        // 新钱包设为当前地址（Account API）
-        try? await self.account.setCurrentAccount(accountId: accountId)
-        self.status = "钱包已生成：\(derived.address)"
+        guard let rootId = try await self.addHDWallet() else { return }
+        // 新钱包根账户设为当前地址（Account API）
+        try? await self.account.setCurrentAccount(accountId: rootId)
     }
 
-    // MARK: - 生成 HD 钱包（根 + 子账户；演示 importHDWallet）
+    // MARK: - 生成 HD 钱包（根 + 子账户；走 importHDWallet）
 
-    /// 生成 HD 钱包：根账户（SWTC）+ 指定链的子账户（走 `importHDWallet`，私钥在导入时
-    /// 全部落 vault）。返回 rootAccountId 供后续 `deriveAndImportSubAccount` 派生子账户。
+    /// 生成 HD 钱包：根账户（SWTC）+ ETH/SWTC 子账户（`hdWalletFromMnemonic` 生成
+    /// `GenerateHDWalletResult` → `importHDWallet`，私钥在导入时全部落 vault）。
+    /// 返回 rootAccountId 供后续 `deriveAndImportSubAccount` 派生子账户。
     func addHDWallet() async throws -> String? {
         guard !self.isLoading else { return nil }
         self.isLoading = true
@@ -161,6 +128,20 @@ final class WalletService: ObservableObject {
         chain: ChainType,
         index: Int? = nil
     ) async -> String? {
+        // 0) 启动加密桥（幂等；未启动时派生抛 SwiftWalletError.notInitialized——
+        //    用户实测命中，见 demo 需求「派生失败 not initialized」）+ 解锁 vault（
+        //    deriveSubAccount 走 ensureUnlocked 自动解锁，这里确保密码已初始化）。
+        do {
+            try self.wallet.start()
+            if try await !self.vault.hasPassword() {
+                _ = try await self.vault.initializePassword(self.demoPassword)
+            } else {
+                _ = try await self.vault.unlock(self.demoPassword)
+            }
+        } catch {
+            self.status = "派生前置失败：\(error)"
+            return nil
+        }
         // 1) 派生（只派生，不落库）
         let derived = await self.accountManager.deriveSubAccount(
             chain: chain,
