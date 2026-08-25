@@ -101,7 +101,7 @@
         address: child.address(),
         keypair: normalizeKeypair(child.keypair(), chain),
         path: {
-          chain: (path.chain << 1) >> 1,
+          chain: path.chain & 0x7FFFFFFF,
           account: path.account,
           change: path.change,
           index: path.index
@@ -131,7 +131,7 @@
           address: child.address(),
           keypair: normalizeKeypair(child.keypair(), chain),
           path: {
-            chain: (path.chain << 1) >> 1,
+            chain: path.chain & 0x7FFFFFFF,
             account: path.account,
             change: path.change,
             index: path.index
@@ -187,7 +187,7 @@
         },
         keypair: normalizeKeypair(keypair, chain),
         path: {
-          chain: (path.chain << 1) >> 1,
+          chain: path.chain & 0x7FFFFFFF,
           account: path.account,
           change: path.change,
           index: path.index
