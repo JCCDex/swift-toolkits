@@ -97,6 +97,7 @@
       const path = child.path();
 
       return {
+        chain: chain,
         address: child.address(),
         keypair: normalizeKeypair(child.keypair(), chain),
         path: {
