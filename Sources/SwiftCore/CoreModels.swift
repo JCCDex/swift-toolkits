@@ -83,9 +83,11 @@ public struct Path: Codable, Sendable, Equatable {
         self.account == 0 && self.change == 0 && self.index == 0
     }
 
-    /// `m/44'/<chain>'/<account>'/<change>/<index>`（与 Kotlin `Path.toString()` 一致）。
+    // `m/44'/<chain>'/<account>'/<change>/<index>`（与 Kotlin `Path.toString()` 一致）。
+
     public var derivationPath: String {
-        "m/44'/\(self.chain)'/\(self.account)'/\(self.change)/\(self.index)"
+        let displayChain = self.chain & 0x7FFF_FFFF
+        return "m/44'/\(displayChain)'/\(self.account)'/\(self.change)/\(self.index)"
     }
 
     public init(chain: Int64, account: Int = 0, change: Int = 0, index: Int = 0) {

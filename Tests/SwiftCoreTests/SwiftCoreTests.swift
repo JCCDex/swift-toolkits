@@ -38,7 +38,31 @@ final class SwiftCoreTests: XCTestCase {
 
     func testDerivationPathMatchesKotlinToString() {
         XCTAssertEqual(Path(chain: 0).derivationPath, "m/44'/0'/0'/0/0")
-        XCTAssertEqual(Path(chain: 2_147_483_708, account: 0, change: 0, index: 3).derivationPath, "m/44'/2147483708'/0'/0/3")
+        // chain 显示对齐 JS 桥掩码（& 0x7FFFFFFF）：2147483708（0x8000003C）清硬化位 → 60
+        XCTAssertEqual(Path(chain: 2_147_483_708, account: 0, change: 0, index: 3).derivationPath, "m/44'/60'/0'/0/3")
+        // 各链 bip44Code 的掩码显示值（与 wallet-bridge.js path.chain & 0x7FFFFFFF 对照）
+        XCTAssertEqual(Path(chain: ChainType.swtc.bip44Code).derivationPath, "m/44'/315'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.bsc.bip44Code).derivationPath, "m/44'/9006'/0'/0/0")
+    }
+
+    /// 修复回归测试（demo「修复 derivePath」）：derivationPath 的 chain 显示必须复刻
+    /// JS 桥的掩码语义 `path.chain & 0x7FFFFFFF`（清 bip44 硬化标志位得 coinType）。
+    /// 不用位移——JS 的 `<<`/`>>` 是 32 位有符号运算且符号扩展，对硬化常量得不到 coinType；
+    /// 掩码对 Int64/Int32 都成立、不依赖位移方向。覆盖：全部链 bip44Code、小值恒等、0、
+    /// 负数（负 chain 理论上不会出现，仅验证掩码行为：-4 → 2147483644）。
+    func testDerivationPathMatchesJS32BitShift() {
+        XCTAssertEqual(Path(chain: ChainType.eth.bip44Code).derivationPath, "m/44'/60'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.swtc.bip44Code).derivationPath, "m/44'/315'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.bsc.bip44Code).derivationPath, "m/44'/9006'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.polygon.bip44Code).derivationPath, "m/44'/966'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.arb1.bip44Code).derivationPath, "m/44'/9001'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.base.bip44Code).derivationPath, "m/44'/8453'/0'/0/0")
+        XCTAssertEqual(Path(chain: ChainType.moac.bip44Code).derivationPath, "m/44'/314'/0'/0/0")
+        // 小值恒等（掩码无影响）
+        XCTAssertEqual(Path(chain: 60).derivationPath, "m/44'/60'/0'/0/0")
+        XCTAssertEqual(Path(chain: 0).derivationPath, "m/44'/0'/0'/0/0")
+        // 负数：-4 & 0x7FFFFFFF = 2147483644（负 chain 仅防御性验证，正常不会出现）
+        XCTAssertEqual(Path(chain: -4).derivationPath, "m/44'/2147483644'/0'/0/0")
     }
 
     func testIsRootAndRoot() {

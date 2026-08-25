@@ -120,7 +120,8 @@ private func makeWallet(bridge: FakeWalletBridge) -> SwiftWallet {
     #expect(sub.address == "0xabc123")
     #expect(sub.chain == 2_147_483_708)
     #expect(sub.keypair.privateKey == "0xpk")
-    #expect(sub.path.derivationPath == "m/44'/2147483708'/0'/0/0")
+    // path.chain 显示对齐 JS 32 位位移：mock 的 2147483708 截断为 60
+    #expect(sub.path.derivationPath == "m/44'/60'/0'/0/0")
     #expect(bridge.recordedCalls.first?.params?["chain"] as? Int64 == 2_147_483_708)
 }
 
