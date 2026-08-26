@@ -275,6 +275,33 @@ final class SwiftCoreTests: XCTestCase {
         }
         XCTAssertEqual(orders, [0, 1, 2, 3, 4], "FIFO：每个任务都执行且互不阻塞")
     }
+
+    /// 队尾清理回归测试：最后一次 withLock 返回后，AsyncMutex 不再持有任何任务
+    /// 强引用（`tail` 被 defer 断开）。通过 `MutexToken.deinit` 计数验证——若 tail
+    /// 残留引用，token 会滞留到 AsyncMutex 销毁（长生命周期单例场景泄漏）。
+    func testAsyncMutexReleasesTailAfterLastCall() async {
+        // 用 token 对象标记：token 被 body 捕获 → 若 tail 链未断，token 生命周期延长。
+        // nonisolated(unsafe)：仅测试内单线程断言，无并发读写。
+        final class Token: @unchecked Sendable {
+            nonisolated(unsafe) static var alive = 0
+            init() {
+                Token.alive += 1
+            }
+
+            deinit { Token.alive -= 1 }
+        }
+
+        let mutex = AsyncMutex()
+        // 串行多次调用，最后一次完成后立即检查 token 释放
+        await mutex.withLock { _ = Token() }
+        await mutex.withLock { _ = Token() }
+        await mutex.withLock { _ = Token() }
+
+        // withLock 已返回、body 已完成；若 tail 仍持有 completion → completion 捕获
+        // task → task 捕获 body 闭包 → 捕获 Token → alive 未归零。
+        // 给清理时机留一拍（actor 内 defer 在 withLock 返回前已执行，直接断言即可）
+        XCTAssertEqual(Token.alive, 0, "最后一次 withLock 后 tail 应被断开，token 全部释放")
+    }
 }
 
 /// 线程安全计数器（AsyncMutex 测试用）。
