@@ -57,6 +57,9 @@ public final class SwiftDid: DidSDK {
     private let avatarResolver: (any DidAvatarResolver)?
     private let avatarCredentialSource: (any DidAvatarCredentialSource)?
     private var started = false
+    /// 启动时的 pending TTL 清理任务：随 `destroy()` 取消，避免频繁 start/destroy
+    /// 且 store 挂起时任务滞留到完成（见内存泄露审查 #2）。
+    private var startupTask: Task<Void, Never>?
 
     public init(
         store: any DidStore,
@@ -85,7 +88,9 @@ public final class SwiftDid: DidSDK {
         try self.bridge.start()
         // 启动时做一次 did_pending 全表 TTL 清理（不启动定时器，见 Did-Swift 01 §6）；
         // 失败记日志不阻塞启动（清理失败会泄漏 pending 状态，须可观测，见 review 六 V-4）。
-        Task {
+        // 任务引用存入 `startupTask`：`destroy()` 时取消（见内存泄露审查 #2）。
+        self.startupTask = Task {
+            defer { self.startupTask = nil }
             do {
                 try await self.core.deleteExpiredPending(now: Date.nowMillis(), ttlMillis: DidCoreService.pendingTTLMillis)
             } catch {
@@ -96,6 +101,8 @@ public final class SwiftDid: DidSDK {
     }
 
     public func destroy() {
+        self.startupTask?.cancel()
+        self.startupTask = nil
         self.bridge.destroy()
         self.started = false
     }

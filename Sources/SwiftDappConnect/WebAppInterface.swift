@@ -187,8 +187,11 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             params: obj["params"] as? [Any]
         )
 
-        Task { @MainActor in
-            let payload = await route(request, origin: origin)
+        // 短期任务：route 完成后即结束；weak 防止慢网络挂起时延长 self 生命周期
+        // （对齐 117 行同款写法，见内存泄露审查 #1）。
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let payload = await self.route(request, origin: origin)
             self.deliver(payload)
         }
     }
