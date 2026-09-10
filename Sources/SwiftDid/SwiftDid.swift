@@ -300,14 +300,8 @@ public final class SwiftDid: DidSDK {
             // 原实现(「Swift 修正 #2」)`guard let previousCid = ... else { return false }` 对**首次发布**是错的:
             // 此时 DID 尚未上链,`didStat` 取不到任何记录 → 直接 return false,连 publishDid 都不会发出,
             // 表现为「新建身份在 iOS 上必然失败,而 Android 正常」(kotlin 侧为 `catch { "" }` 容错)。
-            // 折中:重试若干次(规避瞬时网络抖动导致丢失 previousCid),仍失败则按「无 previousCid」继续发布。
-            var previousCid = ""
-            for _ in 0 ..< 3 {
-                if let cid = await self.readDidStatCid(did) {
-                    previousCid = cid
-                    break
-                }
-            }
+            // 与 Kotlin 完全对齐:**不重试**,didStat 无记录(错误为空)即按「无 previousCid」继续发布。
+            let previousCid = await (self.readDidStatCid(did)) ?? ""
 
             let didDoc: [String: Any] = [
                 "version": "1.0.0",
