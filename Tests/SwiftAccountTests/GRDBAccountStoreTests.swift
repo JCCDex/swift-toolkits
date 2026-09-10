@@ -41,6 +41,30 @@ final class GRDBAccountStoreTests: XCTestCase {
         )
     }
 
+    // MARK: - 地址大小写保真（v4）
+
+    /// SWTC 地址是大小写敏感的 base58，业务层由地址拼 DID（`did:swtc:<address>`）：
+    /// 存储必须保真原始大小写，同时小写查询仍要命中（`address` 列保持归一化 + 索引/唯一索引）。
+    func test_swtcAddressCaseIsPreservedAndLowercaseLookupStillHits() async throws {
+        let mixedCase = "jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq"
+        let account = self.makeAccount(address: mixedCase, chain: .swtc)
+        try await self.store.addAccount(account)
+
+        let byMixedCase = try await self.store.findByAddress(mixedCase)
+        XCTAssertEqual(byMixedCase?.address, mixedCase, "读回必须保真原始大小写（v4 addressDisplay）")
+
+        let byLowercase = try await self.store.findByAddress(mixedCase.lowercased())
+        XCTAssertEqual(byLowercase?.address, mixedCase, "小写查询仍须命中且返回保真地址")
+
+        // 列表读回(观察流首批)同样保真。
+        var firstBatch: [WalletAccount] = []
+        for await batch in self.store.observeAccounts() {
+            firstBatch = batch
+            break
+        }
+        XCTAssertEqual(firstBatch.map(\.address), [mixedCase])
+    }
+
     // MARK: - 写 / 查
 
     func testAddFindRemove() async throws {
