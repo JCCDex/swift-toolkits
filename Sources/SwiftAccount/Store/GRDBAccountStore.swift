@@ -52,6 +52,17 @@ public final class GRDBAccountStore: AccountStore, @unchecked Sendable {
         migrator.registerMigration("v3") { db in
             try db.create(index: "idx_accounts_address_chain", on: "accounts", columns: ["address", "chain"], unique: true)
         }
+        // v4：地址大小写保真。v2 把 `address` 归一为小写（索引/唯一索引/查询都依赖它），
+        // 但 SWTC 地址是**大小写敏感**的 base58，业务层由地址拼 DID（`did:swtc:<address>`），
+        // 小写化会让 DID 与链上不一致、`resolveDid` 取不到文档。故新增 `addressDisplay`
+        // 保存**原始大小写**：`address` 继续小写供索引/查询，读回时优先取 `addressDisplay`。
+        // 旧行先回落 `address`（小写），由下一次写入（导入/派生/改名）回填真实大小写。
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "accounts") { t in
+                t.add(column: "addressDisplay", .text)
+            }
+            try db.execute(sql: "UPDATE accounts SET addressDisplay = address")
+        }
         try migrator.migrate(database)
     }
 
@@ -330,7 +341,10 @@ public enum AccountStoreError: Error, Equatable, Sendable {
 /// accounts 表记录（id 文本主键；chain 存 BIP44 code）。
 struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableRecord {
     var id: String
+    /// 归一化(小写)地址:索引/唯一索引/查询使用(见 v2/v4 迁移)。
     var address: String
+    /// 原始大小写地址(v4):业务/DID 展示使用;旧数据为小写,由后续写入回填。
+    var addressDisplay: String?
     var chain: Int64
     var name: String
     var isHD: Bool
@@ -345,6 +359,7 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     enum Columns {
         static let id = Column("id")
         static let address = Column("address")
+        static let addressDisplay = Column("addressDisplay")
         static let chain = Column("chain")
         static let name = Column("name")
         static let isHD = Column("isHD")
@@ -359,6 +374,7 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     init(
         id: String,
         address: String,
+        addressDisplay: String? = nil,
         chain: Int64,
         name: String,
         isHD: Bool,
@@ -370,6 +386,7 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     ) {
         self.id = id
         self.address = address
+        self.addressDisplay = addressDisplay
         self.chain = chain
         self.name = name
         self.isHD = isHD
@@ -383,6 +400,8 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     init(account: WalletAccount) {
         self.id = account.id
         self.address = account.address.normalizedAddress // 写入归一（v2 起；查询不再 LOWER()，见 review C-1）
+        // v4：同时保真原始大小写（SWTC 地址大小写敏感；DID = "did:swtc:<address>"）。
+        self.addressDisplay = account.address
         self.chain = account.chain.bip44Code
         self.name = account.name
         self.isHD = account.isHD
@@ -403,7 +422,8 @@ struct AccountRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
         ) }
         return WalletAccount(
             id: self.id,
-            address: self.address,
+            // v4：优先返回原始大小写地址（旧行为=小写）；地址查询仍走归一化列。
+            address: self.addressDisplay.flatMap { $0.isEmpty ? nil : $0 } ?? self.address,
             chain: ChainType.fromBip44Code(self.chain) ?? .eth, // 未知 code 回退 .eth（对齐 Kotlin）
             name: self.name,
             isHD: self.isHD,
