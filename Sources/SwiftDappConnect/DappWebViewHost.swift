@@ -1,6 +1,9 @@
 import Foundation
 import SwiftCore
 import WebKit
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 /// DApp 应用内浏览器宿主状态(与两端共享页面 `DAppBrowserScreen` 的状态模型同形)。
 public struct DappWebViewHostState: Sendable, Equatable {
@@ -101,6 +104,9 @@ public final class DappWebViewHost: NSObject {
 
     private let configuration: DappWebViewHostConfiguration
     private var observations: [NSKeyValueObservation] = []
+    #if os(iOS)
+        private var openPanelDelegate: DappOpenPanelDelegate?
+    #endif
 
     public init(configuration: DappWebViewHostConfiguration) {
         self.configuration = configuration
@@ -291,6 +297,29 @@ extension DappWebViewHost: WKNavigationDelegate {
 // MARK: - WKUIDelegate
 
 extension DappWebViewHost: WKUIDelegate {
+    // `<input type=file>`:弹出系统文稿选择器并把结果回填给 WebKit(Android 侧由宿主 App 的
+    // SAF 选择器承担同一职责)。
+    #if os(iOS)
+        public func webView(
+            _: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame _: WKFrameInfo,
+            completionHandler: @escaping ([URL]?) -> Void
+        ) {
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .item], asCopy: true)
+            picker.allowsMultipleSelection = parameters.allowsMultipleSelection
+            let delegate = DappOpenPanelDelegate(completionHandler: completionHandler)
+            picker.delegate = delegate
+            self.openPanelDelegate = delegate
+            guard let presenter = DappOpenPanelDelegate.topViewController() else {
+                self.openPanelDelegate = nil
+                completionHandler(nil)
+                return
+            }
+            presenter.present(picker, animated: true)
+        }
+    #endif
+
     /// `target=_blank` 新窗口:在当前 WebView 内加载(不弹新窗口)。
     public func webView(
         _ webView: WKWebView,
@@ -305,3 +334,45 @@ extension DappWebViewHost: WKUIDelegate {
         return nil
     }
 }
+
+#if os(iOS)
+    /// 文稿选择器回调桥:把选择结果回填 WebKit;取消则回 nil。
+    final class DappOpenPanelDelegate: NSObject, UIDocumentPickerDelegate {
+        private let completionHandler: ([URL]?) -> Void
+        private var finished = false
+
+        init(completionHandler: @escaping ([URL]?) -> Void) {
+            self.completionHandler = completionHandler
+            super.init()
+        }
+
+        func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            self.finish(urls.isEmpty ? nil : urls)
+        }
+
+        func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
+            self.finish(nil)
+        }
+
+        private func finish(_ urls: [URL]?) {
+            guard !self.finished else { return }
+            self.finished = true
+            MainActor.assumeIsolated { self.completionHandler(urls) }
+        }
+
+        /// 当前顶层控制器(用于呈现文稿选择器)。
+        @MainActor
+        static func topViewController() -> UIViewController? {
+            let keyWindow =
+                UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .flatMap(\.windows)
+                    .first { $0.isKeyWindow }
+            guard var top = keyWindow?.rootViewController else { return nil }
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+            return top
+        }
+    }
+#endif
