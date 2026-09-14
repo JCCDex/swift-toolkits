@@ -300,6 +300,8 @@ extension DappWebViewHost: WKUIDelegate {
     // `<input type=file>`:弹出系统文稿选择器并把结果回填给 WebKit(Android 侧由宿主 App 的
     // SAF 选择器承担同一职责)。
     #if os(iOS)
+        /// `WKOpenPanelParameters` 需要 iOS 18.4+;更早系统由宿主 App 的 JS 兜底(拦截 input[type=file])。
+        @available(iOS 18.4, *)
         public func webView(
             _: WKWebView,
             runOpenPanelWith parameters: WKOpenPanelParameters,
