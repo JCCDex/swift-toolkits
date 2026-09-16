@@ -153,10 +153,20 @@ import WebKit
     }
 
     /// 等待 JS 侧经 `testResult` 消息通道回传结果（非轮询，continuation 等待 + 超时兜底）。
+    ///
+    /// 竞态说明：EIP-6963 用例的结果是在**同一次 `evaluateJavaScript` 调用内**同步派发
+    /// `eip6963:requestProvider` → announce → 微任务 `postMessage` 投递的，消息常常在
+    /// `waitForResult()` 挂起之前就到达。早期实现无缓冲，`continuation` 尚为 nil 时直接
+    /// 丢弃该消息，用例只能靠 provider 每 5s 的周期性重播兜底通过——CI 上隐藏 WKWebView
+    /// 的 WebContent 进程被冻结/节流、定时器不触发时，就退化成 60s 超时
+    /// （`jsError == "timeout"`）。这里缓存早到消息、`waitForResult` 先取缓存，
+    /// 从根上消除对定时重播的依赖。
     @MainActor
     private final class BridgeResultWaiter: NSObject, WKScriptMessageHandler {
         private var continuation: CheckedContinuation<(result: String?, error: String?), Never>?
         private var timeoutTask: Task<Void, Never>?
+        /// 早到消息缓冲（只缓存首条：一个 waiter 实例只服务一个用例）。
+        private var pendingOutcome: (result: String?, error: String?)?
 
         func userContentController(
             _: WKUserContentController,
@@ -168,12 +178,22 @@ import WebKit
                 body["error"] as? String
             )
             self.timeoutTask?.cancel()
-            self.continuation?.resume(returning: outcome)
+            self.timeoutTask = nil
+            guard let continuation = self.continuation else {
+                // 还没有等待方：先缓存，等 waitForResult 取走。
+                self.pendingOutcome = outcome
+                return
+            }
             self.continuation = nil
+            continuation.resume(returning: outcome)
         }
 
         func waitForResult(timeoutSeconds: TimeInterval = 60) async -> (result: String?, error: String?) {
-            await withCheckedContinuation { (continuation: CheckedContinuation<(result: String?, error: String?), Never>) in
+            if let pending = self.pendingOutcome {
+                self.pendingOutcome = nil
+                return pending
+            }
+            return await withCheckedContinuation { (continuation: CheckedContinuation<(result: String?, error: String?), Never>) in
                 self.continuation = continuation
                 let timeoutTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
