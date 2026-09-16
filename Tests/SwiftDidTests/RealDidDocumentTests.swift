@@ -142,16 +142,21 @@ final class RealDidDocumentTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(methods.firstIndex(of: "didStat")), try XCTUnwrap(methods.firstIndex(of: "publishDid")))
     }
 
-    func testUpdateDidNicknameAbortsWhenDidStatFails() async {
+    func testUpdateDidNicknamePublishesWithoutPreviousCidWhenDidStatFails() async throws {
         self.bridge.stub("didStat") { _ in throw SwiftDidError.invalidPayload }
+        self.bridge.stub("publishDid") { _ in #"{"code":"0","message":"ok"}"# }
         let ok = await self.did.updateDidNickname(
             privateKey: "0xsecret",
             did: "did:swtc:jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
             nickname: "x",
             currentDoc: self.fixture("did_swtc")
         )
-        XCTAssertFalse(ok, "didStat 失败 → 中止发布（不静默继续）")
-        XCTAssertFalse(self.bridge.calls.contains { $0.method == "publishDid" })
+        // 与 Kotlin `applyPreviousCid` 对齐：stat 取不到不再中止发布（刚创建的 DID 其 stat 往往还没就绪，
+        // fail-closed 会让「创建身份 → 立即绑定手机 VC / 改昵称」必然失败）。
+        XCTAssertTrue(ok)
+        XCTAssertEqual(self.bridge.calls.filter { $0.method == "publishDid" }.count, 1)
+        // 注意：fixture 的 IpfsStorage 本就带 previousCid；stat 取不到时**保持原值不变**
+        // （`serviceWithPreviousCid` 对空 previousCid 只是不覆盖），不会写空、也不中止发布。
     }
 
     // MARK: - 真实 VC 验证

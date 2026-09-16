@@ -352,8 +352,9 @@ public final class SwiftDid: DidSDK {
             guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
             var json = doc
             let services = DidDocumentEditor.services(from: json)
+            // stat 取不到 → previousCid 为空（`serviceWithPreviousCid` 会省略该字段），**照常发布**；
+            // 与 Kotlin `updateDidNickname` 对齐（其 readDidStatCid 失败返回空串、不中止）。
             let previousCid = await self.readDidStatCid(did)
-            guard previousCid != nil else { return false } // didStat 失败 → 中止发布
             let updatedServices = services.map { element -> Any in
                 guard let service = element as? [String: Any] else { return element }
                 switch Json.readString(service, "type", default: "") {
@@ -385,8 +386,8 @@ public final class SwiftDid: DidSDK {
             guard let doc = try await self.resolveBaseDoc(did, currentDoc) else { return false }
             var json = doc
             let services = DidDocumentEditor.services(from: json)
+            // 同 `updateDidNickname`：stat 取不到不再中止发布（与 Kotlin 对齐）。
             let previousCid = await self.readDidStatCid(did)
-            guard previousCid != nil else { return false }
             let vcJson = try await self.generateAvatarVc(privateKey: privateKey, did: did, selectedAvatar: selectedAvatar)
             let updatedServices = services.map { element -> Any in
                 guard let service = element as? [String: Any] else { return element }
@@ -454,7 +455,7 @@ public final class SwiftDid: DidSDK {
             json["credentials"] = DidDocumentEditor.upsertCredential(
                 credentials, incoming: Json.parseObject(vcJson) ?? [:], byId: vcId
             )
-            guard await self.applyPreviousCid(&json, did: did) else { return DidWriteResult(success: false) }
+            await self.applyPreviousCid(&json, did: did)
             let (ok, finalDoc) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
                 try await self.core.saveDidDocument(d, doc: doc)
             }
@@ -479,7 +480,7 @@ public final class SwiftDid: DidSDK {
                 DidCredentialHelper.clearPreferredAvatarIfMatches(DidDocumentEditor.services(from: json), credentialId),
                 on: &json
             )
-            guard await self.applyPreviousCid(&json, did: did) else { return DidWriteResult(success: false) }
+            await self.applyPreviousCid(&json, did: did)
             let (ok, finalDoc) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
                 try await self.core.saveDidDocument(d, doc: doc)
             }
@@ -521,7 +522,7 @@ public final class SwiftDid: DidSDK {
             var json = doc
             let credentials = DidDocumentEditor.credentials(from: json)
             json["credentials"] = DidDocumentEditor.upsertCredential(credentials, incoming: incoming, byId: credentialId)
-            guard await self.applyPreviousCid(&json, did: did) else { return DidWriteResult(success: false) }
+            await self.applyPreviousCid(&json, did: did)
             let (ok, finalDoc) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
                 try await self.core.saveDidDocument(d, doc: doc)
             }
@@ -555,7 +556,7 @@ public final class SwiftDid: DidSDK {
                 return service
             }
             DidDocumentEditor.setServices(updatedServices, on: &json)
-            guard await self.applyPreviousCid(&json, did: did) else { return DidWriteResult(success: false) }
+            await self.applyPreviousCid(&json, did: did)
             let (ok, finalDoc) = await self.publishEditedDocument(did: did, privateKey: privateKey, json: &json) { d, doc in
                 try await self.core.saveNewAvatarDid(d, doc: doc)
             }
@@ -776,7 +777,8 @@ public final class SwiftDid: DidSDK {
         )
     }
 
-    /// 返回 nil = didStat 调用失败（不重试，发布应中止，见 Did-Swift 01 §6）；"" = 成功但无 previousCid。
+    /// 返回 nil = didStat 调用失败；"" = 成功但无 previousCid。
+    /// 调用方（`applyPreviousCid`）对两者一视同仁：按「无 previousCid」继续发布（与 Kotlin 对齐）。
     private func readDidStatCid(_ did: String) async -> String? {
         guard let result: DidStatResult = try? await bridge.callTyped(
             method: "didStat", params: ["did": did], asType: DidStatResult.self
@@ -786,17 +788,21 @@ public final class SwiftDid: DidSDK {
         return result.cid ?? ""
     }
 
-    /// 失败返回 false（didStat 失败 → 中止发布，不静默继续）。
-    private func applyPreviousCid(_ json: inout [String: Any], did: String) async -> Bool {
-        guard let previousCid = await self.readDidStatCid(did) else { return false }
-        guard !previousCid.isEmpty else { return true }
+    /// 把 `previousCid`（读 `didStat`）写进文档的 IpfsStorage service。
+    ///
+    /// **不再因 stat 取不到而中止发布**——与 Kotlin `DidSdk.applyPreviousCid` 对齐（Kotlin 的 `readDidStatCid`
+    /// 失败返回空串 → `isBlank()` 直接返回、照常发布）。刚创建的 DID 其 stat 往往还没就绪，fail-closed 会让
+    /// 「创建身份 → 立即绑定手机 VC / 改昵称 / 改头像」必然失败（Android 正常、iOS 失败）。
+    /// 代价：该次发布不带 `previousCid`（IPFS 版本链少一环），与 Kotlin 行为一致。
+    private func applyPreviousCid(_ json: inout [String: Any], did: String) async {
+        let previousCid = await self.readDidStatCid(did) ?? ""
+        guard !previousCid.isEmpty else { return }
         let services = DidDocumentEditor.services(from: json)
-        let updatedServices: [Any] = services.map { element in
+        let updatedServices: [Any] = services.map { element -> Any in
             guard let service = element as? [String: Any] else { return element }
             return DidDocumentEditor.serviceWithPreviousCid(did: did, service: service, previousCid: previousCid)
         }
         DidDocumentEditor.setServices(updatedServices, on: &json)
-        return true
     }
 
     /// 发布已编辑 DID 文档的收尾：set `updated` → 删 `did` 键 → publish → 成功后落库。

@@ -179,15 +179,19 @@ final class SwiftDidTests: XCTestCase {
         XCTAssertEqual(self.bridge.calls.filter { $0.method == "publishDid" }.count, 1)
     }
 
-    func testUploadInitialDidDocDidStatFailureFails() async {
-        // didStat 失败 = 发布失败（Swift 修正：不重试，不静默吞错）
+    func testUploadInitialDidDocPublishesWithoutPreviousCidWhenDidStatFails() async throws {
+        // didStat 取不到（解码失败 → nil）**不再中止发布**：与 Kotlin 的 `catch { "" }` 容错对齐
+        // （刚创建的 DID 尚未上链，stat 本就取不到；fail-closed 会让「新建身份」在 iOS 上必然失败）。
         self.bridge.stub("generatePublicKeyBase58") { _ in #"{"type":"t","publicKeyBase58":"pub"}"# }
         self.bridge.stub("didStat") { _ in "garbage-not-cid" } // 解码失败 → nil
+        self.bridge.stub("generateDidDoc") { _ in #"{"version":"1.0.0","credentials":[]}"# }
         self.bridge.stub("publishDid") { _ in #"{"code":"0","message":"ok"}"# }
 
         let ok = await did.uploadInitialDidDoc(privateKey: "0x1", did: "did:swtc:aaa")
-        XCTAssertFalse(ok)
-        XCTAssertEqual(self.bridge.calls.filter { $0.method == "publishDid" }.count, 0, "didStat 失败不得继续发布")
+        XCTAssertTrue(ok)
+        let published = try XCTUnwrap(self.bridge.calls.first { $0.method == "publishDid" })
+        let doc = try XCTUnwrap(published.params?["didDocument"] as? String)
+        XCTAssertFalse(doc.contains("previousCid"), "取不到 stat → 发布不带 previousCid")
     }
 
     func testPublishDidDeleteClearsLocal() async throws {

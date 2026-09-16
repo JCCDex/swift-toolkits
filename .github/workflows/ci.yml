@@ -55,6 +55,13 @@ jobs:
         # 仅当缺失时才触发 20+ 分钟的 Bazel 重建。
         run: SKIP_IF_EXISTS=1 ./Scripts/build_tink_xcframework.sh
 
+      - name: Reset the SwiftPM caches
+        # macOS runner 镜像会预置 ~/Library/Caches/org.swift.swiftpm；其中的陈旧状态会让 xcodebuild
+        # 解析依赖失败：一是缓存里记着的仓库目录已不存在（`cannot change to .../Argon2Swift-<hash>`），
+        # 二是 vendored Tink 的产物状态过期（`binary target 'Tink' could not be mapped ...`）。
+        # 从干净缓存开始，解析才是确定的（代价：每次重新 clone 依赖）。
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm
+
       - name: Run iOS ${{ matrix.ios }} simulator tests with coverage (fastlane + xcov)
         run: bundle exec fastlane ios_test "device_name:${{ matrix.device }}" device_os:${{ matrix.ios }}
 
