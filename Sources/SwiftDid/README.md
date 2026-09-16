@@ -94,6 +94,11 @@ Sources/SwiftDid/
 - **自持 DID 隐藏 WebView**：`WebViewBridgeEngine` 一个 client 只能承载一个 bridge 页面（SwiftWallet 与 SwiftDid 各自构造独立 engine/client），SwiftDid 自持 `WebViewBridgeClient` 加载 `did-bridge.html`，与 Kotlin 的独立 WebView 对齐。
 - **pending 对账状态机（Swift 增强）**：四张 Kotlin 内存表合并为 `did_pending` 单表（kind 列）持久化到 GRDB，消除 Kotlin 内存态的重启丢失窗口；TTL 24h（`deleteExpiredPending` 启动时清理，不启动定时器）；create/delete/avatar/nickname 对账逻辑对齐 Kotlin，含**删除防复活**守卫（`pendingDelete` 检查前置到本地 upsert 之前）。
 - **解析三态不 throw**：`resolveDid` 返回 `.document / .missing / .error`，桥/网络错误不伪装成「链上缺失」（对齐 Kotlin 修正 #2）。
+- **`didStat` 取不到不再中止发布（与 Kotlin 对齐）**：`uploadInitialDidDoc` / `updateDidNickname` / `updateDidAvatar` /
+  `applyPreviousCid`（后者服务于 `addCredentialToDid` / `bindVcidToDid` / `updatePreferredAvatar` / `publishDidDelete`）
+  在 `didStat` 失败时按「无 previousCid」继续发布。刚创建的 DID 其 stat 往往还没就绪，fail-closed 会让
+  「创建身份 → 立即绑定手机 VC / 改昵称 / 改头像」在 iOS 上必然失败（Android 侧 `DidSdk` 一直是容错）。
+  代价：该次发布不带 `previousCid`（IPFS 版本链少一环），与 Kotlin 一致。
 - **IPFS 网关硬编码（D5 接受）**：复用现有 `did-bridge.js`，其硬编码网关 `https://wodecards.wh.jccdex.cn:8550` **保持原样、不做注入**（与 Kotlin `:did` 现状一致，见 security-review.md D5）。
 - **安全**：`signCredential` 只做结构校验（对齐 Kotlin M-15 三条），用户确认由宿主 UI 完成；私钥经 JS 桥传输的内存边界同 `SwiftWallet`；日志不打 payload。
 - **并发**：门面 `@MainActor`；`DidStore` / `DidResolver` / `DidNftResolution` 等 I/O 协议自由线程。
