@@ -229,6 +229,79 @@ final class AccountManagerTests: XCTestCase {
         XCTAssertEqual(result, .failure(.rootAccountNotFound))
     }
 
+    // MARK: - deriveSubAccountUnlocked（已解锁态变体，不传密码）
+
+    /// 已解锁变体与带密码变体必须**逐字段同结果**，且同样遵守自动索引推进。
+    func testDeriveSubAccountUnlockedMatchesPasswordVariantAndAdvancesIndex() async throws {
+        try await self.vault.initializePassword(self.password)
+        let hd = GenerateHDWalletResult(
+            mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            address: "rootAddr", language: "english",
+            keypair: self.keypair("rootAddr"), accounts: []
+        )
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
+            return XCTFail("导入根失败")
+        }
+        self.wallet.setDeriveAddresses { _, index in
+            "0xchild-\(index)"
+        }
+
+        // 同一状态下两个变体结果必须一致（同一套 core：索引取自 store、占用探测逐号推进）
+        guard case let .success(unlockedFirst) = await self.manager.deriveSubAccountUnlocked(chain: .eth, rootAccountId: imported.rootAccountId) else {
+            return XCTFail("已解锁变体派生失败")
+        }
+        guard case let .success(passwordFirst) = await self.manager.deriveSubAccount(chain: .eth, rootAccountId: imported.rootAccountId, password: self.password) else {
+            return XCTFail("带密码变体派生失败")
+        }
+        XCTAssertEqual(unlockedFirst, passwordFirst, "两个变体除助记词来源外必须同结果")
+        XCTAssertEqual(unlockedFirst.address, "0xchild-0", "空表 maxIndexByChain=-1 → 首个子账户 index 0")
+
+        // 落库后自动索引推进到 1
+        _ = await self.manager.importSubAccount(derived: unlockedFirst, name: "c1")
+        guard case let .success(second) = await self.manager.deriveSubAccountUnlocked(chain: .eth, rootAccountId: imported.rootAccountId) else {
+            return XCTFail("第二次已解锁变体派生失败")
+        }
+        XCTAssertEqual(second.address, "0xchild-1", "已有 index 0 → 自动推进到 1")
+    }
+
+    /// 显式 index 仍尊重调用方（不跳过占用），与带密码变体同口径。
+    func testDeriveSubAccountUnlockedRespectsExplicitIndex() async throws {
+        try await self.vault.initializePassword(self.password)
+        let hd = GenerateHDWalletResult(
+            mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            address: "rootAddr", language: "english",
+            keypair: self.keypair("rootAddr"), accounts: []
+        )
+        guard case let .success(imported) = await self.manager.importHDWallet(hdResult: hd, name: "Root", password: self.password) else {
+            return XCTFail("导入根失败")
+        }
+        _ = await self.manager.importSingleAccount(
+            derived: TraditionalDeriveResult(address: "0xchild-0", keypair: self.keypair("0xchild-0"), path: nil),
+            chain: .eth, name: "pre", isHD: false, parentId: nil
+        )
+        self.wallet.setDeriveAddresses { _, index in
+            "0xchild-\(index)"
+        }
+
+        let auto = await self.manager.deriveSubAccountUnlocked(chain: .eth, rootAccountId: imported.rootAccountId)
+        guard case let .success(autoDerived) = auto else {
+            return XCTFail("自动派生失败：\(auto)")
+        }
+        XCTAssertEqual(autoDerived.address, "0xchild-1", "index 0 被占用 → 自动跳到 1")
+
+        let explicit = await self.manager.deriveSubAccountUnlocked(chain: .eth, rootAccountId: imported.rootAccountId, index: 0)
+        guard case let .success(explicitDerived) = explicit else {
+            return XCTFail("显式派生失败：\(explicit)")
+        }
+        XCTAssertEqual(explicitDerived.address, "0xchild-0", "显式 index 尊重调用方选择")
+    }
+
+    /// 根账户不存在 → 与带密码变体同样回 `.rootAccountNotFound`。
+    func testDeriveSubAccountUnlockedRootNotFound() async {
+        let result = await self.manager.deriveSubAccountUnlocked(chain: .eth, rootAccountId: "missing")
+        XCTAssertEqual(result, .failure(.rootAccountNotFound))
+    }
+
     // MARK: - removeAccount / clearWalletData
 
     func testRemoveAccountWrongPasswordAndIdempotent() async throws {

@@ -161,33 +161,83 @@ public final class AccountManager: Sendable {
                 let mnemonic = try await self.vault.getMnemonic(address: root.address, password: password)
                 let language = try await self.vault.getMnemonicLanguage(address: root.address)
 
-                var deriveIndex: Int = if let index {
-                    index
-                } else {
-                    try await self.store.maxIndexByChain(parentId: rootAccountId, chain: chain) + 1
-                }
-                var subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
-
-                // 占用探测（仅自动推进 index == nil 时；显式 index 尊重调用方选择）：
-                // 派生地址已被占用（同地址传统账户或已落库子账户）→ deriveIndex + 1 继续派生。
-                // store 出错由 runOperation 统一兜底为 failure（不用 `try?` 当「未占用」，
-                // 见 review SwiftAccount P1#6）。
-                if index == nil {
-                    while try await self.isOccupied(address: subWallet.address, chain: chain) {
-                        deriveIndex += 1
-                        subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
-                    }
-                }
-
-                return .success(DerivedSubAccount(
-                    address: subWallet.address,
+                let derived = try await self.deriveSubAccountCore(
                     chain: chain,
-                    path: subWallet.path,
-                    rootAccountId: root.id,
-                    keypair: subWallet.keypair
-                ))
+                    root: root,
+                    mnemonic: mnemonic,
+                    language: language,
+                    index: index
+                )
+                return .success(derived)
             }
         }
+    }
+
+    /// 已解锁态变体：助记词经 `getMnemonicInternal` 读取，**不要求调用方持有密码**
+    /// （命名对齐 vault 的 `removeAddressUnlocked`）。适用于宿主已完成解锁、且不希望把密码在层间
+    /// 传递的流程（如身份页的子身份预览）。
+    ///
+    /// 除助记词来源外与带密码变体**完全同一套逻辑**（同一个 `deriveSubAccountCore`）：
+    /// 仍只派生不落库；`index == nil` 时由 `maxIndexByChain + 1` 起步并逐号跳过已占用地址。
+    public func deriveSubAccountUnlocked(
+        chain: ChainType,
+        rootAccountId: String,
+        index: Int? = nil
+    ) async -> AccountOperationResult<DerivedSubAccount> {
+        await self.mutex.withLock {
+            await self.runOperation {
+                guard let root = try await self.store.findById(rootAccountId) else {
+                    return .failure(.rootAccountNotFound)
+                }
+
+                let mnemonic = try await self.vault.getMnemonicInternal(address: root.address)
+                let language = try await self.vault.getMnemonicLanguage(address: root.address)
+
+                let derived = try await self.deriveSubAccountCore(
+                    chain: chain,
+                    root: root,
+                    mnemonic: mnemonic,
+                    language: language,
+                    index: index
+                )
+                return .success(derived)
+            }
+        }
+    }
+
+    /// 两个 `deriveSubAccount` 变体的共同实现（**只派生不落库**，调用方负责 vault 落库）。
+    ///
+    /// `index == nil` → 从 store 的 `maxIndexByChain + 1` 起步，并逐号跳过已占用地址；
+    /// 显式 `index` 尊重调用方选择（不跳过）。store/vault 出错由 `runOperation` 统一映射为 failure
+    /// （不用 `try?` 当「未占用」，见 review SwiftAccount P1#6）。
+    private func deriveSubAccountCore(
+        chain: ChainType,
+        root: WalletAccount,
+        mnemonic: Data,
+        language: String,
+        index: Int?
+    ) async throws -> DerivedSubAccount {
+        var deriveIndex: Int = if let index {
+            index
+        } else {
+            try await self.store.maxIndexByChain(parentId: root.id, chain: chain) + 1
+        }
+        var subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
+
+        if index == nil {
+            while try await self.isOccupied(address: subWallet.address, chain: chain) {
+                deriveIndex += 1
+                subWallet = try await self.deriveChild(mnemonic: mnemonic, language: language, chain: chain, index: deriveIndex)
+            }
+        }
+
+        return DerivedSubAccount(
+            address: subWallet.address,
+            chain: chain,
+            path: subWallet.path,
+            rootAccountId: root.id,
+            keypair: subWallet.keypair
+        )
     }
 
     // MARK: - 删除
