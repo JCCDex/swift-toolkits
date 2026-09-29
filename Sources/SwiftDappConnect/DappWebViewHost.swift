@@ -47,6 +47,9 @@ public struct DappWebViewHostConfiguration {
     public var nftProvider: (any NftProvider)?
     public var didSDK: (any DidSDK)?
     public var approveConnect: RequestAccountsCallback?
+    /// H-DID1:`did_issueCredential` 的宿主确认回调(展示确认 UI 后返回是否放行)。
+    /// 未设置 → SDK **fail-closed 拒绝签发**(与 Kotlin `DappWebViewHost.didCredentialConfirm` 一致)。
+    public var didCredentialConfirm: DidCredentialConfirmCallback?
     public var preProviderScripts: [String]
     public var postProviderScripts: [String]
     public var isInternalPreviewURL: (String?) -> Bool
@@ -62,6 +65,7 @@ public struct DappWebViewHostConfiguration {
         nftProvider: (any NftProvider)? = nil,
         didSDK: (any DidSDK)? = nil,
         approveConnect: RequestAccountsCallback? = nil,
+        didCredentialConfirm: DidCredentialConfirmCallback? = nil,
         preProviderScripts: [String] = [],
         postProviderScripts: [String] = [],
         isInternalPreviewURL: @escaping (String?) -> Bool = { _ in false },
@@ -76,6 +80,7 @@ public struct DappWebViewHostConfiguration {
         self.nftProvider = nftProvider
         self.didSDK = didSDK
         self.approveConnect = approveConnect
+        self.didCredentialConfirm = didCredentialConfirm
         self.preProviderScripts = preProviderScripts
         self.postProviderScripts = postProviderScripts
         self.isInternalPreviewURL = isInternalPreviewURL
@@ -185,6 +190,7 @@ public final class DappWebViewHost: NSObject {
             secretProvider: self.configuration.secretProvider,
             nftProvider: self.configuration.nftProvider,
             didSDK: self.configuration.didSDK,
+            didCredentialConfirm: self.configuration.didCredentialConfirm,
             didDocumentMutationListener: nil
         )
         self.webAppInterface = interface
