@@ -16,6 +16,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
     private let secretProvider: (any SecretProvider)?
     private let nftProvider: (any NftProvider)?
     private let didSDK: (any DidSDK)?
+    private let didCredentialConfirm: DidCredentialConfirmCallback?
     private let didDocumentMutationListener: DidDocumentMutationListener?
 
     weak var webView: WKWebView?
@@ -34,6 +35,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         secretProvider: (any SecretProvider)? = nil,
         nftProvider: (any NftProvider)? = nil,
         didSDK: (any DidSDK)? = nil,
+        didCredentialConfirm: DidCredentialConfirmCallback? = nil,
         didDocumentMutationListener: DidDocumentMutationListener? = nil
     ) {
         self.ethMiddleware = ethMiddleware
@@ -42,6 +44,7 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
         self.secretProvider = secretProvider
         self.nftProvider = nftProvider
         self.didSDK = didSDK
+        self.didCredentialConfirm = didCredentialConfirm
         self.didDocumentMutationListener = didDocumentMutationListener
         self.responseToken = Self.makeResponseToken()
         super.init()
@@ -592,7 +595,14 @@ public final class WebAppInterface: NSObject, WKScriptMessageHandler {
             else {
                 throw DAppConnectError.internalError("Missing keyDoc.address")
             }
+            // 顺序与 Kotlin 对齐:先取钥(会触发宿主的签名认证/密码),再做**用户确认**,未确认不进签名。
             let privateKey = try await privateKeyOrFail(address: address, origin: origin)
+            guard let confirm = self.didCredentialConfirm else {
+                throw DAppConnectError.internalError("Credential signing requires host confirmation")
+            }
+            guard await confirm(vcJson.jsonString) else {
+                throw DAppConnectError.userRejected("Credential signing was rejected")
+            }
             let signedVc = try await didSDK.signCredential(privateKey: privateKey, vcJson: vcJson.jsonString)
             if let object = Json.parseObject(Data(signedVc.utf8)) {
                 return self.success(nonce, .object(object))

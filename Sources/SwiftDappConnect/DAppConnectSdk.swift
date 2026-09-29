@@ -54,6 +54,7 @@ public enum DAppConnectSdk {
         secretProvider: (any SecretProvider)? = nil,
         nftProvider: (any NftProvider)? = nil,
         didSDK: (any DidSDK)? = nil,
+        didCredentialConfirm: DidCredentialConfirmCallback? = nil,
         didDocumentMutationListener: DidDocumentMutationListener? = nil
     ) -> WebAppInterface {
         let interface = WebAppInterface(
@@ -63,6 +64,7 @@ public enum DAppConnectSdk {
             secretProvider: secretProvider,
             nftProvider: nftProvider,
             didSDK: didSDK,
+            didCredentialConfirm: didCredentialConfirm,
             didDocumentMutationListener: didDocumentMutationListener
         )
         interface.attach(to: webView)

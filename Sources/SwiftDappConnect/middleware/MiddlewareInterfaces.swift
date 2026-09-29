@@ -4,6 +4,12 @@ import SwiftCore
 /// 请求账户前的用户授权回调（M-06：必须设置，未设置视为用户拒绝）。
 public typealias RequestAccountsCallback = @MainActor (String) async -> Bool
 
+/// DApp `did_issueCredential` 的宿主确认回调(展示确认 UI 后返回是否放行)。
+///
+/// **与 Kotlin 对齐**:`DappWebViewHost.config.didCredentialConfirm` /
+/// `WebAppInterface.setDidCredentialConfirm`,只收 `payload`,语义一致;未注入时**一律拒签**(fail-closed)。
+public typealias DidCredentialConfirmCallback = @MainActor (String) async -> Bool
+
 /// DID 文档变更通知（如 ipfs_personalSign 发布后）。
 public typealias DidDocumentMutationListener = () -> Void
 
